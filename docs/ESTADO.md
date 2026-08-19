@@ -1,6 +1,6 @@
 # Estado del producto pdfsum
 
-**Actualizado:** 2026-08-19 · **Versión:** 0.2.0 · **Repo:** git local (sin remoto)
+**Actualizado:** 2026-08-19 · **Versión:** 0.3.0 · **Repo:** git local (sin remoto)
 
 ## Roadmap y avance
 
@@ -8,11 +8,11 @@
 |---|---|---|---|---|
 | 0 | Motor consolidado (dominio + contrato JSON + puertos) | ✅ hecho | 0.1.0 | `FASE0-MOTOR` 11/11 |
 | 1 | Enrutado inteligente (porción por tipo + Transcriber) | ✅ hecho | 0.2.0 | `FASE1-ENRUTADO` 12/12 |
-| 2 | Operación por lotes (cola, QA gates, métricas) | ⏳ siguiente | 0.3.0 | pendiente |
-| 3 | Interfaz (API/panel de revisión + export DeCS/LILACS) | 🔜 | 0.4.0 | pendiente |
+| 2 | Operación por lotes (cola, QA gates, métricas) | ✅ hecho | 0.3.0 | `FASE2-LOTES` 13/13 |
+| 3 | Interfaz (API/panel de revisión + export DeCS/LILACS) | ⏳ siguiente | 0.4.0 | pendiente |
 | 4 | Mejora continua (set de control, resumen por bloques) | 🔜 | — | pendiente |
 
-## Qué hace hoy (0.2.0)
+## Qué hace hoy (0.3.0)
 
 Dado el texto de un documento (o un PDF vía adaptador de transcripción):
 
@@ -23,6 +23,12 @@ Dado el texto de un documento (o un PDF vía adaptador de transcripción):
    (A: structured abstract IMRAD; B: manual; C: divulgación).
 4. **Preserva** los resúmenes de origen multilingües verbatim.
 5. Emite un **JSON con contrato estable** (`SummaryResult` v1.0).
+
+Y por **lotes** (`pdfsum batch`):
+
+6. **Cola idempotente** con reintentos (no reprocesa docs ya hechos).
+7. **QA gates** automáticos por doc (esquema, refusal, idioma, abstracts).
+8. **Métricas + report.json** del lote (por tipo/idioma, calidad, tiempos).
 
 ## Alineación con la propuesta de producto
 

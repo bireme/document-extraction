@@ -1,0 +1,126 @@
+---
+id: FASE2-LOTES
+titulo: "Operación por lotes: QA gates, cola de jobs, métricas"
+descripcion: >
+  Convertir el motor en un servicio operable por lotes: validación automática
+  de calidad (QA gates) por documento, cola de trabajos con idempotencia y
+  reintentos, y métricas/reporte del lote. Todo sobre el contrato JSON estable
+  de Fase 0-1, sin tocar el dominio de resumen.
+estado: COMPLETADO
+fecha: 2026-08-19
+resultado: >
+  13/13 criterios verdes (30 tests unittest, incl. 20 de Fases 0-1 sin
+  regresión; ruff limpio). Validado end-to-end con Ollama: lote de 3 docs
+  reales -> 3/3 pasan QA gates, métricas por tipo/idioma/tiempo correctas,
+  report.json generado, y re-ejecución idempotente (0.1s vs 29s, sin
+  reprocesar). QA gates funcionan: con el resumidor fake los mismos docs
+  fallan (idioma/esquema), con el real pasan.
+
+criterios:
+  # --- QA gates (dominio puro: valida un SummaryResult) ---
+  - id: C1-gate-esquema-completo
+    tipo: unit
+    descripcion: >
+      check_result() detecta cuando faltan secciones obligatorias de la
+      plantilla (secciones vacías o ausentes) y lo reporta como fallo de gate
+      'schema'. Un resultado completo pasa.
+    verificacion: "test_qa.py::test_gate_schema"
+
+  - id: C2-gate-sin-refusal
+    tipo: unit
+    descripcion: >
+      check_result() detecta refusals o texto dirigido al usuario ('no puedo',
+      'não posso', 'as an AI', '¿cómo puedo ayudar', etc.) en las secciones y
+      lo reporta como fallo 'refusal'.
+    verificacion: "test_qa.py::test_gate_refusal"
+
+  - id: C3-gate-idioma
+    tipo: unit
+    descripcion: >
+      check_result() verifica que el idioma del resumen coincide con
+      idioma_principal (heurística por stopwords); discrepancia -> fallo 'lang'.
+    verificacion: "test_qa.py::test_gate_language"
+
+  - id: C4-gate-abstracts-preservados
+    tipo: unit
+    descripcion: >
+      Si idiomas_resumo_origem no está vacío, deben existir abstracts_origem
+      con ese mismo conjunto de idiomas; si no, fallo 'abstracts'.
+    verificacion: "test_qa.py::test_gate_abstracts"
+
+  - id: C5-qa-report-agregado
+    tipo: unit
+    descripcion: >
+      QAReport agrega los checks de un resultado en passed/failed con lista de
+      gates fallados y severidad; is_ok True solo si no hay fallos.
+    verificacion: "test_qa.py::test_qa_report"
+
+  # --- Cola de jobs (idempotencia, reintentos) ---
+  - id: C6-cola-idempotente
+    tipo: unit
+    descripcion: >
+      JobQueue no reprocesa un doc ya completado (mismo doc_id + hash de
+      entrada): submit dos veces -> se ejecuta una sola vez.
+    verificacion: "test_queue.py::test_idempotencia"
+
+  - id: C7-cola-reintentos
+    tipo: unit
+    descripcion: >
+      Un job que falla se reintenta hasta max_retries; si sigue fallando queda
+      en estado 'failed' con el último error registrado.
+    verificacion: "test_queue.py::test_reintentos"
+
+  - id: C8-cola-estados
+    tipo: unit
+    descripcion: >
+      Los jobs transitan pending -> running -> (done|failed) y la cola reporta
+      el recuento por estado. Persistencia consultable tras procesar.
+    verificacion: "test_queue.py::test_estados"
+
+  # --- Métricas / reporte de lote ---
+  - id: C9-metricas-lote
+    tipo: unit
+    descripcion: >
+      batch_metrics() sobre una lista de resultados+tiempos devuelve total,
+      ok, con_fallos, por_tipo, por_idioma, tiempo_total y tiempo_medio.
+    verificacion: "test_metrics.py::test_batch_metrics"
+
+  # --- Arquitectura ---
+  - id: C10-dominio-sin-adaptadores
+    tipo: architecture
+    descripcion: >
+      Los módulos nuevos de dominio (qa.py, metrics.py) NO importan adaptadores
+      ni procesos externos. La cola (orquestación) puede usar un puerto de
+      almacenamiento, no un backend concreto.
+    verificacion: "test_architecture.py::test_domain_has_no_adapter_imports"
+
+  # --- Integración / CLI ---
+  - id: C11-cli-batch
+    tipo: integration
+    descripcion: >
+      'pdfsum batch --in <dir> --out <dir> --dry-run' procesa varios .txt,
+      escribe un .json por doc + un report.json de lote, y aplica QA gates
+      (marca los que fallan). Idempotente al re-ejecutar.
+    verificacion: "test_cli_batch.py::test_cli_batch_dry_run"
+
+  # --- Calidad / no regresión ---
+  - id: C12-lint
+    tipo: metrics
+    descripcion: "ruff limpio en src/ y tests/."
+    verificacion: "make lint"
+
+  - id: C13-no-regresion
+    tipo: metrics
+    descripcion: "Los 20 tests de Fase 0-1 siguen verdes."
+    verificacion: "make test"
+
+invariantes:
+  - "Los QA gates validan el contrato, no cambian el resumen."
+  - "La cola es idempotente: mismo doc+entrada no se reprocesa."
+  - "El dominio (qa, metrics) no importa adaptadores; persistencia por puerto."
+  - "El reporte de lote es JSON, consumible por la Fase 3 (API/panel)."
+
+no_objetivos_fase2:
+  - "API HTTP / panel de revisión (Fase 3)."
+  - "Backend de cola distribuido (Redis): basta SQLite/archivo local."
+  - "Resumen por bloques de documentos gigantes (Fase 4)."

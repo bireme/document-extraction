@@ -11,7 +11,8 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "pdfsum"
 
 # Módulos de dominio puro (no deben tocar adaptadores/procesos externos).
 DOMAIN_MODULES = ["contract.py", "classify.py", "abstracts.py",
-                  "templates.py", "pipeline.py", "excerpt.py"]
+                  "templates.py", "pipeline.py", "excerpt.py",
+                  "qa.py", "metrics.py", "queue.py"]
 
 # Nombres de import prohibidos en el dominio.
 FORBIDDEN = {"ollama", "requests", "urllib", "subprocess", "socket", "httpx"}

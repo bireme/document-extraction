@@ -58,5 +58,9 @@ make check    # lint + test
   (artículo: abstract+intro+conclusiones; manual: portada+índice+intro;
   folleto: completo) + puerto `Transcriber` con adaptador OCR (poppler+Tesseract).
   Resuelve el truncado de manuales largos del piloto.
-- **Fase 2 (operación por lotes):** pendiente — cola de jobs, QA gates, métricas.
-- Ver roadmap completo en `docs/PROPUESTA-PRODUCTO.md`.
+- **Fase 2 (operación por lotes):** ✅ completada — 13/13 criterios
+  (`evals/eval-spec-fase2-lotes.yaml`). Cola idempotente con reintentos, QA
+  gates automáticos (esquema/refusal/idioma/abstracts), métricas y `report.json`.
+  CLI `pdfsum batch`.
+- **Fase 3 (interfaz):** pendiente — API/panel de revisión + export DeCS/LILACS.
+- Ver roadmap completo en `docs/ESTADO.md` y `docs/PROPUESTA-PRODUCTO.md`.
