@@ -13,12 +13,13 @@ documento**, preservando los **resúmenes de origen multilingües** verbatim.
 
 ```
 src/pdfsum/
-  contract.py    # DOMINIO: tipos + PUERTO Summarizer (Protocol) + contrato JSON
+  contract.py    # DOMINIO: tipos + PUERTOS Summarizer/Transcriber + contrato JSON
   classify.py    # DOMINIO: origen (nativo/escaneado), idioma, tipo -> plantilla
   templates.py   # DOMINIO: plantillas A (artículo/IMRAD), B (manual), C (folleto)
   abstracts.py   # DOMINIO: extracción verbatim de RESUMO/ABSTRACT/RESUMEN...
-  pipeline.py    # DOMINIO: orquesta clasificación + resumen + abstracts
-  adapters/      # EXTERNO: implementan el puerto (Ollama real, fake para tests)
+  excerpt.py     # DOMINIO: estrategia de porción por tipo (no corte ciego)
+  pipeline.py    # DOMINIO: orquesta clasificación + porción + resumen + abstracts
+  adapters/      # EXTERNO: Ollama, OCR (poppler+Tesseract), fakes para tests
   cli.py         # CLI
 ```
 
@@ -50,8 +51,12 @@ make check    # lint + test
 
 ## Estado
 
-- **Fase 0 (motor):** ✅ completada — 11/11 criterios del eval-spec
+- **Fase 0 (motor):** ✅ completada — 11/11 criterios
   (`evals/eval-spec-fase0-motor.yaml`).
-- **Fase 1 (enrutado inteligente):** pendiente — estrategia de porción por tipo
-  y adaptador de transcripción/OCR (integrar `ocr_pipeline.sh` del piloto).
+- **Fase 1 (enrutado inteligente):** ✅ completada — 12/12 criterios
+  (`evals/eval-spec-fase1-enrutado.yaml`). Estrategia de porción por tipo
+  (artículo: abstract+intro+conclusiones; manual: portada+índice+intro;
+  folleto: completo) + puerto `Transcriber` con adaptador OCR (poppler+Tesseract).
+  Resuelve el truncado de manuales largos del piloto.
+- **Fase 2 (operación por lotes):** pendiente — cola de jobs, QA gates, métricas.
 - Ver roadmap completo en `docs/PROPUESTA-PRODUCTO.md`.

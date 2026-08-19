@@ -1,0 +1,124 @@
+---
+id: FASE1-ENRUTADO
+titulo: "Enrutado inteligente: estrategia de porción por tipo + transcripción"
+descripcion: >
+  Antes de resumir, decidir QUÉ parte del texto alimentar al modelo según el
+  tipo/estructura/tamaño del documento (resuelve los 2 casos truncados del
+  piloto), y definir un puerto de transcripción para integrar el OCR del
+  piloto como adaptador. Todo en el idioma del documento.
+estado: COMPLETADO
+fecha: 2026-08-19
+resultado: >
+  12/12 criterios verdes (20 tests unittest, incl. 10 de Fase 0 sin regresión;
+  ruff limpio). Validado end-to-end con Ollama: el manual 60391 (66 págs, que
+  en el piloto se truncaba y daba refusal) ahora se clasifica como MANUAL y se
+  resume con estrategia estructural (portada+apresentação+sumário), plantilla
+  B, listando las 6 oficinas. El artículo 75798 sigue clasificándose como
+  ARTICULO (plantilla A). Se ajustó classify_type para priorizar manual/libro
+  (índice + >=10 págs) sobre artículo, resolviendo la mala clasificación de
+  manuales largos con marcadores IMRAD internos.
+
+criterios:
+  # --- Estrategia de porción (dominio puro) ---
+  - id: C1-porcion-articulo
+    tipo: unit
+    descripcion: >
+      select_excerpt() para un ARTICULO devuelve abstract + introducción +
+      conclusiones (no el cuerpo entero) cuando el texto excede el presupuesto,
+      y el texto completo si cabe. Nunca corta a ciegas por offset.
+    verificacion: "test_excerpt.py::test_articulo"
+
+  - id: C2-porcion-manual
+    tipo: unit
+    descripcion: >
+      select_excerpt() para un MANUAL prioriza portada/apresentação, índice
+      (sumário) e introducción; NO intenta incluir todo el cuerpo. Devuelve
+      una porción representativa dentro del presupuesto.
+    verificacion: "test_excerpt.py::test_manual"
+
+  - id: C3-porcion-divulgacion
+    tipo: unit
+    descripcion: >
+      select_excerpt() para DIVULGACION (folleto/cartaz) devuelve el texto
+      completo si está dentro del presupuesto.
+    verificacion: "test_excerpt.py::test_divulgacion"
+
+  - id: C4-presupuesto-respetado
+    tipo: unit
+    descripcion: >
+      En todos los casos, la porción seleccionada NO excede el presupuesto de
+      caracteres configurado (max_chars), y reporta qué secciones incluyó y si
+      hubo recorte (excerpt.truncated / excerpt.parts).
+    verificacion: "test_excerpt.py::test_budget"
+
+  - id: C5-no-truncado-ciego
+    tipo: unit
+    descripcion: >
+      Para un documento largo (>max_chars) de tipo MANUAL, la porción NO es
+      simplemente los primeros max_chars: incluye estructura (índice/intro),
+      demostrando enrutado por estructura y no por offset.
+    verificacion: "test_excerpt.py::test_manual_no_blind_prefix"
+
+  # --- Segmentación estructural (dominio puro) ---
+  - id: C6-segmentar-secciones
+    tipo: unit
+    descripcion: >
+      find_structural_sections() localiza encabezados estructurales
+      (Sumário/Índice, Apresentação/Prefácio, Introdução, Conclusões) con sus
+      offsets, en pt/es/en.
+    verificacion: "test_excerpt.py::test_structural_sections"
+
+  # --- Puerto de transcripción + adaptador ---
+  - id: C7-puerto-transcriber
+    tipo: architecture
+    descripcion: >
+      Existe un puerto Transcriber (Protocol) en dominio con método
+      transcribe(path)->TranscriptResult(text, pages, source_kind). El
+      pipeline puede recibir texto ya transcrito o un Transcriber.
+    verificacion: "test_architecture.py::test_transcriber_is_port"
+
+  - id: C8-dominio-sin-adaptadores
+    tipo: architecture
+    descripcion: >
+      Los módulos de dominio (incluido el nuevo excerpt.py) NO importan
+      adaptadores ni procesos externos.
+    verificacion: "test_architecture.py::test_domain_has_no_adapter_imports"
+
+  # --- Integración en el pipeline ---
+  - id: C9-pipeline-usa-porcion
+    tipo: integration
+    descripcion: >
+      summarize_document() aplica la estrategia de porción antes de llamar al
+      resumidor: el SummarizeRequest recibe la porción seleccionada, y el
+      SummaryResult.meta registra la estrategia usada (parts, truncated).
+    verificacion: "test_pipeline_fase1.py::test_pipeline_applies_excerpt"
+
+  - id: C10-manual-largo-cubre-estructura
+    tipo: integration
+    descripcion: >
+      Con un MANUAL largo simulado, el resultado meta indica que se incluyó
+      índice/introducción (no un prefijo ciego), evidenciando la solución al
+      problema de truncado del piloto.
+    verificacion: "test_pipeline_fase1.py::test_manual_largo"
+
+  # --- Calidad ---
+  - id: C11-lint-typecheck
+    tipo: metrics
+    descripcion: "ruff limpio en src/ y tests/."
+    verificacion: "make lint"
+
+  - id: C12-no-regresion-fase0
+    tipo: metrics
+    descripcion: "Los 10 tests de Fase 0 siguen verdes (sin regresión)."
+    verificacion: "make test"
+
+invariantes:
+  - "La porción se decide por estructura/tipo, nunca por corte ciego de offset."
+  - "La porción respeta el presupuesto de caracteres configurado."
+  - "El dominio sigue sin importar adaptadores; OCR vive en un adaptador."
+  - "El resumen sigue en el idioma del documento y preserva abstracts origen."
+
+no_objetivos_fase1:
+  - "Resumen por bloques + consolidación de documentos gigantes (Fase 4)."
+  - "Cola de jobs, API, panel (Fases 2-3)."
+  - "OCR real en tests (se usa un Transcriber fake)."

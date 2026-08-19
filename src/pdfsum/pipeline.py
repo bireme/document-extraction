@@ -13,7 +13,9 @@ from .contract import (
     Summarizer,
     SummarizeRequest,
     SummaryResult,
+    Transcriber,
 )
+from .excerpt import DEFAULT_MAX_CHARS, select_excerpt
 
 
 def summarize_document(
@@ -24,12 +26,14 @@ def summarize_document(
     pages: int = 1,
     lang: str | None = None,
     doc_type: DocType | None = None,
+    max_chars: int = DEFAULT_MAX_CHARS,
 ) -> SummaryResult:
     """Produce el resumen estructurado de un documento ya transcrito.
 
     - Detecta idioma (si no se fuerza) y resume EN ESE idioma.
     - Detecta tipo (si no se fuerza) -> plantilla.
-    - Extrae y preserva abstracts de origen verbatim.
+    - Selecciona la PORCIÓN a resumir según tipo/estructura (no corte ciego).
+    - Extrae y preserva abstracts de origen verbatim (del texto COMPLETO).
     """
     doc_lang = lang or detect_language(text)
     if doc_lang == "unknown":
@@ -37,11 +41,15 @@ def summarize_document(
     dtype = doc_type or classify_type(text, pages=pages)
     template = template_for(dtype)
 
+    # Estrategia de porción: qué parte del texto alimentar al modelo.
+    exc = select_excerpt(text, dtype, max_chars=max_chars)
+
     req = SummarizeRequest(
-        doc_id=doc_id, text=text, lang=doc_lang, template=template
+        doc_id=doc_id, text=exc.text, lang=doc_lang, template=template
     )
     secciones = summarizer.summarize(req)
 
+    # Los abstracts se extraen del texto COMPLETO (no de la porción).
     abstracts = extract_abstracts(text)
 
     return SummaryResult(
@@ -52,5 +60,39 @@ def summarize_document(
         secciones=secciones,
         idiomas_resumo_origem=abstract_langs(abstracts),
         abstracts_origem=abstracts,
-        meta={"pages": pages, "text_chars": len(text)},
+        meta={
+            "pages": pages,
+            "text_chars": len(text),
+            "excerpt_strategy": exc.strategy,
+            "excerpt_parts": exc.parts,
+            "excerpt_truncated": exc.truncated,
+            "excerpt_chars": len(exc.text),
+        },
+    )
+
+
+def summarize_pdf(
+    path: str,
+    transcriber: Transcriber,
+    summarizer: Summarizer,
+    *,
+    doc_id: str | None = None,
+    lang: str | None = None,
+    doc_type: DocType | None = None,
+    max_chars: int = DEFAULT_MAX_CHARS,
+) -> SummaryResult:
+    """Pipeline completo desde un PDF: transcribe (Paso 1) y resume (Paso 2).
+
+    Usa el puerto Transcriber para obtener el texto; el dominio no conoce OCR.
+    """
+    tr = transcriber.transcribe(path)
+    did = doc_id or path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    return summarize_document(
+        doc_id=did,
+        text=tr.text,
+        summarizer=summarizer,
+        pages=tr.pages,
+        lang=lang,
+        doc_type=doc_type,
+        max_chars=max_chars,
     )
