@@ -18,6 +18,8 @@ from .contract import (
 from .excerpt import Excerpt, select_excerpt
 from .pipeline import summarize_document, summarize_pdf
 
+__version__ = "0.2.0"  # Fase 1 integrada (enrutado por tipo)
+
 __all__ = [
     "CONTRACT_VERSION",
     "Abstract",
@@ -29,6 +31,7 @@ __all__ = [
     "SummaryResult",
     "Transcriber",
     "TranscriptResult",
+    "__version__",
     "select_excerpt",
     "summarize_document",
     "summarize_pdf",
