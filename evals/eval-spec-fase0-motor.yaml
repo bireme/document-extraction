@@ -1,0 +1,109 @@
+---
+id: FASE0-MOTOR
+titulo: "Consolidación del motor de resúmenes estructurados de PDF"
+descripcion: >
+  Empaquetar el pipeline validado en el piloto (clasificar → transcribir →
+  resumir → extraer abstracts) en un módulo Python con contrato de salida
+  JSON estable, configuración externa y CLI. Dominio desacoplado de adaptadores
+  (hexagonal): el núcleo no importa Ollama/Tesseract directamente.
+estado: COMPLETADO
+fecha: 2026-08-19
+resultado: >
+  11/11 criterios verdes (10 tests unittest + ruff limpio). Validado además
+  end-to-end con Ollama real: artículo científico -> plantilla A (structured
+  abstract IMRAD) correcta, idioma detectado, abstracts pt+en preservados.
+
+criterios:
+  # --- Contrato de datos ---
+  - id: C1-contrato-json
+    tipo: unit
+    descripcion: >
+      El resultado de resumir un documento es un objeto serializable a JSON con
+      campos obligatorios: doc_id, idioma_principal, idiomas_resumo_origem[],
+      tipo_documento, plantilla, secciones{}, abstracts_origem[], meta{}.
+    verificacion: "test_contract.py::test_summary_result_schema"
+
+  - id: C2-contrato-estable
+    tipo: unit
+    descripcion: >
+      Serializar y deserializar un SummaryResult produce un objeto equivalente
+      (round-trip) sin pérdida de campos.
+    verificacion: "test_contract.py::test_roundtrip"
+
+  # --- Clasificación (determinista, sin modelos) ---
+  - id: C3-clasificacion-nativo-escaneado
+    tipo: unit
+    descripcion: >
+      classify_source() devuelve NATIVO cuando hay >=100 chars/página de texto
+      embebido y ESCANEADO cuando <100. Umbral configurable.
+    verificacion: "test_classify.py::test_source_kind"
+
+  - id: C4-deteccion-idioma
+    tipo: unit
+    descripcion: >
+      detect_language() distingue pt/es/en sobre textos de muestra y devuelve
+      'unknown' con entrada vacía. No depende de librerías externas.
+    verificacion: "test_classify.py::test_language"
+
+  - id: C5-clasificacion-tipo
+    tipo: unit
+    descripcion: >
+      classify_type() reconoce 'articulo' cuando hay marcadores IMRAD/abstract,
+      'manual' cuando hay índice/sumário y muchas páginas, y 'divulgacion'
+      por defecto. Devuelve también la plantilla asociada (A/B/C).
+    verificacion: "test_classify.py::test_doc_type_and_template"
+
+  # --- Extracción de abstracts (verbatim, multilingüe) ---
+  - id: C6-abstracts-multilingue
+    tipo: unit
+    descripcion: >
+      extract_abstracts() sobre un texto con RESUMO+ABSTRACT+RESUMEN devuelve 3
+      bloques etiquetados por idioma, con su texto y keywords, sin traducir.
+    verificacion: "test_abstracts.py::test_trilingual"
+
+  - id: C7-abstracts-none
+    tipo: unit
+    descripcion: >
+      extract_abstracts() sobre texto sin bloques de resumen devuelve lista
+      vacía (no inventa).
+    verificacion: "test_abstracts.py::test_no_abstract"
+
+  # --- Arquitectura (hexagonal) ---
+  - id: C8-dominio-sin-adaptadores
+    tipo: architecture
+    descripcion: >
+      Los módulos de dominio (contract, classify, abstracts) NO importan
+      adaptadores concretos (ollama, requests/urllib a APIs, subprocess a
+      tesseract). La dependencia va dominio <- adaptadores, nunca al revés.
+    verificacion: "test_architecture.py::test_domain_has_no_adapter_imports"
+
+  - id: C9-puerto-resumidor
+    tipo: architecture
+    descripcion: >
+      El resumidor se define como un Protocol/ABC (puerto) en dominio; los
+      adaptadores (Ollama) lo implementan. El pipeline usa el puerto.
+    verificacion: "test_architecture.py::test_summarizer_is_port"
+
+  # --- CLI / integración ---
+  - id: C10-cli-json-out
+    tipo: integration
+    descripcion: >
+      La CLI 'pdfsum summarize --text <archivo> --dry-run' produce JSON válido
+      contra el contrato, usando un resumidor fake (sin modelo), en <5s.
+    verificacion: "test_cli.py::test_cli_dry_run_json"
+
+  # --- Calidad de código ---
+  - id: C11-lint-typecheck
+    tipo: metrics
+    descripcion: "ruff limpio en src/ y tests/; sin errores de sintaxis."
+    verificacion: "make lint"
+
+invariantes:
+  - "El dominio no ejecuta modelos ni procesos; eso vive en adaptadores."
+  - "El contrato JSON es la frontera estable; cambios rompen versión."
+  - "Toda salida indica idioma del documento y preserva abstracts de origen."
+
+no_objetivos_fase0:
+  - "Cola de jobs, API, panel (Fases 2-3)."
+  - "Enrutado completo de estrategia de porción (Fase 1)."
+  - "Integración real con Ollama/Tesseract en tests (usar fakes)."
