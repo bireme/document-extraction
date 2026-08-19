@@ -128,8 +128,11 @@ corresponden 1:1 a esos criterios. Ejemplos de criterios:
 - **Cobertura ≥ umbral** contra un ground-truth fijo.
 - Los **abstracts de origen** multilingües se preservan verbatim.
 
-Branch → eval-spec → tests → código → PR → CI verde → merge. Sin commits directos
-a `main`.
+eval-spec → branch → tests → código → `make check` verde → `merge --no-ff` a
+master → tag. Sin commits directos a `master` (hook global). **Estado actual:**
+repositorio **git local** (sin remoto). El salto a un remoto con PR/CI real es
+parte de las Fases 2-3 y una decisión del equipo (ver §4.1). Detalle del flujo
+local en `CONTRIBUTING.md`.
 
 ---
 
