@@ -134,3 +134,21 @@ class Transcriber(Protocol):
 
     def transcribe(self, path: str) -> TranscriptResult:
         ...
+
+
+@runtime_checkable
+class JobStore(Protocol):
+    """PUERTO de persistencia de la cola de jobs.
+
+    Guarda/lee el estado de los jobs. Adaptadores: memoria (tests), archivo
+    JSON, SQLite. El dominio (queue) depende de este Protocol, no del backend.
+    """
+
+    def get(self, key: str) -> dict | None:
+        ...
+
+    def put(self, key: str, value: dict) -> None:
+        ...
+
+    def all(self) -> dict[str, dict]:
+        ...

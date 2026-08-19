@@ -41,6 +41,20 @@ def cmd_summarize(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_batch(args: argparse.Namespace) -> int:
+    from .adapters.batch_runner import run_batch
+    summarizer = _build_summarizer(args.dry_run, args.model)
+    report = run_batch(
+        in_dir=args.in_dir, out_dir=args.out_dir, summarizer=summarizer,
+        max_retries=args.max_retries,
+    )
+    m = report["metrics"]
+    print(f"lote: {m['total']} docs | ok={m['ok']} fallos={m['con_fallos']} "
+          f"| tipos={m['por_tipo']} idiomas={m['por_idioma']} "
+          f"| tiempo_medio={m['tiempo_medio']}s")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="pdfsum", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -55,6 +69,15 @@ def build_parser() -> argparse.ArgumentParser:
                    help="usar resumidor fake (sin modelo)")
     s.add_argument("--out", default=None, help="escribir JSON a archivo")
     s.set_defaults(func=cmd_summarize)
+
+    b = sub.add_parser("batch", help="procesar un lote de .txt (cola + QA)")
+    b.add_argument("--in", dest="in_dir", required=True, help="directorio con .txt")
+    b.add_argument("--out", dest="out_dir", required=True, help="directorio salida")
+    b.add_argument("--model", default="qwen2.5:7b")
+    b.add_argument("--max-retries", dest="max_retries", type=int, default=2)
+    b.add_argument("--dry-run", action="store_true",
+                   help="usar resumidor fake (sin modelo)")
+    b.set_defaults(func=cmd_batch)
     return p
 
 

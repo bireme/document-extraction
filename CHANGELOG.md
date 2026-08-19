@@ -4,6 +4,22 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [0.3.0] — 2026-08-19 — Fase 2: operación por lotes
+### Añadido
+- `qa.py` (dominio): QA gates que validan cada resultado contra el contrato
+  (schema, refusal, idioma, abstracts preservados) -> `QAReport`.
+- `metrics.py` (dominio): `batch_metrics()` agrega total/ok/fallos, por tipo,
+  por idioma, gates fallados y tiempos.
+- `queue.py` (dominio): `JobQueue` con idempotencia (doc_id+hash) y reintentos,
+  sobre el puerto `JobStore`.
+- Puerto `JobStore` + adaptadores `MemoryJobStore` y `FileJobStore`.
+- `adapters/batch_runner.py`: orquesta lote (cola+QA+métricas), escribe un
+  .json por doc + `report.json`.
+- CLI `pdfsum batch --in <dir> --out <dir>`.
+### Verificado
+- eval-spec `FASE2-LOTES`: 13/13 criterios; 30 tests; ruff limpio.
+- End-to-end: lote de 3 docs -> 3/3 QA ok; re-ejecución idempotente (0.1s).
+
 ## [0.2.0] — 2026-08-19 — Fase 1: enrutado inteligente
 ### Añadido
 - `excerpt.py` (dominio): estrategia de porción por tipo de documento
