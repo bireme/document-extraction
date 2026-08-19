@@ -84,21 +84,31 @@ _TOC_MARKERS = re.compile(
 )
 
 
+# Un artículo científico rara vez supera este tamaño; por encima, con índice,
+# es un manual/libro aunque contenga marcadores IMRAD en su interior.
+ARTICLE_MAX_PAGES = 15
+
+
 def classify_type(text: str, pages: int = 1) -> DocType:
     """Reconoce artículo / manual / divulgación por marcadores estructurales.
 
-    - articulo: marcadores IMRAD/abstract + keywords científicas.
-    - manual: índice/sumário/prefácio y documento extenso (muchas páginas).
+    Prioridad (lección del piloto con manuales largos que traen RESUMO/métodos
+    en su interior y eran mal clasificados como artículo):
+    - manual: tiene índice/sumário/prefácio Y es extenso (muchas páginas).
+      Esto se evalúa ANTES que artículo para no confundir libros con papers.
+    - articulo: marcadores IMRAD/abstract + keywords y tamaño de paper.
     - divulgacion: por defecto.
     """
     imrad_hits = len(_IMRAD_MARKERS.findall(text))
     has_keywords = bool(_KEYWORDS_MARKERS.search(text))
     has_toc = bool(_TOC_MARKERS.search(text))
 
-    if imrad_hits >= 2 and has_keywords:
-        return DocType.ARTICULO
+    # Manual/libro: estructura de sumario/índice y documento extenso.
     if has_toc and pages >= 10:
         return DocType.MANUAL
+    # Artículo: IMRAD + keywords, y con tamaño de paper (no un libro).
+    if imrad_hits >= 2 and has_keywords and pages <= ARTICLE_MAX_PAGES:
+        return DocType.ARTICULO
     return DocType.DIVULGACION
 
 

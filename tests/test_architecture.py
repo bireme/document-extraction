@@ -11,7 +11,7 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "pdfsum"
 
 # Módulos de dominio puro (no deben tocar adaptadores/procesos externos).
 DOMAIN_MODULES = ["contract.py", "classify.py", "abstracts.py",
-                  "templates.py", "pipeline.py"]
+                  "templates.py", "pipeline.py", "excerpt.py"]
 
 # Nombres de import prohibidos en el dominio.
 FORBIDDEN = {"ollama", "requests", "urllib", "subprocess", "socket", "httpx"}
@@ -49,6 +49,13 @@ class TestArchitecture(unittest.TestCase):
 
         # runtime_checkable Protocol -> isinstance verifica la firma
         self.assertTrue(isinstance(FakeSummarizer(), Summarizer))
+
+    def test_transcriber_is_port(self):
+        """C7 (F1): Transcriber es un Protocol y el adaptador fake lo cumple."""
+        from pdfsum.adapters.fake_transcriber import FakeTranscriber
+        from pdfsum.contract import Transcriber
+
+        self.assertTrue(isinstance(FakeTranscriber("x"), Transcriber))
 
 
 if __name__ == "__main__":

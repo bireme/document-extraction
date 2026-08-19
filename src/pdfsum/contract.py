@@ -94,6 +94,15 @@ class SummaryResult:
 
 
 @dataclass
+class TranscriptResult:
+    """Salida del puerto de transcripción (Paso 1): texto + metadatos."""
+
+    text: str
+    pages: int
+    source_kind: SourceKind
+
+
+@dataclass
 class SummarizeRequest:
     """Petición al puerto resumidor: texto + idioma + plantilla objetivo."""
 
@@ -112,4 +121,16 @@ class Summarizer(Protocol):
     """
 
     def summarize(self, req: SummarizeRequest) -> dict[str, str]:
+        ...
+
+
+@runtime_checkable
+class Transcriber(Protocol):
+    """PUERTO de transcripción (Paso 1). Adaptadores: OCR híbrido, pdftotext, fake.
+
+    Convierte un documento (ruta) en texto plano + metadatos. El dominio depende
+    de este Protocol, nunca de Tesseract/poppler/VLM directamente.
+    """
+
+    def transcribe(self, path: str) -> TranscriptResult:
         ...
