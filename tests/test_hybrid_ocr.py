@@ -4,6 +4,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from PIL import Image, ImageDraw
+
 from pdfsum.adapters.fake_page_ocr import FakePageOCR
 from pdfsum.adapters.hybrid_ocr import HybridOcrTranscriber
 
@@ -13,6 +15,15 @@ def _tsv(conf, words):
     for _ in range(words):
         lines.append(f"5\t1\t{conf}\tpalabra")
     return "\n".join(lines)
+
+
+def _save_page_image(path: Path) -> None:
+    """Imagen válida de 1 columna de texto (lo que pdftoppm produciría)."""
+    img = Image.new("L", (400, 300), 255)
+    d = ImageDraw.Draw(img)
+    for y in range(20, 280, 20):
+        d.rectangle([40, y, 360, y + 10], fill=0)
+    img.save(path, "JPEG")
 
 
 def _make_pdf(d: Path, name="x.pdf"):
@@ -47,7 +58,7 @@ class TestHybridOcr(unittest.TestCase):
                 if "tsv" in s:
                     return _tsv(95.0, 30)
                 if "pdftoppm" in s:
-                    (Path(cmd[-1] + "-1.jpg")).write_bytes(b"img")
+                    _save_page_image(Path(cmd[-1] + "-1.jpg"))
                     return ""
                 return "texto tesseract"
             run.side_effect = fake_run
@@ -69,13 +80,13 @@ class TestHybridOcr(unittest.TestCase):
                 if "tsv" in s:
                     return _tsv(40.0, 3)  # baja confianza
                 if "pdftoppm" in s:
-                    (Path(cmd[-1] + "-1.jpg")).write_bytes(b"img")
+                    _save_page_image(Path(cmd[-1] + "-1.jpg"))
                     return ""
                 return "texto tesseract"
             run.side_effect = fake_run
             tr = self._hybrid(vlm).transcribe(str(self.dir / "x.pdf"))
         self.assertIn("texto vlm", tr.text)
-        self.assertEqual(vlm.calls, 1)
+        self.assertGreaterEqual(vlm.calls, 1)
 
     def test_nativo_directo(self):
         """C6: PDF nativo -> pdftotext sin rasterizar ni OCR."""

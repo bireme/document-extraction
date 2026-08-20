@@ -4,6 +4,21 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [0.9.0] — 2026-08-20 — Segmentación de página (columnas/bloques)
+### Añadido
+- `segment.py` (dominio): detección de columnas (proyección vertical + canal
+  ancho) y bloques (proyección horizontal), con orden de lectura y filtrado de
+  márgenes sin contenido. Solo Pillow, sin cv2.
+- `hybrid_ocr.py`: segmenta cada página en regiones, hace OCR por región y
+  ensambla el texto en orden de lectura (cierra la lección del primer análisis:
+  página entera al VLM falla; hay que segmentar).
+### Corregido
+- Gate de idioma QA: no marca error entre idiomas cercanos (pt/es), que el
+  detector por stopwords confunde (falso positivo en resúmenes bilingües).
+### Verificado
+- eval-spec `FASE8-SEGMENTACION`: 8/8 criterios; 82 tests; ruff limpio.
+- End-to-end lote mixto: 15/15 tokens del difícil 57128, ambos QA ok.
+
 ## [0.8.0] — 2026-08-19 — Paridad OCR con el piloto (fallback VLM)
 ### Añadido
 - `ocr_routing.py` (dominio): decisión por página Tesseract vs VLM según
