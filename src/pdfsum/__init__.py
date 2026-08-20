@@ -17,12 +17,14 @@ from .contract import (
     TranscriptResult,
 )
 from .excerpt import Excerpt, select_excerpt
+from .export import to_lilacs
 from .metrics import BatchItem, BatchMetrics, batch_metrics
 from .pipeline import summarize_document, summarize_pdf
 from .qa import QAReport, check_result
 from .queue import JobQueue
+from .review import ReviewRecord, approve, edit_sections, reject
 
-__version__ = "0.3.0"  # Fase 2 (operación por lotes: QA, cola, métricas)
+__version__ = "0.4.0"  # Fase 3 (interfaz: revisión, export LILACS, API)
 
 __all__ = [
     "CONTRACT_VERSION",
@@ -33,6 +35,7 @@ __all__ = [
     "Excerpt",
     "JobQueue",
     "QAReport",
+    "ReviewRecord",
     "SourceKind",
     "SummarizeRequest",
     "Summarizer",
@@ -40,9 +43,13 @@ __all__ = [
     "Transcriber",
     "TranscriptResult",
     "__version__",
+    "approve",
     "batch_metrics",
     "check_result",
+    "edit_sections",
+    "reject",
     "select_excerpt",
     "summarize_document",
     "summarize_pdf",
+    "to_lilacs",
 ]

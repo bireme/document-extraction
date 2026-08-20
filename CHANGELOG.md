@@ -4,6 +4,21 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [0.4.0] — 2026-08-19 — Fase 3: interfaz
+### Añadido
+- `review.py` (dominio): flujo de revisión humana (aprobar/rechazar/editar)
+  con estados e historial; no permite aprobar con fallos QA de error salvo
+  `force` (registrado).
+- `export.py` (dominio): `to_lilacs()` mapea a registro LILACS **borrador**
+  (tipo doc 05, título, idioma, resúmenes multilingües, descriptores
+  CANDIDATOS con nota de validación DeCS/MeSH pendiente).
+- `adapters/api_server.py`: API de consulta de solo lectura (http.server,
+  sin dependencias): `/api/summaries`, `/api/summaries/<id>`, `/api/report`.
+- CLI `pdfsum export` y `pdfsum serve`.
+### Verificado
+- eval-spec `FASE3-INTERFAZ`: 13/13 criterios; 40 tests; ruff limpio.
+- End-to-end: export LILACS del lote real + API sirviendo consultas.
+
 ## [0.3.0] — 2026-08-19 — Fase 2: operación por lotes
 ### Añadido
 - `qa.py` (dominio): QA gates que validan cada resultado contra el contrato
