@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pdfsum"
-version = "0.7.2"
+version = "0.8.0"
 description = "Motor de resúmenes estructurados de documentos PDF (local, sin API)"
 readme = "README.md"
 requires-python = ">=3.10"

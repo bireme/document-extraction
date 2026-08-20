@@ -13,7 +13,8 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "pdfsum"
 DOMAIN_MODULES = ["contract.py", "classify.py", "abstracts.py",
                   "templates.py", "pipeline.py", "excerpt.py",
                   "qa.py", "metrics.py", "queue.py",
-                  "review.py", "export.py", "chunking.py", "control.py", "workspace.py", "acceptance.py"]
+                  "review.py", "export.py", "chunking.py", "control.py",
+                  "workspace.py", "acceptance.py", "ocr_routing.py"]
 
 # Nombres de import prohibidos en el dominio.
 FORBIDDEN = {"ollama", "requests", "urllib", "subprocess", "socket", "httpx"}
@@ -58,6 +59,13 @@ class TestArchitecture(unittest.TestCase):
         from pdfsum.contract import Transcriber
 
         self.assertTrue(isinstance(FakeTranscriber("x"), Transcriber))
+
+    def test_pageocr_is_port(self):
+        """C3 (F7): PageOCR es un Protocol y el adaptador fake lo cumple."""
+        from pdfsum.adapters.fake_page_ocr import FakePageOCR
+        from pdfsum.contract import PageOCR
+
+        self.assertTrue(isinstance(FakePageOCR(), PageOCR))
 
 
 if __name__ == "__main__":

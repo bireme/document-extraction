@@ -91,12 +91,31 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
-def _build_transcriber(fake: bool, lang: str):
+def _build_transcriber(fake: bool, lang: str, vlm_model: str = "qwen3-vl:8b-instruct"):
+    """Transcriptor por defecto: híbrido nativo+Tesseract con fallback VLM.
+
+    Si Ollama + el modelo de visión están disponibles, el híbrido los usa como
+    fallback para escaneos de baja confianza (color/contraste); si no, degrada
+    a Tesseract con aviso (la app sigue funcional).
+    """
     if fake:
         from .adapters.fake_transcriber import FakeTranscriber
         return FakeTranscriber(text="texto de prueba " * 20, pages=1)
-    from .adapters.ocr_transcriber import OcrTranscriber
-    return OcrTranscriber(lang=lang)
+    from .adapters.doctor import _ollama_models
+    from .adapters.hybrid_ocr import HybridOcrTranscriber
+    vlm = None
+    try:
+        models = _ollama_models() or []
+        base = vlm_model.split(":")[0]
+        if any(m.startswith(base) for m in models):
+            from .adapters.vlm_ocr import VlmPageOCR
+            vlm = VlmPageOCR(model=vlm_model)
+        else:
+            print(f"aviso: modelo VLM '{vlm_model}' no disponible; "
+                  "OCR de escaneos de baja confianza degradará a Tesseract.")
+    except (OSError, ValueError):
+        print("aviso: Ollama no accesible; OCR de baja confianza usará Tesseract.")
+    return HybridOcrTranscriber(lang=lang, vlm=vlm)
 
 
 def cmd_run(args: argparse.Namespace) -> int:

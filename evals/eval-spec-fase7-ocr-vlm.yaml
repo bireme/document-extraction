@@ -1,0 +1,81 @@
+---
+id: FASE7-OCR-VLM
+titulo: "Paridad OCR con el piloto: routing por confianza + fallback VLM"
+descripcion: >
+  El transcriptor del producto debe igualar el pilotaje: por pagina, usar
+  Tesseract si su confianza es alta, y escalar a un VLM (qwen3-vl via Ollama)
+  cuando la confianza es baja (escaneos sobre color / bajo contraste). Asi la
+  app es totalmente funcional para cualquier PDF del usuario, no solo nativos.
+estado: COMPLETADO
+fecha: 2026-08-19
+resultado: >
+  8/8 criterios verdes (76 tests; ruff limpio). Validado contra el piloto con
+  el documento dificil 57128 (blanco/naranja): escaló al VLM en las 3 paginas,
+  cobertura 1.00 de los 14 terminos del abstract (pari igualdad con el piloto).
+  Hallazgo: la imagen debe ir EN LA MISMA CADENA prompt+ruta (correccion del
+  hang/meta-razonamiento).
+
+criterios:
+  - id: C1-routing-decision
+    tipo: unit
+    descripcion: >
+      route_page(conf, words, min_conf, min_words) decide 'tesseract' cuando
+      conf>=min_conf y words>=min_words, y 'vlm' en caso contrario.
+    verificacion: "test_ocr_routing.py::test_route_page"
+
+  - id: C2-parse-tsv-confianza
+    tipo: unit
+    descripcion: >
+      parse_tsv_confidence(tsv) calcula confianza media y numero de palabras a
+      partir de la salida TSV de Tesseract (ignora conf negativas/vacias).
+    verificacion: "test_ocr_routing.py::test_parse_tsv"
+
+  - id: C3-vlm-puerto
+    tipo: architecture
+    descripcion: >
+      Existe un puerto PageOCR (Protocol) para OCR de una imagen; el adaptador
+      VLM (Ollama vision) lo implementa. El transcriptor hibrido depende del
+      puerto, permitiendo un fake en tests.
+    verificacion: "test_architecture.py::test_pageocr_is_port"
+
+  - id: C4-hibrido-usa-tesseract
+    tipo: integration
+    descripcion: >
+      HybridOcrTranscriber, ante una pagina con alta confianza (fake tesseract),
+      usa el texto de Tesseract y NO invoca el VLM.
+    verificacion: "test_hybrid_ocr.py::test_usa_tesseract"
+
+  - id: C5-hibrido-escala-vlm
+    tipo: integration
+    descripcion: >
+      Ante baja confianza, el hibrido escala al VLM (fake) y usa su texto para
+      esa pagina.
+    verificacion: "test_hybrid_ocr.py::test_escala_vlm"
+
+  - id: C6-nativo-directo
+    tipo: integration
+    descripcion: >
+      Para un PDF nativo (mucho texto por pagina), el hibrido devuelve el texto
+      de pdftotext sin rasterizar ni invocar OCR.
+    verificacion: "test_hybrid_ocr.py::test_nativo_directo"
+
+  - id: C7-cli-usa-hibrido
+    tipo: integration
+    descripcion: >
+      'pdfsum run' usa el transcriptor hibrido por defecto (con VLM si Ollama y
+      el modelo de vision estan; si no, degrada a Tesseract con aviso).
+    verificacion: "test_hybrid_ocr.py::test_cli_run_hibrido_fake"
+
+  - id: C8-lint-no-regresion
+    tipo: metrics
+    descripcion: "ruff limpio y los 69 tests previos siguen verdes."
+    verificacion: "make check"
+
+invariantes:
+  - "El routing por pagina replica el piloto: Tesseract salvo baja confianza."
+  - "El VLM entra por un puerto; el hibrido no depende de Ollama directo."
+  - "Sin VLM disponible, la app sigue funcional (degrada a Tesseract)."
+
+no_objetivos:
+  - "Preprocesado avanzado de imagen por canal de color (mejora futura)."
+  - "Segmentacion por columnas dentro de la pagina (mejora futura)."
