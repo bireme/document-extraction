@@ -15,6 +15,7 @@
 | 5 | Flujo E2E desde PDF + almacén canónico | ✅ hecho | 0.6.0 | `FASE5-PDF-E2E` 10/10 |
 | 6 | Empaquetado y reproducibilidad por terceros | ✅ hecho | 0.7.x | `FASE6-EMPAQUETADO` 12/12 |
 | 7 | Paridad OCR piloto (fallback VLM) | ✅ hecho | 0.8.0 | `FASE7-OCR-VLM` 8/8 |
+| 8 | Segmentación de página (columnas/bloques) | ✅ hecho | 0.9.0 | `FASE8-SEGMENTACION` 8/8 |
 
 **Roadmap completo + integración E2E.** El producto arranca desde la **fuente
 real (PDFs)** y cubre el ciclo completo hasta la catalogação.

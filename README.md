@@ -1,6 +1,10 @@
 # pdfsum — motor de resúmenes estructurados de PDF
 
-Producto derivado del piloto BIREME–INFOMED. **Fase 0: motor consolidado.**
+Producto derivado del piloto BIREME–INFOMED. **Versión actual: 0.9.0**
+(flujo completo desde PDF: OCR híbrido con segmentación + resumen + QA +
+export LILACS + API).
+
+> 🚀 **Guía rápida de uso (1 página, con ejemplos ejecutables): [`GUIA-USO.md`](GUIA-USO.md)**
 
 ## Qué es
 
