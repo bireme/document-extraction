@@ -107,6 +107,63 @@ def environment_ok(checks: list[Check]) -> bool:
     return all(c.ok for c in checks if c.hard)
 
 
+def capabilities(checks: list[Check]) -> dict[str, bool]:
+    """Qué puede hacer el entorno según las dependencias presentes.
+
+    - extraer_nativo: leer PDFs con texto (poppler).
+    - ocr_imagen: transcribir escaneados (poppler + tesseract).
+    - resumen: generar resúmenes (ollama + modelo de texto).  <- núcleo
+    - ocr_vlm: OCR de escaneos difíciles con visión (ollama + modelo VLM).
+    """
+    by = {c.name: c.ok for c in checks}
+    poppler = by.get("pdftotext") and by.get("pdfinfo") and by.get("pdftoppm")
+    text_model = any(k.startswith("model:") and "vl" not in k and v
+                     for k, v in by.items())
+    vlm_model = any(k.startswith("model:") and "vl" in k and v
+                    for k, v in by.items())
+    return {
+        "extraer_nativo": bool(poppler),
+        "ocr_imagen": bool(poppler and by.get("tesseract")),
+        "resumen": bool(by.get("ollama") and text_model),
+        "ocr_vlm": bool(by.get("ollama") and vlm_model),
+    }
+
+
+def summarization_ready(
+    model: str = DEFAULT_TEXT_MODEL,
+) -> tuple[bool, str]:
+    """Preflight de resumen: ¿ollama arriba y el modelo disponible?
+
+    Devuelve (ok, mensaje). El mensaje, si falla, es accionable.
+    """
+    models = _ollama_models()
+    if models is None:
+        return False, (
+            "Ollama no responde en localhost:11434. Instala/arranca Ollama y "
+            "descarga el modelo:\n  ollama pull " + model +
+            "\nDiagnóstico: 'pdfsum doctor'. Detalles: INSTALL.md §1."
+        )
+    if not any(m.startswith(model) for m in models):
+        return False, (
+            f"Ollama está pero falta el modelo '{model}'. Descárgalo:\n"
+            f"  ollama pull {model}\n"
+            "Diagnóstico: 'pdfsum doctor'. Detalles: INSTALL.md §1."
+        )
+    return True, f"ollama + modelo '{model}' disponibles."
+
+
+def format_capabilities(caps: dict[str, bool]) -> str:
+    etiquetas = {
+        "extraer_nativo": "Extraer PDFs con texto (poppler)",
+        "ocr_imagen": "OCR de escaneados (tesseract)",
+        "resumen": "Generar resúmenes (ollama + modelo)  [núcleo]",
+        "ocr_vlm": "OCR de escaneos difíciles (VLM)",
+    }
+    return "\n".join(
+        f"  {'SÍ ' if caps[k] else 'NO '} {etiquetas[k]}" for k in etiquetas
+    )
+
+
 def format_report(checks: list[Check]) -> str:
     lines = []
     for c in checks:

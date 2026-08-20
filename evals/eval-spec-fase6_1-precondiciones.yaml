@@ -1,0 +1,66 @@
+---
+id: FASE6-1-PRECONDICIONES
+titulo: "Precondiciones claras: capacidades del entorno + preflight amable"
+descripcion: >
+  Corregir que Ollama+modelos estén subestimados como 'opcional'. Declarar las
+  precondiciones por CAPACIDAD (extraer/ocr/resumen) y hacer que las órdenes que
+  requieren modelo fallen con un mensaje claro (no error críptico) si Ollama o
+  el modelo no están, apuntando a `pdfsum doctor` e INSTALL.md.
+estado: COMPLETADO
+fecha: 2026-08-19
+resultado: >
+  6/6 criterios verdes (69 tests, sin regresion; ruff limpio). 'pdfsum doctor'
+  ahora muestra CAPACIDADES (incl. 'Generar resumenes [nucleo]'); las ordenes
+  que resumen hacen preflight y, sin Ollama/modelo, se detienen con mensaje
+  accionable y codigo 2 (no traza). INSTALL.md lidera con tabla de
+  precondiciones por capacidad.
+
+criterios:
+  - id: C1-capabilities
+    tipo: unit
+    descripcion: >
+      capabilities(checks) devuelve un dict de capacidades booleanas:
+      extraer_nativo (poppler), ocr_imagen (poppler+tesseract),
+      resumen (ollama+modelo texto), ocr_vlm (ollama+modelo visión).
+    verificacion: "test_preconditions.py::test_capabilities"
+
+  - id: C2-preflight-ok
+    tipo: unit
+    descripcion: >
+      summarization_ready(models, model) devuelve (True, msg) si ollama está y
+      el modelo pedido (o su prefijo) está presente.
+    verificacion: "test_preconditions.py::test_preflight_ok"
+
+  - id: C3-preflight-falta
+    tipo: unit
+    descripcion: >
+      summarization_ready devuelve (False, msg claro) si ollama no responde o
+      el modelo falta; el mensaje menciona 'doctor' e INSTALL.md.
+    verificacion: "test_preconditions.py::test_preflight_falta"
+
+  - id: C4-cli-run-precondicion
+    tipo: integration
+    descripcion: >
+      'pdfsum run' (sin --fake/--dry-run) con Ollama/modelo ausente no lanza
+      traza: imprime el mensaje de precondicion y sale con codigo != 0.
+    verificacion: "test_preconditions.py::test_cli_precondicion"
+
+  - id: C5-doctor-capacidades
+    tipo: integration
+    descripcion: >
+      'pdfsum doctor' muestra, ademas de los checks, un resumen de las
+      CAPACIDADES (que puede hacer el entorno: extraer/ocr/resumen).
+    verificacion: "test_preconditions.py::test_doctor_capacidades"
+
+  - id: C6-lint-no-regresion
+    tipo: metrics
+    descripcion: "ruff limpio y los 64 tests previos siguen verdes."
+    verificacion: "make check"
+
+invariantes:
+  - "Resumir requiere Ollama + modelo de texto: precondicion dura de esa
+     capacidad, no 'opcional'."
+  - "Ordenes que requieren modelo fallan con mensaje claro, no traza."
+
+no_objetivos:
+  - "Arrancar Ollama automaticamente o descargar modelos por el usuario."

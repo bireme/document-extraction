@@ -14,6 +14,21 @@ aplicación, la ejecute y **verifique que obtiene resultados similares**.
 
 ## 1. Requisitos
 
+### Precondiciones por capacidad (qué necesitas según lo que quieras hacer)
+
+| Quiero... | Necesito (además de Python ≥ 3.10) |
+|---|---|
+| Leer PDFs con texto nativo | **poppler-utils** |
+| Transcribir PDFs **escaneados** | poppler + **Tesseract** (+ idioma, p. ej. `por`) |
+| **Generar resúmenes** (núcleo) | **Ollama en ejecución** + modelo **`qwen2.5:7b`** descargado |
+| OCR de escaneos difíciles | Ollama + modelo **`qwen3-vl:8b-instruct`** |
+
+> **Sí: para resumir, Ollama debe estar instalado, en ejecución y con el modelo
+> descargado.** No es opcional — es la precondición del núcleo. Si falta, los
+> comandos que resumen (`run`, `batch`, `summarize`, `verify`) se detienen con
+> un mensaje claro (no una traza) indicando qué instalar. Comprueba tu entorno
+> en cualquier momento con **`pdfsum doctor`** (muestra checks + capacidades).
+
 ### Hardware (referencia del pilotaje)
 - GPU con **≥ 8 GB VRAM** (probado en RTX 5060 Laptop, 8 GB) + ~16 GB RAM.
 - Con GPU superior, los modelos corren igual o más rápido.

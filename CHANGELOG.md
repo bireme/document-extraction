@@ -4,6 +4,18 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [0.7.1] — 2026-08-19 — Precondiciones claras
+### Cambiado
+- `pdfsum doctor` ahora muestra un bloque de **CAPACIDADES** (extraer / OCR /
+  resumen / OCR-VLM), dejando claro que **resumir requiere Ollama + modelo**
+  (núcleo), no es opcional.
+- `run`, `batch`, `summarize` hacen **preflight**: si Ollama o el modelo no
+  están, se detienen con un **mensaje accionable** (qué `ollama pull` correr,
+  ver `doctor`/INSTALL.md) y código 2, en vez de una traza críptica.
+- INSTALL.md §1 lidera con una **tabla de precondiciones por capacidad**.
+### Verificado
+- eval-spec `FASE6-1-PRECONDICIONES`: 6/6 criterios; 69 tests; ruff limpio.
+
 ## [0.7.0] — 2026-08-19 — Fase 6: empaquetado y reproducibilidad
 ### Añadido
 - `pyproject.toml`: paquete instalable (`pip install -e .`) con entry point
