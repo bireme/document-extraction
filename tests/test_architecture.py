@@ -14,7 +14,7 @@ DOMAIN_MODULES = ["contract.py", "classify.py", "abstracts.py",
                   "templates.py", "pipeline.py", "excerpt.py",
                   "qa.py", "metrics.py", "queue.py",
                   "review.py", "export.py", "chunking.py", "control.py",
-                  "workspace.py", "acceptance.py", "ocr_routing.py"]
+                  "workspace.py", "acceptance.py", "ocr_routing.py", "segment.py"]
 
 # Nombres de import prohibidos en el dominio.
 FORBIDDEN = {"ollama", "requests", "urllib", "subprocess", "socket", "httpx"}

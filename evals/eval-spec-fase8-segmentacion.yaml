@@ -1,0 +1,87 @@
+---
+id: FASE8-SEGMENTACION
+titulo: "Segmentación de página: columnas, bloques y sub-áreas"
+descripcion: >
+  Incorporar la lección central del primer análisis: pasar la página entera al
+  VLM falla; hay que segmentar la página en regiones (columnas, tablas,
+  recuadros/bloques) y procesar cada región a resolución legible. Detección de
+  columnas/bloques por proyección de pixeles (dominio puro sobre imagen),
+  integración en el transcriptor híbrido, y ensamble ordenado de la página.
+estado: COMPLETADO
+fecha: 2026-08-20
+resultado: >
+  8/8 criterios verdes (82 tests; ruff limpio). Validado end-to-end con
+  'pdfsum run' sobre un lote mixto (nativo + escaneado dificil 2 columnas):
+  segmentacion por columnas + bloques, OCR por region, ensamble ordenado, 15/15
+  tokens clave del dificil, ambos QA ok. Se corrigió ademas un falso positivo
+  del gate de idioma (confundia pt/es; ahora los idiomas cercanos no se
+  marcan como error).
+
+criterios:
+  - id: C1-detectar-columnas
+    tipo: unit
+    descripcion: >
+      detect_columns() sobre una imagen con dos columnas de texto devuelve 2
+      regiones (bounding boxes) separadas; sobre una columna devuelve 1.
+      Usa proyección vertical de pixeles de contenido (no requiere cv2).
+    verificacion: "test_segment.py::test_detect_columns"
+
+  - id: C2-region-no-vacia
+    tipo: unit
+    descripcion: >
+      detect_regions() nunca devuelve regiones de area cero ni duplicadas, y
+      sus cajas estan dentro de la imagen.
+    verificacion: "test_segment.py::test_regions_validas"
+
+  - id: C3-orden-lectura
+    tipo: unit
+    descripcion: >
+      sort_reading_order() ordena las regiones en orden de lectura natural
+      (columnas de izquierda a derecha, filas de arriba a abajo).
+    verificacion: "test_segment.py::test_reading_order"
+
+  - id: C4-segmentar-crece-densidad
+    tipo: unit
+    descripcion: >
+      Para una imagen sintetica multicolumna densa, el numero de regiones es
+      mayor que 1 y la porcion de texto cubierta (pixeles de contenido) es
+      alta: la segmentacion cubre casi toda la pagina sin solaparse de mas.
+    verificacion: "test_segment.py::test_cobertura"
+
+  - id: C5-hibrido-usa-segmentacion
+    tipo: integration
+    descripcion: >
+      HybridOcrTranscriber, para una pagina multicolumna densa con baja
+      confianza Tesseract, la divide en regiones y las procesa por separado
+      (fake), ensamblando el texto en orden de lectura.
+    verificacion: "test_hybrid_seg.py::test_segmenta_y_ensambla"
+
+  - id: C6-orden-ensamble
+    tipo: integration
+    descripcion: >
+      El texto ensamblado respeta el orden de lectura de las regiones (los
+      marcadores de region aparecen en orden columna-izquierda antes que
+      columna-derecha).
+    verificacion: "test_hybrid_seg.py::test_orden_ensamble"
+
+  - id: C7-dominio-sin-adaptadores
+    tipo: architecture
+    descripcion: >
+      segment.py (dominio) no importa adaptadores ni subprocess; trabaja sobre
+      pixeles (PIL/numpy) y cajas.
+    verificacion: "test_architecture.py::test_domain_has_no_adapter_imports"
+
+  - id: C8-lint-no-regresion
+    tipo: metrics
+    descripcion: "ruff limpio y los 76 tests previos siguen verdes."
+    verificacion: "make check"
+
+invariantes:
+  - "Las regiones estan dentro de la imagen, sin area cero ni duplicados."
+  - "La pagina se ensambla en orden de lectura (col izq->der, arriba->abajo)."
+  - "La segmentacion es dominio puro (sin adaptadores); el hibrido la usa."
+
+no_objetivos:
+  - "OCR de tablas complejas con grid de celdas (se tratan como bloque)."
+  - "Deteccion de recuadros coloreados con bordes (cajas via proyeccion)."
+  - "Reordenar articulos complejos multi-columna (suficiente el orden lectura)."

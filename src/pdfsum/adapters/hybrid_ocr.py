@@ -19,6 +19,7 @@ from pathlib import Path
 
 from ..contract import PageOCR, SourceKind, TranscriptResult
 from ..ocr_routing import MIN_CONF, MIN_WORDS, parse_tsv_confidence, route_page
+from ..segment import detect_regions, sort_reading_order, valid_regions
 
 _TEXT_PER_PAGE = 100
 
@@ -72,6 +73,20 @@ class HybridOcrTranscriber:
             text=self._ocr_hybrid(path, pages), pages=pages,
             source_kind=SourceKind.ESCANEADO)
 
+    def _ocr_regions(self, img: Path) -> str:
+        """Segmenta la página y hace OCR por región, ensamblando en orden."""
+        from PIL import Image
+        im = Image.open(img)
+        regs = sort_reading_order(valid_regions(detect_regions(im), *im.size))
+        partes: list[str] = []
+        for r in regs:
+            crop = im.crop((r.left, r.top, r.right, r.bottom))
+            tmp = img.parent / f"_reg_{r.left}_{r.top}.png"
+            crop.save(tmp)
+            partes.append(self._ocr_page(tmp))
+            tmp.unlink()
+        return "\n".join(p for p in partes if p.strip())
+
     def _ocr_page(self, img: Path) -> str:
         """Tesseract con routing por confianza -> VLM si procede."""
         tsv = _run(["tesseract", str(img), "stdout", "-l", self.lang,
@@ -98,7 +113,7 @@ class HybridOcrTranscriber:
                 imgs = sorted(Path(td).glob(f"pg{p}*.jpg"))
                 if not imgs:
                     continue
-                chunks.append(f"=== pág {p} ===\n{self._ocr_page(imgs[0])}")
+                chunks.append(f"=== pág {p} ===\n{self._ocr_regions(imgs[0])}")
                 for im in imgs:
                     im.unlink()
         return "\n".join(chunks)

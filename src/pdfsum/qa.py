@@ -76,15 +76,24 @@ def _gate_refusal(res: SummaryResult, rep: QAReport) -> None:
             return
 
 
+# Pares de idiomas cercanos que el detector por stopwords confunde con
+# frecuencia. No es un fallo real si se detecta el idioma vecino.
+_CLOSE_LANGS = [frozenset({"pt", "es"})]
+
+
 def _gate_language(res: SummaryResult, rep: QAReport) -> None:
     blob = " ".join(res.secciones.values())
     if len(blob.split()) < 8:
         return  # texto insuficiente para juzgar idioma
     detected = detect_language(blob)
-    if detected != "unknown" and detected != res.idioma_principal:
-        rep.add("lang",
-                f"idioma del resumen '{detected}' != principal "
-                f"'{res.idioma_principal}'", severity="warning")
+    if detected in ("unknown", res.idioma_principal):
+        return
+    # no marcar error si la discrepancia es entre idiomas cercanos
+    if any({detected, res.idioma_principal} <= pair for pair in _CLOSE_LANGS):
+        return
+    rep.add("lang",
+            f"idioma del resumen '{detected}' != principal "
+            f"'{res.idioma_principal}'", severity="warning")
 
 
 def _gate_abstracts(res: SummaryResult, rep: QAReport) -> None:
