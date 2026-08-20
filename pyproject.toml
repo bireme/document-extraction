@@ -8,7 +8,7 @@ version = "0.7.1"
 description = "Motor de resúmenes estructurados de documentos PDF (local, sin API)"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "INFOMED / BIREME" }]
 keywords = ["ocr", "resumen", "pdf", "lilacs", "bireme", "local-llm"]
 # Sin dependencias Python obligatorias: el núcleo usa solo la stdlib.

@@ -1,13 +1,15 @@
 Metadata-Version: 2.4
 Name: pdfsum
-Version: 0.7.0
+Version: 0.7.1
 Summary: Motor de resúmenes estructurados de documentos PDF (local, sin API)
 Author: INFOMED / BIREME
-License: MIT
+License-Expression: MIT
 Project-URL: Homepage, local-repo
 Keywords: ocr,resumen,pdf,lilacs,bireme,local-llm
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
+License-File: LICENSE
+Dynamic: license-file
 
 # pdfsum — motor de resúmenes estructurados de PDF
 
@@ -37,6 +39,16 @@ src/pdfsum/
 Regla de dependencia: **el dominio no importa adaptadores** (verificado por
 `test_architecture.py` vía AST). Cambiar de modelo local a cloud = nuevo
 adaptador, sin tocar el núcleo.
+
+## Instalación
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .        # expone el comando 'pdfsum'
+pdfsum doctor           # verifica dependencias (poppler/tesseract/ollama)
+pdfsum verify           # confirma resultados similares sobre la muestra incluida
+```
+Guía completa (requisitos, modelos, distribución) en `INSTALL.md`.
 
 ## Uso
 
