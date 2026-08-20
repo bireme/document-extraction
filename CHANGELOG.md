@@ -4,6 +4,22 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [0.7.0] — 2026-08-19 — Fase 6: empaquetado y reproducibilidad
+### Añadido
+- `pyproject.toml`: paquete instalable (`pip install -e .`) con entry point
+  de consola `pdfsum` (sin dependencias Python; requisitos son de sistema).
+- `adapters/doctor.py` + CLI `pdfsum doctor`: verifica poppler, tesseract
+  (+idiomas), ollama y modelos; distingue requisitos duros/opcionales.
+- `acceptance.py` (dominio) + CLI `pdfsum verify`: corre el flujo sobre una
+  muestra incluida y evalúa contra un set de control (PASS/FAIL por cobertura,
+  idioma y tipo).
+- `samples/pdfs/` + `samples/control_set.json`: muestra y control incluidos.
+- `INSTALL.md`: guía de instalación, verificación y distribución (git bundle/
+  tarball), con la advertencia de no-determinismo del LLM.
+### Verificado
+- eval-spec `FASE6-EMPAQUETADO`: 12/12 criterios; 64 tests; ruff limpio.
+- pip install en venv aislado; `pdfsum verify` real -> PASS (cobertura 1.00).
+
 ## [0.6.0] — 2026-08-19 — Fase 5: flujo end-to-end desde PDF
 ### Añadido
 - `workspace.py` (dominio): almacén canónico de artefactos (ocr/, summaries/,

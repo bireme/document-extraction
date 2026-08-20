@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pdfsum"
+version = "0.7.0"
+description = "Motor de resúmenes estructurados de documentos PDF (local, sin API)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "INFOMED / BIREME" }]
+keywords = ["ocr", "resumen", "pdf", "lilacs", "bireme", "local-llm"]
+# Sin dependencias Python obligatorias: el núcleo usa solo la stdlib.
+# Los requisitos externos son de SISTEMA (poppler, tesseract) y de MODELOS
+# (Ollama + qwen2.5:7b / qwen3-vl:8b). Ver INSTALL.md y `pdfsum doctor`.
+dependencies = []
+
+[project.scripts]
+pdfsum = "pdfsum.cli:main"
+
+[project.urls]
+Homepage = "local-repo"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 88

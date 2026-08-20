@@ -125,6 +125,57 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Verifica dependencias de sistema y modelos."""
+    from .adapters.doctor import check_environment, environment_ok, format_report
+    checks = check_environment()
+    print("Verificación de entorno pdfsum:")
+    print(format_report(checks))
+    ok = environment_ok(checks)
+    print(f"\nEntorno mínimo (flujo nativo): {'OK' if ok else 'INCOMPLETO'}")
+    return 0 if ok else 1
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    """Corre el flujo sobre la muestra incluida y evalúa contra el control set."""
+    from .acceptance import acceptance_verdict, load_control_set
+    from .adapters.pdf_batch import run_batch_pdfs
+    from .contract import SummaryResult
+    from .control import run_control_suite
+    from .workspace import Workspace
+    here = Path(__file__).resolve().parent.parent.parent
+    pdfs = args.pdfs or str(here / "samples" / "pdfs")
+    control = args.control or str(here / "samples" / "control_set.json")
+    ws = Workspace(args.workspace)
+    transcriber = _build_transcriber(args.fake, args.lang)
+    summarizer = _build_summarizer(args.fake or args.dry_run, args.model)
+    run_batch_pdfs(pdfs, ws, transcriber, summarizer,
+                   long_strategy=args.long_strategy)
+    # cargar resultados y evaluar contra el set de control
+    results = {}
+    for f in ws.summaries_dir.glob("*.json"):
+        if f.name == "report.json":
+            continue
+        import json
+        d = json.loads(f.read_text(encoding="utf-8"))
+        d.pop("_qa", None)
+        results[d["doc_id"]] = SummaryResult.from_dict(d)
+    cases = load_control_set(control)
+    rep = run_control_suite(results, cases).to_dict()
+    verdict = acceptance_verdict(rep, min_coverage=args.min_coverage)
+    print(f"Aceptación: {'PASS' if verdict.passed else 'FAIL'}")
+    print(f"  {verdict.detail}")
+    for v in rep["verdicts"]:
+        if "error" in v:
+            print(f"  - {v['doc_id']}: {v['error']}")
+        else:
+            print(f"  - {v['doc_id']}: cobertura {v['coverage']} "
+                  f"lang={'ok' if v['lang_ok'] else 'X'} "
+                  f"tipo={'ok' if v['type_ok'] else 'X'}"
+                  + (f" faltan {v['missing_terms']}" if v['missing_terms'] else ""))
+    return 0 if verdict.passed else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="pdfsum", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -179,6 +230,26 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--lang", default="por")
     t.add_argument("--fake", action="store_true")
     t.set_defaults(func=cmd_transcribe)
+
+    d = sub.add_parser("doctor", help="verificar dependencias de sistema/modelos")
+    d.set_defaults(func=cmd_doctor)
+
+    v = sub.add_parser("verify",
+                       help="verificar resultados sobre la muestra incluida")
+    v.add_argument("--workspace", default="./_verify",
+                   help="dir de artefactos de la verificación")
+    v.add_argument("--pdfs", default=None, help="dir de PDFs (def: muestra)")
+    v.add_argument("--control", default=None, help="set de control (def: incluido)")
+    v.add_argument("--lang", default="por")
+    v.add_argument("--model", default="qwen2.5:7b")
+    v.add_argument("--long-strategy", dest="long_strategy", default="excerpt",
+                   choices=["excerpt", "blocks"])
+    v.add_argument("--min-coverage", dest="min_coverage", type=float,
+                   default=0.6)
+    v.add_argument("--dry-run", action="store_true")
+    v.add_argument("--fake", action="store_true",
+                   help="transcriber+resumidor fake (prueba el arnés)")
+    v.set_defaults(func=cmd_verify)
     return p
 
 

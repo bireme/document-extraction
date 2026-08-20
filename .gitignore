@@ -4,3 +4,6 @@ __pycache__/
 samples/*.txt
 /tmp/
 _resumenes/
+_verify/
+.venv/
+*.bundle
