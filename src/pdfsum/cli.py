@@ -226,7 +226,16 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="pdfsum", description=__doc__)
+    p = argparse.ArgumentParser(
+        prog="pdfsum",
+        description=__doc__,
+        epilog=(
+            "Ejemplo típico (flujo completo desde PDFs):\n"
+            "  pdfsum run --in ./mis_pdfs --workspace ./data --lang por\n\n"
+            "Guía rápida con ejemplos ejecutables: GUIA-USO.md"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("summarize", help="resumir un texto ya transcrito")
