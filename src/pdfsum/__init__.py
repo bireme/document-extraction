@@ -5,6 +5,7 @@ hexagonal: `contract`, `classify`, `templates`, `abstracts`, `excerpt`,
 `pipeline`, `qa`, `metrics`, `queue` son DOMINIO puro; `adapters/` implementa
 los puertos (Summarizer, Transcriber, JobStore).
 """
+from .chunking import split_blocks, summarize_in_blocks
 from .contract import (
     CONTRACT_VERSION,
     Abstract,
@@ -16,6 +17,7 @@ from .contract import (
     Transcriber,
     TranscriptResult,
 )
+from .control import ControlCase, evaluate_case, run_control_suite, term_coverage
 from .excerpt import Excerpt, select_excerpt
 from .export import to_lilacs
 from .metrics import BatchItem, BatchMetrics, batch_metrics
@@ -24,13 +26,14 @@ from .qa import QAReport, check_result
 from .queue import JobQueue
 from .review import ReviewRecord, approve, edit_sections, reject
 
-__version__ = "0.4.0"  # Fase 3 (interfaz: revisión, export LILACS, API)
+__version__ = "0.5.0"  # Fase 4 (mejora continua: bloques + set de control)
 
 __all__ = [
     "CONTRACT_VERSION",
     "Abstract",
     "BatchItem",
     "BatchMetrics",
+    "ControlCase",
     "DocType",
     "Excerpt",
     "JobQueue",
@@ -47,9 +50,14 @@ __all__ = [
     "batch_metrics",
     "check_result",
     "edit_sections",
+    "evaluate_case",
     "reject",
+    "run_control_suite",
     "select_excerpt",
+    "split_blocks",
     "summarize_document",
+    "summarize_in_blocks",
     "summarize_pdf",
+    "term_coverage",
     "to_lilacs",
 ]

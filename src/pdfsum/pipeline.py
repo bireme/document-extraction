@@ -7,6 +7,7 @@ adaptador aguas arriba) y produce un SummaryResult conforme al contrato.
 from __future__ import annotations
 
 from .abstracts import abstract_langs, extract_abstracts
+from .chunking import summarize_in_blocks
 from .classify import classify_type, detect_language, template_for
 from .contract import (
     DocType,
@@ -27,12 +28,16 @@ def summarize_document(
     lang: str | None = None,
     doc_type: DocType | None = None,
     max_chars: int = DEFAULT_MAX_CHARS,
+    long_strategy: str = "excerpt",
 ) -> SummaryResult:
     """Produce el resumen estructurado de un documento ya transcrito.
 
     - Detecta idioma (si no se fuerza) y resume EN ESE idioma.
     - Detecta tipo (si no se fuerza) -> plantilla.
-    - Selecciona la PORCIÓN a resumir según tipo/estructura (no corte ciego).
+    - Para documentos que exceden el presupuesto:
+        * long_strategy='excerpt' (def): porción por tipo/estructura.
+        * long_strategy='blocks': resumen por bloques + consolidación
+          (cubre TODO el texto; útil para manuales largos completos).
     - Extrae y preserva abstracts de origen verbatim (del texto COMPLETO).
     """
     doc_lang = lang or detect_language(text)
@@ -41,13 +46,23 @@ def summarize_document(
     dtype = doc_type or classify_type(text, pages=pages)
     template = template_for(dtype)
 
-    # Estrategia de porción: qué parte del texto alimentar al modelo.
-    exc = select_excerpt(text, dtype, max_chars=max_chars)
-
-    req = SummarizeRequest(
-        doc_id=doc_id, text=exc.text, lang=doc_lang, template=template
-    )
-    secciones = summarizer.summarize(req)
+    if long_strategy == "blocks" and len(text) > max_chars:
+        secciones, exc_meta = summarize_in_blocks(
+            doc_id, text, summarizer, doc_lang, template, max_chars=max_chars
+        )
+    else:
+        # Estrategia de porción: qué parte del texto alimentar al modelo.
+        exc = select_excerpt(text, dtype, max_chars=max_chars)
+        req = SummarizeRequest(
+            doc_id=doc_id, text=exc.text, lang=doc_lang, template=template
+        )
+        secciones = summarizer.summarize(req)
+        exc_meta = {
+            "excerpt_strategy": exc.strategy,
+            "excerpt_parts": exc.parts,
+            "excerpt_truncated": exc.truncated,
+            "excerpt_chars": len(exc.text),
+        }
 
     # Los abstracts se extraen del texto COMPLETO (no de la porción).
     abstracts = extract_abstracts(text)
@@ -60,14 +75,7 @@ def summarize_document(
         secciones=secciones,
         idiomas_resumo_origem=abstract_langs(abstracts),
         abstracts_origem=abstracts,
-        meta={
-            "pages": pages,
-            "text_chars": len(text),
-            "excerpt_strategy": exc.strategy,
-            "excerpt_parts": exc.parts,
-            "excerpt_truncated": exc.truncated,
-            "excerpt_chars": len(exc.text),
-        },
+        meta={"pages": pages, "text_chars": len(text), **exc_meta},
     )
 
 

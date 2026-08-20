@@ -73,5 +73,11 @@ make check    # lint + test
   (`evals/eval-spec-fase2-lotes.yaml`). Cola idempotente con reintentos, QA
   gates automáticos (esquema/refusal/idioma/abstracts), métricas y `report.json`.
   CLI `pdfsum batch`.
-- **Fase 3 (interfaz):** pendiente — API/panel de revisión + export DeCS/LILACS.
-- Ver roadmap completo en `docs/ESTADO.md` y `docs/PROPUESTA-PRODUCTO.md`.
+- **Fase 3 (interfaz):** ✅ completada — 13/13 criterios
+  (`evals/eval-spec-fase3-interfaz.yaml`). Flujo de revisión, export LILACS
+  (borrador) y API de consulta local. CLI `pdfsum export` / `pdfsum serve`.
+- **Fase 4 (mejora continua):** ✅ completada — 12/12 criterios
+  (`evals/eval-spec-fase4-mejora.yaml`). Resumen por bloques (documentos
+  gigantes completos) + set de control con métricas de cobertura.
+- **Roadmap completo:** las 5 fases (0-4) implementadas y verificadas.
+- Ver `docs/ESTADO.md` y `docs/PROPUESTA-PRODUCTO.md`.
