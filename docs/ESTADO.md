@@ -1,6 +1,6 @@
 # Estado del producto pdfsum
 
-**Actualizado:** 2026-08-19 · **Versión:** 0.5.0 · **Repo:** git local (sin remoto)
+**Actualizado:** 2026-08-19 · **Versión:** 0.6.0 · **Repo:** git local (sin remoto)
 
 ## Roadmap y avance
 
@@ -12,8 +12,22 @@
 | 3 | Interfaz (API + revisión + export LILACS) | ✅ hecho | 0.4.0 | `FASE3-INTERFAZ` 13/13 |
 | 4 | Mejora continua (set de control, resumen por bloques) | ✅ hecho | 0.5.0 | `FASE4-MEJORA` 12/12 |
 
-**Roadmap completo.** Las 5 fases (0-4) de la propuesta están implementadas y
-verificadas. El producto cubre el ciclo completo PDF -> catalogação.
+| 5 | Flujo E2E desde PDF + almacén canónico | ✅ hecho | 0.6.0 | `FASE5-PDF-E2E` 10/10 |
+
+**Roadmap completo + integración E2E.** El producto arranca desde la **fuente
+real (PDFs)** y cubre el ciclo completo hasta la catalogação.
+
+## Flujo y almacén (desde la fuente)
+
+```
+<dir-pdfs>/*.pdf
+   |  pdfsum run --in <dir-pdfs> --workspace <ws>
+   v
+<ws>/ocr/<doc_id>.txt          transcripciones (OCR/nativo, cacheadas)
+<ws>/summaries/<doc_id>.json   resúmenes estructurados + _qa
+<ws>/summaries/report.json     métricas del lote (por tipo/idioma/origen)
+<ws>/lilacs.json               export de catalogação (pdfsum export)
+```
 
 ## Qué hace hoy (0.3.0)
 
