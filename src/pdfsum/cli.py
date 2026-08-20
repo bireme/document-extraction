@@ -49,6 +49,10 @@ def cmd_summarize(args: argparse.Namespace) -> int:
 
 def cmd_batch(args: argparse.Namespace) -> int:
     from .adapters.batch_runner import run_batch
+    if not args.dry_run:
+        err = _preflight_resumen(args.model)
+        if err is not None:
+            return err
     summarizer = _build_summarizer(args.dry_run, args.model)
     report = run_batch(
         in_dir=args.in_dir, out_dir=args.out_dir, summarizer=summarizer,
@@ -99,6 +103,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     """Flujo completo desde PDFs: transcribe (cache) -> resume -> report."""
     from .adapters.pdf_batch import run_batch_pdfs
     from .workspace import Workspace
+    if not (args.fake or args.dry_run):
+        err = _preflight_resumen(args.model)
+        if err is not None:
+            return err
     ws = Workspace(args.workspace)
     transcriber = _build_transcriber(args.fake, args.lang)
     summarizer = _build_summarizer(args.fake or args.dry_run, args.model)
@@ -127,13 +135,35 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Verifica dependencias de sistema y modelos."""
-    from .adapters.doctor import check_environment, environment_ok, format_report
+    from .adapters.doctor import (
+        capabilities,
+        check_environment,
+        environment_ok,
+        format_capabilities,
+        format_report,
+    )
     checks = check_environment()
     print("Verificación de entorno pdfsum:")
     print(format_report(checks))
+    print("\nCapacidades disponibles:")
+    caps = capabilities(checks)
+    print(format_capabilities(caps))
     ok = environment_ok(checks)
-    print(f"\nEntorno mínimo (flujo nativo): {'OK' if ok else 'INCOMPLETO'}")
+    print(f"\nExtraer PDFs nativos: {'OK' if ok else 'INCOMPLETO'}")
+    if not caps["resumen"]:
+        print("AVISO: sin Ollama + modelo de texto NO se pueden generar "
+              "resúmenes (núcleo). Ver INSTALL.md §1.")
     return 0 if ok else 1
+
+
+def _preflight_resumen(model: str) -> int | None:
+    """Comprueba precondiciones de resumen; devuelve código de error o None."""
+    from .adapters.doctor import summarization_ready
+    ok, msg = summarization_ready(model)
+    if not ok:
+        print("Precondición no cumplida para resumir:\n" + msg)
+        return 2
+    return None
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
