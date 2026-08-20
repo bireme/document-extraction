@@ -1,9 +1,14 @@
 """CLI del motor pdfsum.
 
-Fase 0: subcomando `summarize` sobre un texto ya transcrito, con `--dry-run`
-(usa el resumidor fake, sin modelo) o resumidor real (Ollama) por defecto.
-La transcripción/OCR (Paso 1) se integrará como adaptador en fases siguientes;
-aquí el foco es el contrato de salida y el pipeline de dominio.
+Subcomandos:
+  run         flujo completo desde PDFs: transcribe (OCR) -> resume -> report.
+  transcribe  solo transcribe PDFs a ocr/<doc_id>.txt (cacheado).
+  summarize   resume un texto ya transcrito (paso 2 aislado).
+  batch       resume un lote de .txt (cola idempotente + QA gates).
+  export      exporta un lote a registros LILACS (borrador).
+  serve       API de consulta de solo lectura del lote.
+
+El flujo canonico arranca desde el PDF (la fuente): usar `run`.
 """
 from __future__ import annotations
 
