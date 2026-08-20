@@ -27,7 +27,7 @@ from .queue import JobQueue
 from .review import ReviewRecord, approve, edit_sections, reject
 from .workspace import Workspace
 
-__version__ = "0.7.1"  # Fase 6.1 (precondiciones claras)
+__version__ = "0.7.2"  # LICENSE + readiness
 
 __all__ = [
     "CONTRACT_VERSION",
