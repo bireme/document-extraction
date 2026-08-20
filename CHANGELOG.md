@@ -4,6 +4,20 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [0.8.0] — 2026-08-19 — Paridad OCR con el piloto (fallback VLM)
+### Añadido
+- `ocr_routing.py` (dominio): decisión por página Tesseract vs VLM según
+  confianza/palabras de Tesseract (replica del piloto).
+- Puerto `PageOCR` + adaptador `VlmPageOCR` (Ollama vision, prompt+ruta en una
+  sola cadena — lección del piloto que evita el hang/meta-razonamiento).
+- `adapters/hybrid_ocr.py`: transcriptor nativo + Tesseract con fallback VLM;
+  es el transcriptor por defecto del CLI.
+- Sin VLM disponible, degrada a Tesseract con aviso (siguiera funcional).
+### Verificado
+- eval-spec `FASE7-OCR-VLM`: 8/8 criterios; 76 tests; ruff limpio.
+- Paridad con el piloto sobre 57128 (difícil): VLM en las 3 páginas, cobertura
+  1.00 del abstract (igualdad completa).
+
 ## [0.7.1] — 2026-08-19 — Precondiciones claras
 ### Cambiado
 - `pdfsum doctor` ahora muestra un bloque de **CAPACIDADES** (extraer / OCR /

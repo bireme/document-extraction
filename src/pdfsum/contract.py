@@ -137,6 +137,18 @@ class Transcriber(Protocol):
 
 
 @runtime_checkable
+class PageOCR(Protocol):
+    """PUERTO de OCR de UNA imagen de pagina (para el fallback VLM).
+
+    Adaptadores: VLM (Ollama vision), fake. El transcriptor hibrido lo usa solo
+    cuando Tesseract tiene baja confianza; el hibrido no depende de Ollama.
+    """
+
+    def ocr_image(self, image_path: str, lang: str) -> str:
+        ...
+
+
+@runtime_checkable
 class JobStore(Protocol):
     """PUERTO de persistencia de la cola de jobs.
 
