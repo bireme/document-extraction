@@ -30,7 +30,17 @@ adaptador, sin tocar el núcleo.
 ## Uso
 
 ```bash
-# resumen real (requiere Ollama + qwen2.5:7b)
+# FLUJO COMPLETO desde PDFs (la fuente): transcribe (OCR) + resume + report
+# Requiere poppler + tesseract (OCR) y Ollama + qwen2.5:7b (resumen).
+PYTHONPATH=src python3 -m pdfsum.cli run --in ./pdfs --workspace ./data --lang por
+#   -> ./data/ocr/<doc_id>.txt        (transcripciones cacheadas)
+#   -> ./data/summaries/<doc_id>.json (resúmenes + _qa)
+#   -> ./data/summaries/report.json   (métricas del lote)
+
+# solo transcribir (PDF -> ocr/*.txt), sin resumir
+PYTHONPATH=src python3 -m pdfsum.cli transcribe --in ./pdfs --workspace ./data
+
+# resumen de un texto ya transcrito (paso 2 aislado)
 PYTHONPATH=src python3 -m pdfsum.cli summarize \
     --text transcripcion.txt --pages 4 --out resumen.json
 

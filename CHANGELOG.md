@@ -4,6 +4,21 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [0.6.0] — 2026-08-19 — Fase 5: flujo end-to-end desde PDF
+### Añadido
+- `workspace.py` (dominio): almacén canónico de artefactos (ocr/, summaries/,
+  report.json, lilacs.json).
+- `adapters/pdf_batch.py`: `transcribe_pdfs()` (OCR con caché idempotente en
+  ocr/) y `run_batch_pdfs()` (transcribe -> resume -> report desde PDFs).
+- CLI `pdfsum run` (flujo completo desde PDFs) y `pdfsum transcribe`.
+### Corregido
+- **Gap de integración:** el producto ahora arranca desde la fuente real
+  (PDFs), no desde .txt ya transcritos. La transcripción (adaptador
+  OcrTranscriber, ya existente) queda cableada al CLI y al lote.
+### Verificado
+- eval-spec `FASE5-PDF-E2E`: 10/10 criterios; 56 tests; ruff limpio.
+- End-to-end desde PDFs del piloto (escaneado+nativo) con almacén canónico.
+
 ## [0.5.0] — 2026-08-19 — Fase 4: mejora continua
 ### Añadido
 - `chunking.py` (dominio): `split_blocks()` divide texto largo en bloques con

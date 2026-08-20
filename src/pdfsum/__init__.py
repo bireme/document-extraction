@@ -25,8 +25,9 @@ from .pipeline import summarize_document, summarize_pdf
 from .qa import QAReport, check_result
 from .queue import JobQueue
 from .review import ReviewRecord, approve, edit_sections, reject
+from .workspace import Workspace
 
-__version__ = "0.5.0"  # Fase 4 (mejora continua: bloques + set de control)
+__version__ = "0.6.0"  # Fase 5 (flujo E2E desde PDF + almacén canónico)
 
 __all__ = [
     "CONTRACT_VERSION",
@@ -45,6 +46,7 @@ __all__ = [
     "SummaryResult",
     "Transcriber",
     "TranscriptResult",
+    "Workspace",
     "__version__",
     "approve",
     "batch_metrics",

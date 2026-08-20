@@ -82,6 +82,44 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _build_transcriber(fake: bool, lang: str):
+    if fake:
+        from .adapters.fake_transcriber import FakeTranscriber
+        return FakeTranscriber(text="texto de prueba " * 20, pages=1)
+    from .adapters.ocr_transcriber import OcrTranscriber
+    return OcrTranscriber(lang=lang)
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    """Flujo completo desde PDFs: transcribe (cache) -> resume -> report."""
+    from .adapters.pdf_batch import run_batch_pdfs
+    from .workspace import Workspace
+    ws = Workspace(args.workspace)
+    transcriber = _build_transcriber(args.fake, args.lang)
+    summarizer = _build_summarizer(args.fake or args.dry_run, args.model)
+    report = run_batch_pdfs(
+        args.in_dir, ws, transcriber, summarizer,
+        long_strategy=args.long_strategy,
+    )
+    m = report["metrics"]
+    print(f"run: {m['total']} PDFs | ok={m['ok']} fallos={m['con_fallos']} "
+          f"| tipos={m['por_tipo']} | ocr={ws.ocr_dir} "
+          f"| resumenes={ws.summaries_dir}")
+    return 0
+
+
+def cmd_transcribe(args: argparse.Namespace) -> int:
+    """Solo transcribe los PDFs a ocr/<doc_id>.txt (sin resumir)."""
+    from .adapters.pdf_batch import transcribe_pdfs
+    from .workspace import Workspace
+    ws = Workspace(args.workspace)
+    transcriber = _build_transcriber(args.fake, args.lang)
+    meta = transcribe_pdfs(args.in_dir, ws, transcriber)
+    cached = sum(1 for m in meta.values() if m.get("cached"))
+    print(f"transcribe: {len(meta)} PDFs ({cached} cacheados) -> {ws.ocr_dir}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="pdfsum", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -116,6 +154,26 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8765)
     sv.set_defaults(func=cmd_serve)
+
+    r = sub.add_parser("run", help="flujo completo desde PDFs (transcribe+resume)")
+    r.add_argument("--in", dest="in_dir", required=True, help="directorio de PDFs")
+    r.add_argument("--workspace", required=True, help="dir de artefactos (ocr/, summaries/)")
+    r.add_argument("--lang", default="por", help="idioma OCR Tesseract (por/spa/eng)")
+    r.add_argument("--model", default="qwen2.5:7b")
+    r.add_argument("--long-strategy", dest="long_strategy", default="excerpt",
+                   choices=["excerpt", "blocks"])
+    r.add_argument("--dry-run", action="store_true",
+                   help="resumidor fake (OCR real)")
+    r.add_argument("--fake", action="store_true",
+                   help="transcriber Y resumidor fake (sin poppler/ollama)")
+    r.set_defaults(func=cmd_run)
+
+    t = sub.add_parser("transcribe", help="solo transcribir PDFs a ocr/*.txt")
+    t.add_argument("--in", dest="in_dir", required=True, help="directorio de PDFs")
+    t.add_argument("--workspace", required=True)
+    t.add_argument("--lang", default="por")
+    t.add_argument("--fake", action="store_true")
+    t.set_defaults(func=cmd_transcribe)
     return p
 
 

@@ -1,0 +1,101 @@
+---
+id: FASE5-PDF-E2E
+titulo: "Flujo end-to-end desde PDF: transcripción cableada + almacén canónico"
+descripcion: >
+  El producto debe arrancar desde la fuente real (PDFs), no desde .txt ya
+  transcritos. Cablear la transcripción (puerto Transcriber) al lote y al CLI,
+  con un almacén canónico de artefactos: ocr/ (transcripciones), summaries/
+  (resúmenes + report). El OCR se cachea (idempotente) y se reutiliza.
+estado: COMPLETADO
+fecha: 2026-08-19
+resultado: >
+  10/10 criterios verdes (56 tests, incl. 49 de Fases 0-4 sin regresión; ruff
+  limpio). Validado end-to-end desde PDFs reales del piloto: 56186 (escaneado)
+  -> OCR Tesseract a ocr/56186.txt; 58739 (nativo) -> texto directo; ambos
+  resumidos a summaries/*.json con QA ok y report.json con source_kind por
+  doc. Idempotencia del OCR confirmada (2ª transcripción 0.1s, cacheada).
+
+criterios:
+  # --- Almacén canónico (dominio: define rutas, no hace IO) ---
+  - id: C1-layout-workspace
+    tipo: unit
+    descripcion: >
+      Workspace(root) expone rutas canónicas: ocr_dir (root/ocr),
+      summaries_dir (root/summaries), y helpers ocr_path(doc_id) ->
+      ocr/<doc_id>.txt y summary_path(doc_id) -> summaries/<doc_id>.json.
+    verificacion: "test_workspace.py::test_layout"
+
+  # --- Batch desde PDFs con transcripción cableada (adaptador) ---
+  - id: C2-batch-desde-pdf
+    tipo: integration
+    descripcion: >
+      run_batch_pdfs(in_dir, workspace, transcriber, summarizer) procesa
+      *.pdf: transcribe cada uno (guardando ocr/<doc_id>.txt), resume, y
+      escribe summaries/<doc_id>.json + report.json.
+    verificacion: "test_batch_pdf.py::test_batch_desde_pdf"
+
+  - id: C3-ocr-cacheado
+    tipo: integration
+    descripcion: >
+      Si ocr/<doc_id>.txt ya existe, NO se vuelve a transcribir (se reutiliza),
+      demostrando idempotencia del paso de OCR (transcriber no invocado).
+    verificacion: "test_batch_pdf.py::test_ocr_cacheado"
+
+  - id: C4-ocr-persistido
+    tipo: integration
+    descripcion: >
+      Tras el lote, existe un ocr/<doc_id>.txt por documento con el texto
+      transcrito (contenido no vacío).
+    verificacion: "test_batch_pdf.py::test_ocr_persistido"
+
+  - id: C5-report-incluye-origen
+    tipo: integration
+    descripcion: >
+      El report.json indica, por documento, el origen (source_kind:
+      nativo/escaneado) reportado por la transcripción.
+    verificacion: "test_batch_pdf.py::test_report_origen"
+
+  # --- CLI ---
+  - id: C6-cli-run
+    tipo: integration
+    descripcion: >
+      'pdfsum run --in <dir-pdfs> --workspace <dir>' ejecuta el flujo completo
+      desde PDFs (transcribe+resume+report) usando un transcriber fake por
+      inyección (--fake para tests, sin poppler/tesseract).
+    verificacion: "test_cli_run.py::test_cli_run"
+
+  - id: C7-cli-transcribe
+    tipo: integration
+    descripcion: >
+      'pdfsum transcribe --in <dir-pdfs> --workspace <dir>' solo transcribe y
+      guarda ocr/<doc_id>.txt (sin resumir).
+    verificacion: "test_cli_run.py::test_cli_transcribe"
+
+  # --- Arquitectura ---
+  - id: C8-dominio-sin-adaptadores
+    tipo: architecture
+    descripcion: >
+      workspace.py (dominio) NO importa adaptadores ni procesos externos; solo
+      compone rutas.
+    verificacion: "test_architecture.py::test_domain_has_no_adapter_imports"
+
+  # --- Calidad / no regresión ---
+  - id: C9-lint
+    tipo: metrics
+    descripcion: "ruff limpio en src/ y tests/."
+    verificacion: "make lint"
+
+  - id: C10-no-regresion
+    tipo: metrics
+    descripcion: "Los 49 tests de Fases 0-4 siguen verdes."
+    verificacion: "make test"
+
+invariantes:
+  - "La fuente del flujo es el PDF; el .txt es artefacto intermedio cacheado."
+  - "El OCR se persiste en ocr/ y se reutiliza si ya existe (idempotente)."
+  - "Los resúmenes viven en summaries/; el report agrega el lote."
+  - "El dominio no ejecuta OCR; la transcripción entra por el puerto."
+
+no_objetivos_fase5:
+  - "OCR con VLM en tests (se usa fake; el adaptador real ya existe)."
+  - "Reemplazar el ocr_pipeline.sh del piloto (adaptador cubre Tesseract)."
