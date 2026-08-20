@@ -4,6 +4,18 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [0.5.0] — 2026-08-19 — Fase 4: mejora continua
+### Añadido
+- `chunking.py` (dominio): `split_blocks()` divide texto largo en bloques con
+  cobertura total, y `summarize_in_blocks()` resume cada bloque y consolida.
+- `control.py` (dominio): `term_coverage()`, `evaluate_case()` y
+  `run_control_suite()` para un set de control fijo con métricas de cobertura.
+- `pipeline.summarize_document(long_strategy='blocks')`: cubre TODO el texto
+  en documentos gigantes (resuelve el truncado de manuales largos del piloto).
+### Verificado
+- eval-spec `FASE4-MEJORA`: 12/12 criterios; 49 tests; ruff limpio.
+- End-to-end: manual 60375 (117k) -> 3 bloques, cobertura completa.
+
 ## [0.4.0] — 2026-08-19 — Fase 3: interfaz
 ### Añadido
 - `review.py` (dominio): flujo de revisión humana (aprobar/rechazar/editar)

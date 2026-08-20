@@ -1,0 +1,116 @@
+---
+id: FASE4-MEJORA
+titulo: "Mejora continua: resumen por bloques + set de control de cobertura"
+descripcion: >
+  Cerrar el roadmap: (1) resumen por bloques con consolidación para documentos
+  gigantes que aún se truncan (>presupuesto), sin perder la cola; (2) un set de
+  control fijo con métricas de cobertura para seguimiento de calidad por lote.
+  Todo sobre el contrato JSON, dominio desacoplado de adaptadores.
+estado: COMPLETADO
+fecha: 2026-08-19
+resultado: >
+  12/12 criterios verdes (49 tests unittest, incl. 40 de Fases 0-3 sin
+  regresión; ruff limpio). Validado end-to-end con Ollama: el manual gigante
+  60375 (117k chars, que en el piloto se resumía con ~36% inicial) ahora se
+  procesa por bloques (3 bloques, cobertura 114k chars, truncado=False) y el
+  resumen consolidado captura toda la estructura (6 oficinas + secciones).
+  Resuelve el último caso de truncado pendiente del piloto.
+
+criterios:
+  # --- Resumen por bloques (dominio puro) ---
+  - id: C1-chunk-divide
+    tipo: unit
+    descripcion: >
+      split_blocks() divide un texto largo en bloques que respetan un tamaño
+      máximo, cortando en límites de párrafo cuando es posible (no a mitad de
+      palabra), y cubre TODO el texto (sin pérdida).
+    verificacion: "test_chunking.py::test_split_cobertura"
+
+  - id: C2-chunk-respeta-tam
+    tipo: unit
+    descripcion: >
+      Ningún bloque excede el tamaño máximo configurado.
+    verificacion: "test_chunking.py::test_split_tam"
+
+  - id: C3-consolidacion
+    tipo: unit
+    descripcion: >
+      summarize_in_blocks() resume cada bloque (vía puerto Summarizer) y
+      consolida los resúmenes parciales en uno final, registrando en meta el
+      número de bloques y que la estrategia fue 'blocks'.
+    verificacion: "test_chunking.py::test_consolidacion"
+
+  - id: C4-cobertura-total
+    tipo: unit
+    descripcion: >
+      Con estrategia por bloques, meta indica cobertura ~100% del texto
+      (excerpt_truncated False), a diferencia del recorte por porción.
+    verificacion: "test_chunking.py::test_cobertura_total"
+
+  # --- Set de control / métricas de cobertura ---
+  - id: C5-cobertura-terminos
+    tipo: unit
+    descripcion: >
+      term_coverage(text, expected_terms) devuelve la fracción de términos
+      esperados presentes en el texto (0..1), case-insensitive.
+    verificacion: "test_control.py::test_term_coverage"
+
+  - id: C6-evaluar-caso
+    tipo: unit
+    descripcion: >
+      evaluate_case() compara un SummaryResult contra un caso de control
+      (idioma esperado, tipo esperado, términos esperados) y devuelve un
+      veredicto con cobertura y checks de idioma/tipo.
+    verificacion: "test_control.py::test_evaluate_case"
+
+  - id: C7-suite-control
+    tipo: unit
+    descripcion: >
+      run_control_suite() agrega los veredictos de varios casos: cobertura
+      media, aciertos de idioma/tipo y lista de fallos por caso.
+    verificacion: "test_control.py::test_control_suite"
+
+  # --- Arquitectura ---
+  - id: C8-dominio-sin-adaptadores
+    tipo: architecture
+    descripcion: >
+      Los módulos nuevos de dominio (chunking.py, control.py) NO importan
+      adaptadores ni procesos externos.
+    verificacion: "test_architecture.py::test_domain_has_no_adapter_imports"
+
+  # --- Integración ---
+  - id: C9-pipeline-auto-bloques
+    tipo: integration
+    descripcion: >
+      summarize_document(..., long_strategy='blocks') usa resumen por bloques
+      cuando el texto excede el presupuesto y el doc no es artículo/divulgación
+      corta; el resultado cubre todo el texto (meta).
+    verificacion: "test_chunking.py::test_pipeline_blocks"
+
+  - id: C10-control-sobre-set
+    tipo: integration
+    descripcion: >
+      run_control_suite() sobre un set de control fijo (JSON) con resultados
+      generados por el FakeSummarizer produce un reporte agregado consumible.
+    verificacion: "test_control.py::test_suite_sobre_set"
+
+  # --- Calidad / no regresión ---
+  - id: C11-lint
+    tipo: metrics
+    descripcion: "ruff limpio en src/ y tests/."
+    verificacion: "make lint"
+
+  - id: C12-no-regresion
+    tipo: metrics
+    descripcion: "Los 40 tests de Fases 0-3 siguen verdes."
+    verificacion: "make test"
+
+invariantes:
+  - "El resumen por bloques cubre TODO el texto (sin corte ciego ni pérdida)."
+  - "Ningún bloque excede el tamaño máximo configurado."
+  - "El dominio (chunking, control) no importa adaptadores."
+  - "El set de control es reproducible y su reporte es JSON."
+
+no_objetivos_fase4:
+  - "Pasada cloud real (queda como opción documentada, no implementada)."
+  - "Reentrenamiento automático de umbrales (solo se exponen métricas)."

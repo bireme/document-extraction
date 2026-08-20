@@ -1,6 +1,6 @@
 # Estado del producto pdfsum
 
-**Actualizado:** 2026-08-19 · **Versión:** 0.4.0 · **Repo:** git local (sin remoto)
+**Actualizado:** 2026-08-19 · **Versión:** 0.5.0 · **Repo:** git local (sin remoto)
 
 ## Roadmap y avance
 
@@ -10,7 +10,10 @@
 | 1 | Enrutado inteligente (porción por tipo + Transcriber) | ✅ hecho | 0.2.0 | `FASE1-ENRUTADO` 12/12 |
 | 2 | Operación por lotes (cola, QA gates, métricas) | ✅ hecho | 0.3.0 | `FASE2-LOTES` 13/13 |
 | 3 | Interfaz (API + revisión + export LILACS) | ✅ hecho | 0.4.0 | `FASE3-INTERFAZ` 13/13 |
-| 4 | Mejora continua (set de control, resumen por bloques) | ⏳ siguiente | — | pendiente |
+| 4 | Mejora continua (set de control, resumen por bloques) | ✅ hecho | 0.5.0 | `FASE4-MEJORA` 12/12 |
+
+**Roadmap completo.** Las 5 fases (0-4) de la propuesta están implementadas y
+verificadas. El producto cubre el ciclo completo PDF -> catalogação.
 
 ## Qué hace hoy (0.3.0)
 
@@ -38,6 +41,13 @@ Y para **cerrar el ciclo** (Fase 3):
     resúmenes multilingües y descriptores candidatos (validación DeCS pendiente).
 11. **API de consulta** (`pdfsum serve`): `/api/summaries`, `/api/summaries/<id>`,
     `/api/report` (solo lectura, local, sin dependencias).
+
+Y para **documentos gigantes + calidad** (Fase 4):
+
+12. **Resumen por bloques** (`long_strategy='blocks'`): cubre TODO el texto de
+    manuales largos (divide + consolida), sin truncado.
+13. **Set de control** con métricas de cobertura de términos, idioma y tipo
+    para seguimiento de calidad por lote.
 
 ## Alineación con la propuesta de producto
 
