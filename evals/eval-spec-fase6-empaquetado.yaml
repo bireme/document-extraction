@@ -1,0 +1,119 @@
+---
+id: FASE6-EMPAQUETADO
+titulo: "Empaquetado y reproducibilidad por terceros"
+descripcion: >
+  Permitir que otra persona con una GPU similar/superior instale la aplicación
+  y verifique que obtiene resultados similares. Incluye: paquete instalable con
+  entry point (pip install -> comando pdfsum), verificador de entorno (deps de
+  sistema + modelos), y un verificador de aceptación que corre sobre una
+  muestra incluida y compara contra un set de control, reportando PASS/FAIL.
+estado: COMPLETADO
+fecha: 2026-08-19
+resultado: >
+  12/12 criterios verdes (64 tests, incl. 56 de Fases 0-5 sin regresión; ruff
+  limpio). Validado: pip install -e . en venv aislado -> comando 'pdfsum'
+  disponible; 'pdfsum doctor' reporta el entorno real; 'pdfsum verify' sobre
+  la muestra incluida da PASS (cobertura 1.00, idioma/tipo ok). INSTALL.md con
+  requisitos, instalación, verificación y distribución (git bundle/tarball).
+
+criterios:
+  # --- Empaquetado ---
+  - id: C1-pyproject-valido
+    tipo: unit
+    descripcion: >
+      pyproject.toml existe, es TOML válido, declara el paquete pdfsum (src
+      layout), Python requerido y un entry point de consola 'pdfsum'.
+    verificacion: "test_packaging.py::test_pyproject"
+
+  - id: C2-version-unica
+    tipo: unit
+    descripcion: >
+      La versión de pyproject coincide con pdfsum.__version__ (fuente única de
+      verdad, sin divergencia).
+    verificacion: "test_packaging.py::test_version_sync"
+
+  # --- Verificador de entorno (doctor) ---
+  - id: C3-doctor-reporta-deps
+    tipo: unit
+    descripcion: >
+      check_environment() devuelve el estado de cada requisito (pdftotext,
+      pdfinfo, pdftoppm, tesseract, idiomas tesseract, ollama, modelos) como
+      lista de checks {name, ok, detail}, sin lanzar si algo falta.
+    verificacion: "test_doctor.py::test_check_environment"
+
+  - id: C4-doctor-resumen
+    tipo: unit
+    descripcion: >
+      environment_ok() resume si el entorno mínimo para el flujo nativo (sin
+      OCR de imagen) está disponible, distinguiendo requisitos duros de
+      opcionales (VLM).
+    verificacion: "test_doctor.py::test_environment_ok"
+
+  # --- Verificador de aceptación (dominio) ---
+  - id: C5-acceptance-carga-set
+    tipo: unit
+    descripcion: >
+      load_control_set(path) carga un set de control JSON (lista de casos con
+      doc_id, expected_lang, expected_type, expected_terms).
+    verificacion: "test_acceptance.py::test_load_set"
+
+  - id: C6-acceptance-veredicto
+    tipo: unit
+    descripcion: >
+      acceptance_verdict(report, min_coverage) decide PASS/FAIL del lote: PASS
+      si cobertura media >= umbral y todos los casos aciertan idioma y tipo.
+    verificacion: "test_acceptance.py::test_verdict"
+
+  # --- Arquitectura ---
+  - id: C7-dominio-sin-adaptadores
+    tipo: architecture
+    descripcion: >
+      acceptance.py (dominio) NO importa adaptadores ni procesos externos.
+      doctor.py (adaptador) sí puede usar shutil/subprocess.
+    verificacion: "test_architecture.py::test_domain_has_no_adapter_imports"
+
+  # --- CLI ---
+  - id: C8-cli-doctor
+    tipo: integration
+    descripcion: >
+      'pdfsum doctor' imprime el reporte de entorno y sale 0 si el mínimo está,
+      != 0 si falta un requisito duro.
+    verificacion: "test_cli_repro.py::test_cli_doctor"
+
+  - id: C9-cli-verify
+    tipo: integration
+    descripcion: >
+      'pdfsum verify --fake' corre el flujo sobre la muestra incluida con
+      transcriber+resumidor fake y evalúa contra el set de control, devolviendo
+      un veredicto (con --fake el objetivo es probar el arnés, no la calidad).
+    verificacion: "test_cli_repro.py::test_cli_verify"
+
+  # --- Calidad / no regresión ---
+  - id: C10-lint
+    tipo: metrics
+    descripcion: "ruff limpio en src/ y tests/."
+    verificacion: "make lint"
+
+  - id: C11-no-regresion
+    tipo: metrics
+    descripcion: "Los 56 tests de Fases 0-5 siguen verdes."
+    verificacion: "make test"
+
+  - id: C12-guia-instalacion
+    tipo: metrics
+    descripcion: >
+      Existe INSTALL.md con: requisitos, instalación (pip -e), descarga de
+      modelos, distribución (git bundle/tarball) y cómo verificar (doctor +
+      verify). Incluye la advertencia de no-determinismo del LLM.
+    verificacion: "grep INSTALL.md"
+
+invariantes:
+  - "Reproducibilidad NO es igualdad byte a byte: el LLM es no determinista.
+     La verificación es por set de control (cobertura, idioma, tipo)."
+  - "El paquete se instala con pip y expone el comando 'pdfsum'."
+  - "El dominio (acceptance) no importa adaptadores; doctor es adaptador."
+
+no_objetivos_fase6:
+  - "Publicar en PyPI o en un remoto git (queda como decisión del equipo)."
+  - "Contenedores Docker (opcional, se menciona pero no se implementa)."
+  - "Garantizar salida idéntica entre máquinas (imposible con LLM)."

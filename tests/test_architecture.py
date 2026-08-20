@@ -13,7 +13,7 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "pdfsum"
 DOMAIN_MODULES = ["contract.py", "classify.py", "abstracts.py",
                   "templates.py", "pipeline.py", "excerpt.py",
                   "qa.py", "metrics.py", "queue.py",
-                  "review.py", "export.py", "chunking.py", "control.py", "workspace.py"]
+                  "review.py", "export.py", "chunking.py", "control.py", "workspace.py", "acceptance.py"]
 
 # Nombres de import prohibidos en el dominio.
 FORBIDDEN = {"ollama", "requests", "urllib", "subprocess", "socket", "httpx"}

@@ -1,0 +1,14 @@
+[
+  {
+    "doc_id": "58739_deixar_fumar",
+    "expected_lang": "pt",
+    "expected_type": "divulgacion",
+    "expected_terms": ["saúde", "Ministério"]
+  },
+  {
+    "doc_id": "56186_10006001927",
+    "expected_lang": "pt",
+    "expected_type": "divulgacion",
+    "expected_terms": ["Bio-Manguinhos", "vacina"]
+  }
+]

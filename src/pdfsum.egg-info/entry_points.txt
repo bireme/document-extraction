@@ -1,0 +1,2 @@
+[console_scripts]
+pdfsum = pdfsum.cli:main

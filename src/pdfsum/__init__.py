@@ -27,7 +27,7 @@ from .queue import JobQueue
 from .review import ReviewRecord, approve, edit_sections, reject
 from .workspace import Workspace
 
-__version__ = "0.6.0"  # Fase 5 (flujo E2E desde PDF + almacén canónico)
+__version__ = "0.7.0"  # Fase 6 (empaquetado y reproducibilidad)
 
 __all__ = [
     "CONTRACT_VERSION",

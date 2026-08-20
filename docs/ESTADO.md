@@ -1,6 +1,6 @@
 # Estado del producto pdfsum
 
-**Actualizado:** 2026-08-19 · **Versión:** 0.6.0 · **Repo:** git local (sin remoto)
+**Actualizado:** 2026-08-19 · **Versión:** 0.7.0 · **Repo:** git local (sin remoto)
 
 ## Roadmap y avance
 
@@ -13,6 +13,7 @@
 | 4 | Mejora continua (set de control, resumen por bloques) | ✅ hecho | 0.5.0 | `FASE4-MEJORA` 12/12 |
 
 | 5 | Flujo E2E desde PDF + almacén canónico | ✅ hecho | 0.6.0 | `FASE5-PDF-E2E` 10/10 |
+| 6 | Empaquetado y reproducibilidad por terceros | ✅ hecho | 0.7.0 | `FASE6-EMPAQUETADO` 12/12 |
 
 **Roadmap completo + integración E2E.** El producto arranca desde la **fuente
 real (PDFs)** y cubre el ciclo completo hasta la catalogação.
