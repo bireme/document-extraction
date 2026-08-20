@@ -36,6 +36,17 @@ PYTHONPATH=src python3 -m pdfsum.cli summarize \
 
 # dry-run sin modelo (contrato + clasificación, para probar el flujo)
 PYTHONPATH=src python3 -m pdfsum.cli summarize --text transcripcion.txt --dry-run
+
+# lote: directorio de .txt con cola idempotente + QA gates
+PYTHONPATH=src python3 -m pdfsum.cli batch --in ./_ocr_out --out ./_resumenes
+# -> un .json por doc (con bloque _qa) + report.json (métricas del lote)
+
+# export a registros LILACS (borrador para revisión humana)
+PYTHONPATH=src python3 -m pdfsum.cli export --in ./_resumenes --out lilacs.json
+
+# API de consulta local (solo lectura) sobre el lote
+PYTHONPATH=src python3 -m pdfsum.cli serve --batch-dir ./_resumenes --port 8765
+# GET /api/summaries | /api/summaries/<doc_id> | /api/report
 ```
 
 Salida: JSON con `doc_id`, `idioma_principal`, `tipo_documento`, `plantilla`,

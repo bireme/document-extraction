@@ -1,6 +1,6 @@
 # Estado del producto pdfsum
 
-**Actualizado:** 2026-08-19 · **Versión:** 0.3.0 · **Repo:** git local (sin remoto)
+**Actualizado:** 2026-08-19 · **Versión:** 0.4.0 · **Repo:** git local (sin remoto)
 
 ## Roadmap y avance
 
@@ -9,8 +9,8 @@
 | 0 | Motor consolidado (dominio + contrato JSON + puertos) | ✅ hecho | 0.1.0 | `FASE0-MOTOR` 11/11 |
 | 1 | Enrutado inteligente (porción por tipo + Transcriber) | ✅ hecho | 0.2.0 | `FASE1-ENRUTADO` 12/12 |
 | 2 | Operación por lotes (cola, QA gates, métricas) | ✅ hecho | 0.3.0 | `FASE2-LOTES` 13/13 |
-| 3 | Interfaz (API/panel de revisión + export DeCS/LILACS) | ⏳ siguiente | 0.4.0 | pendiente |
-| 4 | Mejora continua (set de control, resumen por bloques) | 🔜 | — | pendiente |
+| 3 | Interfaz (API + revisión + export LILACS) | ✅ hecho | 0.4.0 | `FASE3-INTERFAZ` 13/13 |
+| 4 | Mejora continua (set de control, resumen por bloques) | ⏳ siguiente | — | pendiente |
 
 ## Qué hace hoy (0.3.0)
 
@@ -29,6 +29,15 @@ Y por **lotes** (`pdfsum batch`):
 6. **Cola idempotente** con reintentos (no reprocesa docs ya hechos).
 7. **QA gates** automáticos por doc (esquema, refusal, idioma, abstracts).
 8. **Métricas + report.json** del lote (por tipo/idioma, calidad, tiempos).
+
+Y para **cerrar el ciclo** (Fase 3):
+
+9. **Revisión humana**: aprobar/rechazar/editar (no aprueba con fallos QA de
+   error salvo forzado registrado).
+10. **Export LILACS** (`pdfsum export`): registro borrador con tipo, título,
+    resúmenes multilingües y descriptores candidatos (validación DeCS pendiente).
+11. **API de consulta** (`pdfsum serve`): `/api/summaries`, `/api/summaries/<id>`,
+    `/api/report` (solo lectura, local, sin dependencias).
 
 ## Alineación con la propuesta de producto
 

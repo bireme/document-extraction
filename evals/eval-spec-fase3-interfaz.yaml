@@ -1,0 +1,125 @@
+---
+id: FASE3-INTERFAZ
+titulo: "Interfaz: flujo de revisión, export LILACS y API de consulta"
+descripcion: >
+  Cerrar el ciclo hacia el usuario: un flujo de revisión humana (aprobar/
+  editar/rechazar) sobre los resúmenes del lote, un export a formato de
+  catalogación LILACS (borrador de registro para revisión, no validado), y
+  una API de consulta local de solo lectura sobre los resultados. Todo sobre
+  el contrato JSON de Fases 0-2, sin dependencias externas (http.server stdlib).
+estado: COMPLETADO
+fecha: 2026-08-19
+resultado: >
+  13/13 criterios verdes (40 tests unittest, incl. 30 de Fases 0-2 sin
+  regresión; ruff limpio). Validado end-to-end: export LILACS del lote real
+  (3 registros draft, tipo 'S' para artículo, resúmenes multilingües
+  generado+origen, descriptores candidatos con nota DeCS); API http.server
+  sirviendo /api/summaries, /api/summaries/<id> y /api/report sobre el lote.
+
+criterios:
+  # --- Flujo de revisión (dominio puro) ---
+  - id: C1-review-estados
+    tipo: unit
+    descripcion: >
+      Un ReviewRecord tiene estado pending por defecto y transita a approved /
+      rejected / edited mediante acciones; registra revisor y nota opcional.
+    verificacion: "test_review.py::test_estados"
+
+  - id: C2-review-edita-secciones
+    tipo: unit
+    descripcion: >
+      Editar aplica cambios a secciones concretas del resumen preservando el
+      resto y marca estado 'edited', sin romper el contrato SummaryResult.
+    verificacion: "test_review.py::test_edicion"
+
+  - id: C3-review-gate-aprobacion
+    tipo: unit
+    descripcion: >
+      No se puede aprobar un resultado que falla QA gates de severidad 'error'
+      salvo forzado explícito (force=True), que queda registrado en la nota.
+    verificacion: "test_review.py::test_no_aprobar_con_errores"
+
+  # --- Export LILACS (dominio puro) ---
+  - id: C4-export-campos-lilacs
+    tipo: unit
+    descripcion: >
+      to_lilacs() mapea el SummaryResult a un registro con campos de la
+      metodología LILACS (05 tipo de documento, título, idioma, resumen,
+      descriptores candidatos) y marca 'status: draft' (no validado).
+    verificacion: "test_export.py::test_lilacs_fields"
+
+  - id: C5-export-idioma-y-abstracts
+    tipo: unit
+    descripcion: >
+      El export incluye el idioma principal y, si hay abstracts de origen
+      multilingües, los adjunta como resúmenes por idioma (Ab con lang).
+    verificacion: "test_export.py::test_lilacs_multilingue"
+
+  - id: C6-export-descriptores-candidatos
+    tipo: unit
+    descripcion: >
+      Los 'términos técnicos' del resumen se exponen como descriptores
+      CANDIDATOS (no validados DeCS), señalando que requieren validación
+      humana con el vocabulario DeCS/MeSH.
+    verificacion: "test_export.py::test_descriptores_candidatos"
+
+  # --- Arquitectura ---
+  - id: C7-dominio-sin-adaptadores
+    tipo: architecture
+    descripcion: >
+      Los módulos nuevos de dominio (review.py, export.py) NO importan
+      adaptadores, http ni procesos externos.
+    verificacion: "test_architecture.py::test_domain_has_no_adapter_imports"
+
+  # --- API de consulta (adaptador http.server) ---
+  - id: C8-api-listar
+    tipo: integration
+    descripcion: >
+      GET /api/summaries devuelve la lista de resúmenes de un directorio de
+      lote con doc_id, tipo, idioma y estado QA. 200 + JSON.
+    verificacion: "test_api.py::test_list_summaries"
+
+  - id: C9-api-detalle
+    tipo: integration
+    descripcion: >
+      GET /api/summaries/<doc_id> devuelve el resumen completo (con _qa).
+      404 si no existe.
+    verificacion: "test_api.py::test_get_summary"
+
+  - id: C10-api-report
+    tipo: integration
+    descripcion: >
+      GET /api/report devuelve el report.json del lote (métricas + docs).
+    verificacion: "test_api.py::test_get_report"
+
+  # --- CLI ---
+  - id: C11-cli-export
+    tipo: integration
+    descripcion: >
+      'pdfsum export --in <dir-lote> --out <archivo.json>' genera los registros
+      LILACS (borrador) de todos los resúmenes del lote.
+    verificacion: "test_cli_export.py::test_cli_export"
+
+  # --- Calidad / no regresión ---
+  - id: C12-lint
+    tipo: metrics
+    descripcion: "ruff limpio en src/ y tests/."
+    verificacion: "make lint"
+
+  - id: C13-no-regresion
+    tipo: metrics
+    descripcion: "Los 30 tests de Fases 0-2 siguen verdes."
+    verificacion: "make test"
+
+invariantes:
+  - "El export LILACS es un BORRADOR para revisión humana, nunca un registro
+     validado (descriptores DeCS requieren validación con el vocabulario)."
+  - "El flujo de revisión no altera el resumen salvo edición explícita."
+  - "La API es de solo lectura y local; review/export no importan http."
+  - "Se preserva idioma del documento y abstracts de origen en el export."
+
+no_objetivos_fase3:
+  - "Validación real contra el vocabulario DeCS (requiere servicio externo)."
+  - "Integración con LILDBI-Web / envío a BVS."
+  - "Autenticación/multiusuario de la API (Fase futura)."
+  - "Frontend gráfico; la API sirve JSON y un HTML mínimo opcional."

@@ -11,6 +11,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from .contract import SummaryResult
 from .pipeline import summarize_document
 
 
@@ -55,6 +56,32 @@ def cmd_batch(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_export(args: argparse.Namespace) -> int:
+    import json
+
+    from .export import to_lilacs
+    base = Path(args.in_dir)
+    records = []
+    for f in sorted(base.glob("*.json")):
+        if f.name in ("report.json", "_jobs.json"):
+            continue
+        d = json.loads(f.read_text(encoding="utf-8"))
+        d.pop("_qa", None)
+        records.append(to_lilacs(SummaryResult.from_dict(d)))
+    Path(args.out).write_text(
+        json.dumps(records, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(f"export LILACS (borrador): {len(records)} registros -> {args.out}")
+    return 0
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    from .adapters.api_server import serve
+    serve(args.batch_dir, host=args.host, port=args.port)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="pdfsum", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -78,6 +105,17 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--dry-run", action="store_true",
                    help="usar resumidor fake (sin modelo)")
     b.set_defaults(func=cmd_batch)
+
+    e = sub.add_parser("export", help="exportar lote a registros LILACS (borrador)")
+    e.add_argument("--in", dest="in_dir", required=True, help="dir del lote")
+    e.add_argument("--out", required=True, help="archivo .json de salida")
+    e.set_defaults(func=cmd_export)
+
+    sv = sub.add_parser("serve", help="API de consulta de solo lectura del lote")
+    sv.add_argument("--batch-dir", dest="batch_dir", required=True)
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=8765)
+    sv.set_defaults(func=cmd_serve)
     return p
 
 
