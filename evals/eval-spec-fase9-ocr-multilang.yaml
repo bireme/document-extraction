@@ -1,0 +1,67 @@
+---
+id: FASE9-OCR-MULTILANG
+titulo: >
+  OCR con diccionario multi-idioma por defecto (por+eng+spa), configurable
+descripcion: >
+  El corpus BIREME mezcla PDFs escaneados en portugues, espanol e ingles (y
+  ocasionalmente frances/italiano). El --lang de Tesseract se fija una sola
+  vez por ejecucion de `run`/`transcribe`/`verify` y aplica a TODAS las
+  paginas escaneadas del lote: si el default es un solo idioma (`por`), los
+  escaneados en otro idioma sufren peor OCR (diccionario equivocado).
+  Tesseract soporta combinar diccionarios en una sola pasada (`-l
+  por+eng+spa`), validado en pruebas previas del piloto (incluyendo frances y
+  un idioma adicional). Este cambio pone ese combo como DEFAULT y deja el
+  parametro --lang abierto a que el usuario anada/quite idiomas
+  (`--lang por+eng+spa+fra`).
+  Fuera de alcance: deteccion automatica por documento (dos pasadas OCR) —
+  ver nota en eval-spec-fase7 sobre limitaciones conocidas; esto es la
+  mitigacion barata (opcion A), no la deteccion real (opcion B).
+estado: COMPLETADO
+fecha: 2026-08-20
+resultado: >
+  5/5 criterios verdes (85 tests, incluyendo 3 nuevos: test_default_lang_run,
+  test_lang_override_propagates, test_lang_passthrough_tesseract). ruff
+  limpio. Default de --lang cambiado a "por+eng+spa" en run/transcribe/verify
+  y en HybridOcrTranscriber; INSTALL.md y GUIA-USO.md documentan el default y
+  como anadir idiomas. Deteccion real por documento (dos pasadas OCR) queda
+  fuera de alcance, documentada como trabajo futuro.
+
+criterios:
+  - id: C1-default-multilang
+    tipo: unit
+    descripcion: >
+      El default de --lang en los subcomandos run, transcribe y verify es
+      "por+eng+spa" (no "por" a secas).
+    verificacion: "test_cli_multilang.py::test_default_lang_run"
+
+  - id: C2-configurable
+    tipo: unit
+    descripcion: >
+      El usuario puede sobreescribir --lang con una lista arbitraria de
+      idiomas separados por '+' (p. ej. "por+eng+spa+fra"); el valor se
+      propaga sin modificar al invocar Tesseract.
+    verificacion: "test_cli_multilang.py::test_lang_override_propagates"
+
+  - id: C3-propagacion-transcriber
+    tipo: unit
+    descripcion: >
+      HybridOcrTranscriber invoca tesseract con "-l <lang>" usando
+      exactamente el valor recibido (self.lang), sin partirlo ni validarlo
+      contra una lista fija — cualquier combo instalado en el sistema
+      funciona.
+    verificacion: "test_hybrid_ocr.py::test_lang_passthrough_tesseract"
+
+  - id: C4-docs-actualizadas
+    tipo: metrics
+    descripcion: >
+      INSTALL.md y GUIA-USO.md documentan el nuevo default multi-idioma y
+      como anadir idiomas adicionales (paquete tesseract-ocr-<code> + --lang).
+    verificacion: "revision manual: grep 'por+eng+spa' INSTALL.md GUIA-USO.md"
+
+  - id: C5-no-regresion-nativos
+    tipo: integration
+    descripcion: >
+      El cambio de default no afecta PDFs nativos (deteccion de idioma del
+      RESUMEN sigue via detect_language() sobre el texto extraido,
+      independiente del --lang de OCR). Suite completa sigue en verde.
+    verificacion: "pytest (suite completa) sin regresiones"

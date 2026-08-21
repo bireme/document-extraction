@@ -105,6 +105,37 @@ class TestHybridOcr(unittest.TestCase):
         self.assertEqual(tr.text, nativo)
         self.assertEqual(tr.source_kind.value, "nativo")
 
+    def test_lang_passthrough_tesseract(self):
+        """C3 (FASE9): self.lang se pasa intacto a '-l' en tesseract, sin
+        partir ni validar contra una lista fija (combo multi-idioma)."""
+        lang_combo = "por+eng+spa+fra"
+        seen_lang_args = []
+        with patch("pdfsum.adapters.hybrid_ocr.shutil.which",
+                   return_value="/usr/bin/x"), \
+             patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1), \
+             patch("pdfsum.adapters.hybrid_ocr._run") as run:
+            def fake_run(cmd, timeout=120):
+                s = " ".join(cmd)
+                if "pdftotext" in s:
+                    return ""  # sin texto nativo -> escaneado
+                if cmd and cmd[0] == "tesseract" and "-l" in cmd:
+                    seen_lang_args.append(cmd[cmd.index("-l") + 1])
+                if "tsv" in s:
+                    return _tsv(95.0, 30)
+                if "pdftoppm" in s:
+                    _save_page_image(Path(cmd[-1] + "-1.jpg"))
+                    return ""
+                return "texto tesseract"
+            run.side_effect = fake_run
+            with patch("pdfsum.adapters.hybrid_ocr.shutil.which",
+                       return_value="/usr/bin/x"):
+                tr = HybridOcrTranscriber(
+                    lang=lang_combo, vlm=FakePageOCR()
+                ).transcribe(str(self.dir / "x.pdf"))
+        self.assertIn("texto tesseract", tr.text)
+        self.assertTrue(seen_lang_args)
+        self.assertTrue(all(l == lang_combo for l in seen_lang_args))
+
     def test_cli_run_hibrido_fake(self):
         """C7: run con fake no rompe (inyección del transcriptor)."""
         # La integración CLI->híbrido real se valida manualmente con Ollama;

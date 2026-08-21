@@ -272,7 +272,10 @@ def build_parser() -> argparse.ArgumentParser:
     r = sub.add_parser("run", help="flujo completo desde PDFs (transcribe+resume)")
     r.add_argument("--in", dest="in_dir", required=True, help="directorio de PDFs")
     r.add_argument("--workspace", required=True, help="dir de artefactos (ocr/, summaries/)")
-    r.add_argument("--lang", default="por", help="idioma OCR Tesseract (por/spa/eng)")
+    r.add_argument("--lang", default="por+eng+spa",
+                   help="idioma(s) OCR Tesseract, combinables con '+' "
+                        "(default: por+eng+spa; ej. anadir frances: "
+                        "por+eng+spa+fra)")
     r.add_argument("--model", default="qwen2.5:7b")
     r.add_argument("--long-strategy", dest="long_strategy", default="excerpt",
                    choices=["excerpt", "blocks"])
@@ -285,7 +288,7 @@ def build_parser() -> argparse.ArgumentParser:
     t = sub.add_parser("transcribe", help="solo transcribir PDFs a ocr/*.txt")
     t.add_argument("--in", dest="in_dir", required=True, help="directorio de PDFs")
     t.add_argument("--workspace", required=True)
-    t.add_argument("--lang", default="por")
+    t.add_argument("--lang", default="por+eng+spa")
     t.add_argument("--fake", action="store_true")
     t.set_defaults(func=cmd_transcribe)
 
@@ -298,7 +301,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="dir de artefactos de la verificación")
     v.add_argument("--pdfs", default=None, help="dir de PDFs (def: muestra)")
     v.add_argument("--control", default=None, help="set de control (def: incluido)")
-    v.add_argument("--lang", default="por")
+    v.add_argument("--lang", default="por+eng+spa")
     v.add_argument("--model", default="qwen2.5:7b")
     v.add_argument("--long-strategy", dest="long_strategy", default="excerpt",
                    choices=["excerpt", "blocks"])
