@@ -43,7 +43,7 @@ class HybridOcrTranscriber:
 
     def __init__(
         self,
-        lang: str = "por",
+        lang: str = "por+eng+spa",
         dpi: int = 300,
         vlm: PageOCR | None = None,
         min_conf: float = MIN_CONF,

@@ -36,8 +36,11 @@ aplicación, la ejecute y **verifique que obtiene resultados similares**.
 ### Software de sistema
 - **Python ≥ 3.10**
 - **poppler-utils** (`pdftotext`, `pdfinfo`, `pdftoppm`) — requisito duro.
-- **Tesseract OCR** + idiomas del corpus (`por`, `spa`, `eng`, …) — para
-  documentos escaneados.
+- **Tesseract OCR** + idiomas del corpus. El default de `pdfsum` es el
+  combo `por+eng+spa` (Tesseract combina diccionarios en una sola pasada);
+  instala los tres paquetes de idioma como mínimo. Para más idiomas en el
+  corpus (p. ej. francés), instala el paquete y añade el código a `--lang`
+  (ej. `--lang por+eng+spa+fra`).
 - **Ollama** (runtime de modelos locales) + los modelos:
   - `qwen2.5:7b` — generación de resúmenes (texto).
   - `qwen3-vl:8b-instruct` — OCR de escaneos difíciles (visión, opcional).
@@ -84,7 +87,7 @@ La aplicación incluye una **muestra** (`samples/pdfs/`) y un **set de control**
 (`samples/control_set.json`) con expectativas verificables.
 
 ```bash
-pdfsum verify --workspace ./_verify --lang por
+pdfsum verify --workspace ./_verify --lang por+eng+spa
 ```
 Corre el flujo completo (transcribe → resume) sobre la muestra y evalúa contra
 el set de control. Imprime:

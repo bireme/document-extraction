@@ -8,7 +8,7 @@ Todo lo necesario en **una página**. Instalación detallada: `INSTALL.md`.
 ## Uso principal
 
 ```bash
-pdfsum run --in /ruta/a/tus/pdfs --workspace ./datos --lang por
+pdfsum run --in /ruta/a/tus/pdfs --workspace ./datos --lang por+eng+spa
 ```
 
 Apuntas a una carpeta de PDFs y la app: transcribe (OCR si hace falta) →
@@ -82,15 +82,20 @@ curl http://127.0.0.1:8765/api/report
 ## Opciones clave de `run`
 
 ```bash
---lang por|spa|eng            idioma del OCR (el resumen va en el idioma del doc)
+--lang por+eng+spa            idioma(s) OCR Tesseract, combinables con '+'
+                               (default: por+eng+spa; el resumen va en el
+                               idioma del doc, detectado aparte)
 --model qwen2.5:7b            modelo de resumen (por defecto)
 --long-strategy blocks        manuales largos: resumir por bloques (cubre todo)
 ```
 
 **Manual largo completo:**
 ```bash
-pdfsum run --in ./manuales --workspace ./data_manuales --lang por --long-strategy blocks
+pdfsum run --in ./manuales --workspace ./data_manuales --lang por+eng+spa --long-strategy blocks
 ```
+
+**Corpus con más idiomas (ej. añadir francés):** instala el paquete
+(`tesseract-ocr-fra`) y añade el código: `--lang por+eng+spa+fra`.
 
 ---
 
