@@ -4,6 +4,26 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [0.10.0] — 2026-08-24 — Resumen jerárquico por capítulos (coexistencia de estrategias)
+### Añadido
+- `chapters.py` (dominio puro): detección de capítulos por regex con fallback a
+  bloques si no hay estructura.
+- `consolidation.py` (dominio puro): deduplicación inteligente de campos
+  repetibles (publico, terminos) en consolidaciones finales.
+- `config.py`: lectura de `.pdfsum-config.json` (local o `~/.pdfsum-config.json`)
+  para personalizar defaults sin tocar CLI.
+- `long_strategy="hierarchical"`: nueva estrategia con cobertura 100%, tiempo ~600s
+  para libro 1M+ chars, calidad óptima (coherencia capitular).
+- Tabla de trade-offs en GUIA-USO.md: excerpt (3%, 15s), blocks (100%, 60s),
+  hierarchical (100%, 600s).
+### Importante
+- **Estrategias coexisten, no se sustituye una por otra.** Default sigue siendo
+  `excerpt` (backward compatible).
+### Verificado
+- eval-spec `FASE10`: 12 criterios; 97 tests (sin regresión); ruff limpio.
+- End-to-end con `crisis_familianuevo` (362 pág, 1M chars): meta correcto,
+  no hay repeticiones, QA ok.
+
 ## [0.9.0] — 2026-08-20 — Segmentación de página (columnas/bloques)
 ### Añadido
 - `segment.py` (dominio): detección de columnas (proyección vertical + canal
