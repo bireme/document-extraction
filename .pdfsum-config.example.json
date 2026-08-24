@@ -1,0 +1,15 @@
+{
+  "_comment": "Copiar a .pdfsum-config.json en el directorio de trabajo o en ~/ para personalizar defaults.",
+  "_comment2": "Los flags de CLI siempre prevalecen sobre este archivo.",
+  
+  "long_strategy": "excerpt",
+  "_long_strategy_help": "excerpt (rápido, ~1-2% cobertura) | blocks (mediano, 100% cobertura) | hierarchical (lento, 100% cobertura con mejor coherencia por capítulos)",
+  
+  "model": "qwen2.5:7b",
+  "_model_help": "Modelo local Ollama o remoto",
+  
+  "lang": "por+eng+spa",
+  "_lang_help": "Idiomas OCR (Tesseract), combinables con +. Ej: por+eng+spa+fra",
+  
+  "max_chars": 40000
+}
