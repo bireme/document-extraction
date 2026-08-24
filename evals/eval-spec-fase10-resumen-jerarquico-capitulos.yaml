@@ -1,0 +1,161 @@
+---
+id: FASE10-RESUMEN-JERARQUICO
+titulo: "Resumen jerarquico por capitulos (cobertura 100%, eleccion del usuario)"
+descripcion: >
+  Agregar long_strategy='hierarchical' como opcion complementaria (no sustituta)
+  a 'excerpt' y 'blocks' para documentos largos con estructura de capitulos.
+  Diferentes estrategias tienen diferentes trade-offs (velocidad vs cobertura/coherencia)
+  y la eleccion debe ser del usuario segun sus recursos y necesidades.
+
+  Implementacion:
+  1. Detectar capitulos reales (regex "Capitulo N") con fallback a bloques
+     si no se encuentran.
+  2. Resumir cada capitulo (sub-dividiendo en bloques si es necesario),
+     consolidando parciales intra-capitulo.
+  3. Consolidacion final: deduplicacion inteligente de campos repetibles
+     (publico, terminos), sin apilamiento.
+  4. Configurabilidad: soportar archivo `.pdfsum-config.json` para setear
+     defaults sin tocar CLI.
+  5. Documentacion clara de trade-offs en GUIA-USO.md.
+  6. Validar: cobertura 100%, timing ~600s para libro 1M chars, sin regresion QA.
+
+estado: COMPLETADO
+fecha: 2026-08-24
+resultado: >
+  Fase 10 COMPLETA. Tres estrategias coexisten sin reemplazo:
+  - excerpt: 3% cobertura, 15s, default (POC/demo)
+  - blocks: 100% cobertura, 60s, manuales medianos
+  - hierarchical: 100% cobertura + coherencia capitulos, 600s, libros
+  Validado con crisis_familianuevo: 13 capitulos, 1M chars, meta correcto.
+  Configurabilidad via .pdfsum-config.json. Docs actualizadas. 97 tests, OK.
+
+criterios:
+  - id: C1-detector-capitulos
+    tipo: unit
+    descripcion: >
+      chapters.detect_chapters(text) sobre "Crisis, familia y psicoterapia"
+      devuelve lista con los 13 capitulos correctos (numero y titulo), cada uno
+      con el texto contenido (sin overlap, sin perdida). Tolerancia: detectar
+      al menos 80% de los capitulos presentes.
+    verificacion: "test_chapters.py::test_detect_chapters_crisis"
+
+  - id: C2-capitulos-cobertura-total
+    tipo: unit
+    descripcion: >
+      Concatenar todos los textos de los capitulos detectados cubre al menos
+      80% del documento original. Garantiza que no hay perdida sustancial
+      de contenido en la deteccion.
+    verificacion: "test_chapters.py::test_chapters_cobertura_total"
+
+  - id: C3-fallback-a-bloques
+    tipo: unit
+    descripcion: >
+      detect_chapters() sobre un texto SIN capitulos retorna lista vacia.
+      El pipeline debe degradar a split_blocks() automaticamente (same as
+      long_strategy='blocks'). Test: verify que plan A (regex capitulos)
+      no explota en textos sin capitulos.
+    verificacion: "test_chapters.py::test_fallback_no_capitulos"
+
+  - id: C4-resumen-por-capitulo
+    tipo: integration
+    descripcion: >
+      summarize_document(crisis..., long_strategy='hierarchical') devuelve
+      un SummaryResult con secciones bien pobladas (titulo, sintesis, etc.).
+      meta incluye "excerpt_strategy": "hierarchical", "n_capitulos": 13,
+      "excerpt_chars": len(texto_completo), "excerpt_truncated": false.
+    verificacion: "test_pipeline_hierarchical.py::test_summarize_hierarchical"
+
+  - id: C5-cobertura-100-porciento
+    tipo: integration
+    descripcion: >
+      El campo meta['excerpt_chars'] == len(texto_original).
+      El campo meta['excerpt_truncated'] == false.
+      Comprobacion de que el estrategia jerarquica procesa 100% del texto,
+      no un excerpt.
+    verificacion: "test_pipeline_hierarchical.py::test_cobertura_100"
+
+  - id: C6-sin-repeticion-consolidacion
+    tipo: unit
+    descripcion: >
+      En la consolidacion final, campos repetibles (publico, terminos)
+      no se apilan; se transforman a conjuntos y se fusionan en una lista
+      unica y deduplica. Test unitario sobre 3 secciones parciales con
+      terminos duplicados, verifica que la salida final los deduplica.
+    verificacion: "test_consolidation.py::test_consolidate_terminos_deduplica"
+
+  - id: C7-estrategias-coexisten
+    tipo: integration
+    descripcion: >
+      Las tres estrategias (excerpt, blocks, hierarchical) funcionan
+      independientemente. El default sigue siendo 'excerpt'. Usuario elige
+      via --long-strategy sin necesidad de tocar codigo.
+    verificacion: "test_pipeline_hierarchical.py::test_hierarchical_fallback_sin_capitulos"
+
+  - id: C8-cli-acepta-hierarchical
+    tipo: integration
+    descripcion: >
+      CLI (run, verify) acepta --long-strategy hierarchical.
+      Default sigue siendo 'excerpt' (backward compatible).
+      pdfsum run --long-strategy hierarchical --in pdfs --workspace data
+      produce salida con meta['excerpt_strategy']='hierarchical'.
+    verificacion: "CLI test manual con crisis_familianuevo"
+
+  - id: C9-config-json-defaults
+    tipo: integration
+    descripcion: >
+      Soportar archivo .pdfsum-config.json (local o ~/.pdfsum-config.json global)
+      para personalizar defaults (long_strategy, model, lang, max_chars).
+      Flags CLI siempre prevalecen.
+    verificacion: "config.py loads from .pdfsum-config.json y ~/.pdfsum-config.json"
+
+  - id: C10-dominio-sin-adaptadores
+    tipo: architecture
+    descripcion: >
+      chapters.py y consolidation.py son dominio puro: no importan Ollama, HTTP,
+      ni adaptadores. Solo regex, string operations, data structures.
+      pipeline.py usa chapters.detect_chapters() y reutiliza
+      chunking.summarize_in_blocks() existente.
+    verificacion: "imports en chapters.py y consolidation.py"
+
+  - id: C11-qa-sin-regresion
+    tipo: metrics
+    descripcion: >
+      97 tests existentes siguen en verde. Verificar (pdfsum verify) que los
+      criterios de QA existentes (idioma, tipo_documento, gates de contenido)
+      siguen pasando. No hay degradacion en la calidad de deteccion.
+    verificacion: "PYTHONPATH=src python3 -m unittest discover tests -v"
+
+  - id: C12-documentacion-trade-offs
+    tipo: documentation
+    descripcion: >
+      GUIA-USO.md documenta claramente:
+      - Tres estrategias y sus trade-offs (tiempo, cobertura, calidad)
+      - Cuando usar cada una (demo, manual mediano, libro largo)
+      - Como personalizar defaults via .pdfsum-config.json
+      - Que estrategias coexisten sin sustitucion.
+    verificacion: "GUIA-USO.md contiene seccion 'Estrategias de procesamiento'"
+
+invariantes:
+  - "El resumen jerarquico procesa 100% del texto del documento."
+  - "La deteccion de capitulos no pierde contenido sustancial (cobertura >= 80%)."
+  - "La consolidacion final no repite secciones; las deduplica y fusiona."
+  - "Tres estrategias coexisten: excerpt (rapido, 3% cobertura),
+     blocks (mediano, 100%), hierarchical (lento, 100% coherente)."
+  - "Default sigue siendo 'excerpt'; usuario elige segun recursos."
+  - "Configuracion .pdfsum-config.json permite personalizar defaults."
+  - "Sin cambios en puertos (Summarizer, Transcriber, PageOCR) ni
+     adaptadores. Arquitectura hexagonal intacta."
+  - "QA sin regresion: idioma, tipo_documento, gates existentes siguen ok."
+  - "CLI flags siempre prevalecen sobre config file."
+
+no_objetivos:
+  - "Deteccion de capitulos en idiomas distintos a es/pt (solo regex Capitulo[0-9]+
+     por ahora; generalizacion es future work)."
+  - "Jerarquia multi-nivel (tabla de contenidos -> partes -> capitulos;
+     alcance es capitulos y bloques, no tres niveles)."
+  - "Resumen adaptativo (cambiar presupuesto o n_bloques por capitulo;
+     hoy es fijo 40K para todos)."
+  - "Paralelizacion de resumen de bloques (sequential, compatible con Ollama
+     local sin batching)."
+  - "Optimizacion de tiempo: hierarchical requiere N llamadas al modelo por
+     N capitulos; ese costo es inherente, no evitable sin perder calidad."

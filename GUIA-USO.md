@@ -86,16 +86,67 @@ curl http://127.0.0.1:8765/api/report
                                (default: por+eng+spa; el resumen va en el
                                idioma del doc, detectado aparte)
 --model qwen2.5:7b            modelo de resumen (por defecto)
---long-strategy blocks        manuales largos: resumir por bloques (cubre todo)
+--long-strategy ESTRATEGIA    elección del usuario por recursos/necesidades
 ```
 
-**Manual largo completo:**
+### Estrategias de procesamiento para documentos largos (>40K caracteres)
+
+La decisión entre estrategias es tuya: depende de **tus recursos** y **qué necesitas**.
+
+| Estrategia | Contenido | Tiempo | Calidad | Caso de uso |
+|---|---|---|---|---|
+| **`excerpt`** (default) | ~3% del doc | ~15s | Prefacio + intro | Demo rápido, resúmenes ultraconcisos, poc |
+| **`blocks`** | 100% del doc | ~60s | Cobertura total | Manuales medianos, presupuesto moderado |
+| **`hierarchical`** | 100% del doc | ~600s (10 min) | **Cobertura + coherencia por capítulos** | Libros con estructura clara (capítulos), máxima calidad |
+
+**Ejemplos:**
+
 ```bash
-pdfsum run --in ./manuales --workspace ./data_manuales --lang por+eng+spa --long-strategy blocks
+# Resumen rápido de un folleto (default)
+pdfsum run --in ./folletos --workspace ./data
+
+# Manual largo → bloques (100% cobertura, tiempo medio)
+pdfsum run --in ./manuales --workspace ./data --long-strategy blocks
+
+# Libro de 300+ págs → jerárquico (100% cobertura + coherencia capítulos)
+pdfsum run --in ./libros --workspace ./data --long-strategy hierarchical
 ```
+
+**Nota:** Estrategias coexisten. El modelo `hierarchical` detecta capítulos reales
+de documentos; si no encuentra estructura, degrada automáticamente a `blocks`.
 
 **Corpus con más idiomas (ej. añadir francés):** instala el paquete
 (`tesseract-ocr-fra`) y añade el código: `--lang por+eng+spa+fra`.
+
+---
+
+## Personalizar defaults (sin tocar CLI)
+
+Si siempre usas la misma estrategia, puedes configurarla en un archivo
+(los flags CLI siempre prevalecen):
+
+**En tu directorio de trabajo:**
+```bash
+cat > .pdfsum-config.json <<EOF
+{
+  "long_strategy": "hierarchical",
+  "model": "qwen2.5:7b",
+  "lang": "por+eng+spa"
+}
+EOF
+
+# Ahora todos los comandos usan hierarchical por defecto
+pdfsum run --in ./libros --workspace ./data
+# (es equivalente a: pdfsum run ... --long-strategy hierarchical)
+```
+
+**En tu home (global):**
+```bash
+cp .pdfsum-config.json ~/.pdfsum-config.json
+# Aplica a todo proyecto (puedes sobreescribir en un .pdfsum-config.json local)
+```
+
+Copia tu configuración desde `.pdfsum-config.example.json` en el repo.
 
 ---
 
