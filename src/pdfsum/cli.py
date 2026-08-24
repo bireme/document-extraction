@@ -278,7 +278,7 @@ def build_parser() -> argparse.ArgumentParser:
                         "por+eng+spa+fra)")
     r.add_argument("--model", default="qwen2.5:7b")
     r.add_argument("--long-strategy", dest="long_strategy", default="excerpt",
-                   choices=["excerpt", "blocks"])
+                   choices=["excerpt", "blocks", "hierarchical"])
     r.add_argument("--dry-run", action="store_true",
                    help="resumidor fake (OCR real)")
     r.add_argument("--fake", action="store_true",
@@ -304,7 +304,7 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--lang", default="por+eng+spa")
     v.add_argument("--model", default="qwen2.5:7b")
     v.add_argument("--long-strategy", dest="long_strategy", default="excerpt",
-                   choices=["excerpt", "blocks"])
+                   choices=["excerpt", "blocks", "hierarchical"])
     v.add_argument("--min-coverage", dest="min_coverage", type=float,
                    default=0.6)
     v.add_argument("--dry-run", action="store_true")

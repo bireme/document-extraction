@@ -7,8 +7,10 @@ adaptador aguas arriba) y produce un SummaryResult conforme al contrato.
 from __future__ import annotations
 
 from .abstracts import abstract_langs, extract_abstracts
+from .chapters import detect_chapters
 from .chunking import summarize_in_blocks
 from .classify import classify_type, detect_language, template_for
+from .consolidation import consolidate_sections
 from .contract import (
     DocType,
     Summarizer,
@@ -17,6 +19,97 @@ from .contract import (
     Transcriber,
 )
 from .excerpt import DEFAULT_MAX_CHARS, select_excerpt
+
+
+def _summarize_chapter(
+    chapter_id: str,
+    text: str,
+    summarizer: Summarizer,
+    lang: str,
+    template: str,
+    max_chars: int = DEFAULT_MAX_CHARS,
+) -> tuple[dict[str, str], dict]:
+    """Resume un capítulo, sub-dividiendo en bloques si aún es largo.
+
+    Retorna (secciones, meta) donde meta incluye n_bloques y chars.
+    """
+    if len(text) <= max_chars:
+        req = SummarizeRequest(
+            doc_id=chapter_id, text=text, lang=lang, template=template
+        )
+        secciones = summarizer.summarize(req)
+        return secciones, {"n_bloques": 1, "chars": len(text)}
+
+    # Sub-dividir en bloques y consolidar parciales
+    _, meta = summarize_in_blocks(
+        chapter_id, text, summarizer, lang, template, max_chars=max_chars
+    )
+    # El resultado consolidado ya está en meta (resumen final)
+    # Pero necesitamos extraer la parte de secciones consolidadas;
+    # reutilizamos summarize_in_blocks que devuelve (secciones, meta)
+    secciones, _ = summarize_in_blocks(
+        chapter_id, text, summarizer, lang, template, max_chars=max_chars
+    )
+    return secciones, meta
+
+
+def _summarize_hierarchical(
+    doc_id: str,
+    text: str,
+    summarizer: Summarizer,
+    lang: str,
+    template: str,
+    max_chars: int = DEFAULT_MAX_CHARS,
+) -> tuple[dict[str, str], dict]:
+    """Resume por capítulos detectados; retorna (secciones, meta).
+
+    Si no detecta capítulos, degrada a summarize_in_blocks().
+    """
+    chapters = detect_chapters(text, lang=lang)
+
+    if not chapters:
+        # No capítulos encontrados; usar estrategia de bloques
+        return summarize_in_blocks(
+            doc_id, text, summarizer, lang, template, max_chars=max_chars
+        )
+
+    # Resume cada capítulo y consolida
+    chapter_summaries = []
+    for ch in chapters:
+        ch_secciones, _ = _summarize_chapter(
+            f"{doc_id}#cap{ch.number}",
+            ch.text,
+            summarizer,
+            lang,
+            template,
+            max_chars=max_chars,
+        )
+        chapter_summaries.append(ch_secciones)
+
+    # Consolidación final entre capítulos
+    merged = consolidate_sections(chapter_summaries)
+
+    # Si hay más de 1 capítulo, re-resumir la consolidación para mayor síntesis
+    if len(chapters) > 1:
+        union_text = "\n\n".join(
+            f"{k}:\n{v}" for k, v in merged.items() if v
+        )
+        req = SummarizeRequest(
+            doc_id=f"{doc_id}#consolidado", text=union_text, lang=lang,
+            template=template,
+        )
+        final = summarizer.summarize(req)
+    else:
+        final = merged
+
+    meta = {
+        "excerpt_strategy": "hierarchical",
+        "excerpt_parts": [f"cap_{ch.number}" for ch in chapters],
+        "excerpt_truncated": False,
+        "excerpt_chars": len(text),
+        "n_capitulos": len(chapters),
+    }
+    return final, meta
 
 
 def summarize_document(
@@ -38,6 +131,8 @@ def summarize_document(
         * long_strategy='excerpt' (def): porción por tipo/estructura.
         * long_strategy='blocks': resumen por bloques + consolidación
           (cubre TODO el texto; útil para manuales largos completos).
+        * long_strategy='hierarchical': resumen por capítulos + consolidación
+          (detecta capítulos, resume cada uno, consolida intra/inter-capítulos).
     - Extrae y preserva abstracts de origen verbatim (del texto COMPLETO).
     """
     doc_lang = lang or detect_language(text)
@@ -46,7 +141,11 @@ def summarize_document(
     dtype = doc_type or classify_type(text, pages=pages)
     template = template_for(dtype)
 
-    if long_strategy == "blocks" and len(text) > max_chars:
+    if long_strategy == "hierarchical" and len(text) > max_chars:
+        secciones, exc_meta = _summarize_hierarchical(
+            doc_id, text, summarizer, doc_lang, template, max_chars=max_chars
+        )
+    elif long_strategy == "blocks" and len(text) > max_chars:
         secciones, exc_meta = summarize_in_blocks(
             doc_id, text, summarizer, doc_lang, template, max_chars=max_chars
         )
