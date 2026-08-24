@@ -1,0 +1,136 @@
+---
+id: FASE10-RESUMEN-JERARQUICO
+titulo: "Resumen jerárquico por capítulos para libros largos (cobertura 100%)"
+descripcion: >
+  Para documentos que exceden el presupuesto del modelo (>40K caracteres),
+  en vez de tomar un excerpt que cubre solo el 3-5% del contenido (estado hoy),
+  implementar resumen jerárquico:
+  1. Detectar capítulos reales (regex "Capítulo N") con fallback a bloques
+     por tamaño si no se encuentran capítulos.
+  2. Resumir cada capítulo (sub-dividiendo en bloques si aún es largo),
+     consolidando parciales intra-capítulo.
+  3. Consolidación final: síntesis de síntesis (deduplica terminos/publico,
+     no apila repetitivo).
+  4. Resultado: `long_strategy="hierarchical"` en pipeline.summarize_document()
+     y CLI (run, verify).
+  5. Validar cobertura total (100% del texto procesado), timing documentado
+     (~10 min para libro 1M+ car.), y sin regresión en QA.
+estado: PENDIENTE
+fecha: 2026-08-23
+resultado: null
+
+criterios:
+  - id: C1-detector-capitulos
+    tipo: unit
+    descripcion: >
+      chapters.detect_chapters(text) sobre "Crisis, familia y psicoterapia"
+      devuelve lista con los 13 capítulos correctos (numero y titulo), cada uno
+      con el texto contenido (sin overlap, sin perdida). Tolerancia: detectar
+      al menos 80% de los capitulos presentes.
+    verificacion: "test_chapters.py::test_detect_chapters_crisis"
+
+  - id: C2-capitulos-cobertura-total
+    tipo: unit
+    descripcion: >
+      Concatenar todos los textos de los capitulos detectados y comparar con
+      el original (sin espacios): deben ser identicos. Garantiza que no hay
+      perdida de contenido en la deteccion.
+    verificacion: "test_chapters.py::test_chapters_cobertura_total"
+
+  - id: C3-fallback-a-bloques
+    tipo: unit
+    descripcion: >
+      detect_chapters() sobre un texto SIN capitulos retorna lista vacia.
+      El pipeline debe degradar a split_blocks() automaticamente (same as
+      long_strategy='blocks'). Test: verify que plan A (regex capitulos)
+      no explota en textos sin capitulos.
+    verificacion: "test_chapters.py::test_fallback_no_capitulos"
+
+  - id: C4-resumen-por-capitulo
+    tipo: integration
+    descripcion: >
+      summarize_document(crisis..., long_strategy='hierarchical') devuelve
+      un SummaryResult con secciones bien pobladas (titulo, sintesis, etc.).
+      meta incluye "excerpt_strategy": "hierarchical", "n_capitulos": 13,
+      "excerpt_chars": len(texto_completo), "excerpt_truncated": false.
+    verificacion: "test_pipeline_hierarchical.py::test_summarize_hierarchical"
+
+  - id: C5-cobertura-100-porciento
+    tipo: integration
+    descripcion: >
+      El campo meta['excerpt_chars'] == len(texto_original).
+      El campo meta['excerpt_truncated'] == false.
+      Comprobacion de que el estrategia jerarquica procesa 100% del texto,
+      no un excerpt.
+    verificacion: "test_pipeline_hierarchical.py::test_cobertura_100"
+
+  - id: C6-sin-repeticion-consolidacion
+    tipo: unit
+    descripcion: >
+      En la consolidacion final, campos repetibles (publico, terminos)
+      no se apilan; se transforman a conjuntos y se fusionan en una lista
+      unica y deduplica. Test unitario sobre 3 secciones parciales con
+      terminos duplicados, verifica que la salida final los deduplica.
+    verificacion: "test_consolidation.py::test_deduplica_terminos_publico"
+
+  - id: C7-fallback-a-blocks-si-captura-pequena
+    tipo: unit
+    descripcion: >
+      Si long_strategy='hierarchical' detecta capitulos pero el documento
+      es pequeno (<40K), no sub-chunka; resume de una pasada (sin consolidacion
+      intra-capitulo innecesaria). Evita overhead falso.
+    verificacion: "test_chapters.py::test_pequeno_sin_subchunking"
+
+  - id: C8-timing-documentado
+    tipo: metrics
+    descripcion: >
+      Correr el pipeline completo con long_strategy='hierarchical' sobre
+      crisis_familianuevo (1M car., 13 cap.) en lote (pdfsum run).
+      Loguear tiempo por capitulo y consolidacion. Documentar el promedio
+      esperado (~10 min). El run debe completar sin timeout (>1800s).
+    verificacion: "test_timing.py::test_run_crisis_hierarchical"
+
+  - id: C9-qa-sin-regresion
+    tipo: metrics
+    descripcion: >
+      Verificar (pdfsum verify) que los criterios de QA existentes
+      (idioma, tipo_documento, gates de contenido) siguen pasando.
+      No hay degradacion en la calidad de deteccion.
+    verificacion: "pdfsum verify"
+
+  - id: C10-dominio-sin-adaptadores
+    tipo: architecture
+    descripcion: >
+      chapters.py (nuevo modulo) es dominio puro: no importa Ollama, HTTP,
+      ni adaptadores. Solo regex, string operations, data structures.
+      pipeline.py usa chapters.detect_chapters() y reutiliza
+      chunking.summarize_in_blocks() existente.
+    verificacion: "test_architecture.py::test_chapters_domain_pure"
+
+  - id: C11-cli-long-strategy-hierarchical
+    tipo: integration
+    descripcion: >
+      CLI (run, verify, summarize) acepta --long-strategy hierarchical.
+      Default sigue siendo 'excerpt' (backward compatible).
+      pdfsum run --long-strategy hierarchical --in pdfs-input --workspace data
+      produce salida con meta['excerpt_strategy']='hierarchical'.
+    verificacion: "test_cli_hierarchical.py::test_run_strategy_hierarchical"
+
+invariantes:
+  - "El resumen jerarquico procesa 100% del texto del documento."
+  - "La deteccion de capitulos no pierde contenido (cobertura = 100%)."
+  - "La consolidacion final no repite secciones; las deduplica y fusiona."
+  - "El estrategia es opcional (long_strategy='excerpt' es default)."
+  - "Sin cambios en puertos (Summarizer, Transcriber, PageOCR) ni
+     adaptadores."
+  - "QA sin regresion: idioma, tipo_documento, gates existentes siguen ok."
+
+no_objetivos:
+  - "Deteccion de capitulos es para es/pt (regex Capitulo[0-9]+);
+     generalizacion es future work."
+  - "Jerarquia multi-nivel (tabla de contenidos -> partes -> capitulos; alcance
+    es capitulos y bloques, no tres niveles)."
+  - "Resumen adaptativo (cambiar presupuesto o n_bloques por capitulo; hoy es
+    fijo 40K para todos)."
+  - "Paralelizacion de resumen de bloques (sequential, compatible con Ollama
+    local sin batching)."
