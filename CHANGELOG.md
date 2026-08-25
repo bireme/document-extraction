@@ -4,6 +4,21 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [0.11.0] — 2026-08-25 — Migración a uv (gestor moderno Python)
+### Cambiado
+- **Flujo de instalación**: `uv sync` es primario (10x más rápido, ~1-2s);
+  `venv + pip` es fallback legacy.
+- `uv.lock` generado (determinismo, reproducibilidad garantizada).
+- INSTALL.md reescrito: pasos más simples con `uv run <cmd>`
+  (sin "source .venv/bin/activate").
+### Beneficios
+- Resolución de deps robusta (backtracking inteligente).
+- ~1-2s instalación vs ~30-60s con pip.
+- UX mejorada (output claro, mejor rendimiento).
+### Verificado
+- 97 tests OK (sin regresión).
+- `uv run pdfsum verify`: PASS.
+
 ## [0.10.0] — 2026-08-24 — Resumen jerárquico por capítulos (coexistencia de estrategias)
 ### Añadido
 - `chapters.py` (dominio puro): detección de capítulos por regex con fallback a
