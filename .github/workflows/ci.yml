@@ -1,0 +1,77 @@
+name: CI / Tests + Lint
+
+on:
+  push:
+    branches:
+      - master
+      - main
+      - "feat/**"
+      - "fix/**"
+  pull_request:
+    branches:
+      - master
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+        with:
+          version: "0.11.2"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "uv"
+
+      - name: Install dependencies (uv sync)
+        run: uv sync
+
+      - name: Lint with ruff
+        run: uv run ruff check src/ tests/
+
+      - name: Format check with ruff
+        run: uv run ruff format --check src/ tests/
+
+      - name: Run tests
+        run: uv run python -m unittest discover tests -v
+
+      - name: Architecture check
+        run: |
+          uv run python tests/test_architecture.py
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+        with:
+          version: "0.11.2"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "uv"
+
+      - name: Check INSTALL.md and README.md exist
+        run: |
+          test -f INSTALL.md || (echo "INSTALL.md missing" && exit 1)
+          test -f README.md || (echo "README.md missing" && exit 1)
+          echo "✅ Documentation files found"
+
+      - name: Verify uv.lock is consistent
+        run: |
+          uv sync --locked
+          echo "✅ uv.lock is consistent"

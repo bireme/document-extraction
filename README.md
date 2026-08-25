@@ -1,8 +1,8 @@
 # pdfsum — motor de resúmenes estructurados de PDF
 
-Producto derivado del piloto BIREME–INFOMED. **Versión actual: 0.9.0**
-(flujo completo desde PDF: OCR híbrido con segmentación + resumen + QA +
-export LILACS + API).
+Producto derivado del piloto BIREME–INFOMED. **Versión actual: 0.11.0**
+(flujo completo desde PDF: OCR híbrido con segmentación + resumen jerárquico
+con coexistencia de estrategias + QA + export LILACS + API).
 
 > 🚀 **Guía rápida de uso (1 página, con ejemplos ejecutables): [`GUIA-USO.md`](GUIA-USO.md)**
 
@@ -33,43 +33,54 @@ adaptador, sin tocar el núcleo.
 
 ## Instalación
 
+### Recomendado: `uv` (10x más rápido)
+
+```bash
+uv sync                          # crea .venv + instala (determinista vía uv.lock)
+uv run pdfsum doctor             # verifica dependencias
+uv run pdfsum verify             # confirma resultados sobre la muestra incluida
+```
+
+### Alternativa: venv + pip (legacy, más lento)
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e .        # expone el comando 'pdfsum'
-pdfsum doctor           # verifica dependencias (poppler/tesseract/ollama)
-pdfsum verify           # confirma resultados similares sobre la muestra incluida
+pip install -e .
+pdfsum doctor
+pdfsum verify
 ```
-Guía completa (requisitos, modelos, distribución) en `INSTALL.md`.
+
+**Guía completa** (requisitos de sistema, modelos, troubleshooting):
+→ [`INSTALL.md`](INSTALL.md)
 
 ## Uso
 
 ```bash
 # FLUJO COMPLETO desde PDFs (la fuente): transcribe (OCR) + resume + report
 # Requiere poppler + tesseract (OCR) y Ollama + qwen2.5:7b (resumen).
-PYTHONPATH=src python3 -m pdfsum.cli run --in ./pdfs --workspace ./data --lang por
+uv run pdfsum run --in ./pdfs --workspace ./data --lang por
 #   -> ./data/ocr/<doc_id>.txt        (transcripciones cacheadas)
 #   -> ./data/summaries/<doc_id>.json (resúmenes + _qa)
 #   -> ./data/summaries/report.json   (métricas del lote)
 
 # solo transcribir (PDF -> ocr/*.txt), sin resumir
-PYTHONPATH=src python3 -m pdfsum.cli transcribe --in ./pdfs --workspace ./data
+uv run pdfsum transcribe --in ./pdfs --workspace ./data
 
 # resumen de un texto ya transcrito (paso 2 aislado)
-PYTHONPATH=src python3 -m pdfsum.cli summarize \
-    --text transcripcion.txt --pages 4 --out resumen.json
+uv run pdfsum summarize --text transcripcion.txt --pages 4 --out resumen.json
 
 # dry-run sin modelo (contrato + clasificación, para probar el flujo)
-PYTHONPATH=src python3 -m pdfsum.cli summarize --text transcripcion.txt --dry-run
+uv run pdfsum summarize --text transcripcion.txt --dry-run
 
 # lote: directorio de .txt con cola idempotente + QA gates
-PYTHONPATH=src python3 -m pdfsum.cli batch --in ./_ocr_out --out ./_resumenes
+uv run pdfsum batch --in ./_ocr_out --out ./_resumenes
 # -> un .json por doc (con bloque _qa) + report.json (métricas del lote)
 
 # export a registros LILACS (borrador para revisión humana)
-PYTHONPATH=src python3 -m pdfsum.cli export --in ./_resumenes --out lilacs.json
+uv run pdfsum export --in ./_resumenes --out lilacs.json
 
 # API de consulta local (solo lectura) sobre el lote
-PYTHONPATH=src python3 -m pdfsum.cli serve --batch-dir ./_resumenes --port 8765
+uv run pdfsum serve --batch-dir ./_resumenes --port 8765
 # GET /api/summaries | /api/summaries/<doc_id> | /api/report
 ```
 

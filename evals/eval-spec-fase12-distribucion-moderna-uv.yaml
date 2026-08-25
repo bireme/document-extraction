@@ -1,0 +1,153 @@
+---
+id: FASE12-DISTRIBUCION-MODERNA-UV
+titulo: |
+  Distribución moderna con uv: wheel building + PyPI +
+  instalación directa
+descripcion: >
+  Completar la modernización iniciada en Fase 11 (migración a uv)
+  con distribución profesional:
+  - `uv build` para generar wheels y sdists de forma determinística
+  - Documentar pasos para publicar en PyPI (Test PyPI primero, luego production)
+  - Permitir instalación directa: `pip install pdfsum` desde PyPI
+  - (Opcional) CI/CD automático: publicar en PyPI al crear un tag v*
+  - Mejorar setuptools → pyproject.toml (backend moderno)
+
+  Beneficios:
+  - Distribución estándar, no solo repo clonado
+  - Usuarios pueden instalar sin clonar: `pip install pdfsum`
+  - Reproducibilidad garantizada (wheels binarios + lock file)
+  - Automatización en CI (publicación al tag)
+
+  Cambios:
+  - pyproject.toml: backend setuptools → hatchling (más moderno, más rápido)
+  - Crear .pypirc template para publicación
+  - Actualizar INSTALL.md: opción "pip install pdfsum" (PyPI)
+  - GitHub Actions: agregar job publish-pypi (triggered by tag)
+  - Documentar versionado semántico
+
+estado: PENDIENTE
+fecha: 2026-08-25
+resultado: null
+
+criterios:
+  - id: C1-uv-build-funciona
+    tipo: unit
+    descripcion: >
+      Ejecutar `uv build` genera wheel (.whl) + sdist (.tar.gz) sin errores.
+      Archivos en dist/ con nombrado correcto
+      (pdfsum-0.11.0-py3-*.whl, etc).
+      Verificar que wheel contiene el código + metadata (RECORD, WHEEL, etc).
+    verificacion: "uv build && ls -lh dist/pdfsum-*.whl dist/pdfsum-*.tar.gz"
+
+  - id: C2-wheel-instalable
+    tipo: integration
+    descripcion: >
+      En un entorno limpio (venv nuevo), instalar el wheel generado y verificar:
+      `pip install dist/pdfsum-0.11.0-py3-*.whl` en env limpio
+      `pdfsum --help` funciona
+      `pdfsum doctor` funciona
+    verificacion: "pip install dist/pdfsum-*.whl && pdfsum --help"
+
+  - id: C3-pyproject-moderno
+    tipo: unit
+    descripcion: >
+      pyproject.toml actualizado: backend = "hatchling.build"
+      (vs setuptools.build_meta). Sin cambios funcionales, solo modernización.
+      Verificar que `uv build` usa hatchling correctamente.
+    verificacion: "grep -q 'hatchling' pyproject.toml"
+
+  - id: C4-versionado-semantico
+    tipo: documentation
+    descripcion: >
+      CHANGELOG.md y/o README.md documenta versionado semántico:
+      MAJOR.MINOR.PATCH (p. ej. 0.11.0 = sin API breaking, feature nueva).
+      Agregar tabla de versiones recientes con cambios principales.
+    verificacion: |
+      grep -i 'semantic' README.md || grep -q '0.11.0' CHANGELOG.md
+
+  - id: C5-github-actions-publish
+    tipo: integration
+    descripcion: >
+      GitHub Actions: agregar job publish-pypi que:
+      - Se dispara al crear un tag vX.Y.Z (p. ej. v0.11.0)
+      - Ejecuta `uv build`
+      - Publica en Test PyPI (usando TWINE_PASSWORD secret)
+      - Luego en PyPI production (si test OK)
+      - Linkea release con artifacts en GitHub Releases
+    verificacion: |
+      test -f .github/workflows/publish.yml &&
+      grep -q 'publish-pypi' .github/workflows/publish.yml
+
+  - id: C6-pypi-metadata-completo
+    tipo: documentation
+    descripcion: >
+      pyproject.toml contiene metadata completo para PyPI:
+      - description, readme (README.md), license, homepage, keywords
+      - authors, project URLs (Repository, Issues, Changelog)
+      - classifiers (Programming Language, License, OS, etc)
+      Verificar que `uv build` genera PKG-INFO correcto.
+    verificacion: |
+      uv build &&
+      cat dist/pdfsum-*.dist-info/METADATA | head -20
+
+  - id: C7-install-md-pypi-option
+    tipo: documentation
+    descripcion: >
+      INSTALL.md actualizado con 3 opciones ordenadas por recomendación:
+      1. "Opción A: uv + repo local (desarrollo)"
+      2. "Opción B: pip install pdfsum (desde PyPI, usuarios)"
+      3. "Opción C: venv + pip (legacy, no recomendado)"
+      Cada opción con su own `pdfsum doctor; pdfsum verify`
+    verificacion: |
+      grep -q 'pip install pdfsum' INSTALL.md
+
+  - id: C8-tests-sin-regresion
+    tipo: metrics
+    descripcion: >
+      Suite de tests pasa completamente:
+      `uv run python -m unittest discover tests`
+      97 tests OK. Sin regresión vs Fase 11.
+    verificacion: "uv run python -m unittest discover tests"
+
+  - id: C9-ci-cd-green
+    tipo: metrics
+    descripcion: >
+      GitHub Actions CI pasa para Python 3.10, 3.11, 3.12:
+      - lint (ruff check + format)
+      - tests (unittest)
+      - architecture check
+      - build check (uv build sin errores)
+      Si el repo está en GitHub, verificar que workflow está verde
+      (o si está local, describir los checks que pasarían).
+    verificacion: ".github/workflows/ci.yml contiene jobs lint, test, build"
+
+  - id: C10-readme-distribucion
+    tipo: documentation
+    descripcion: >
+      README.md agrega sección "Distribución / Instalación desde PyPI"
+      o "Installation from PyPI" con instrucciones claras:
+      ```
+      pip install pdfsum
+      pdfsum --help
+      ```
+      Mencionar que `uv` es la vía recomendada para desarrollo.
+    verificacion: "grep -q 'pip install pdfsum\\|PyPI' README.md"
+
+invariantes:
+  - "Wheel + sdist generados determinísticamente con `uv build`."
+  - "pyproject.toml: backend moderno (hatchling), metadata completo."
+  - "GitHub Actions: CI pasa (lint, tests, build) para Python 3.10-3.12."
+  - "INSTALL.md: 3 opciones (uv repo, pip PyPI, venv legacy)."
+  - "Todos los tests pasan (97/97, sin regresión)."
+  - "uv.lock consistente (reproducibilidad)."
+  - "README.md: distribución moderna documentada."
+
+no_objetivos:
+  - "Configurar firma GPG de artifacts (avanzado, opcional para producción)."
+  - "Publicar automáticamente en ReadTheDocs (documentación compilada)
+     — fase futura si quieren docs web hostadas."
+  - "Certificar en conda-forge (community, no prioritario hoy)."
+  - "Deprecar setuptools completamente — hatchling es suficiente,
+     setuptools seguirá siendo compatibilidad."
+  - "Automatizar release notes desde commits (git cliff, etc.)
+     — CHANGELOG.md manual es suficiente por ahora."
