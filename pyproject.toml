@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pdfsum"
-version = "0.11.0"
+version = "0.11.1"
 description = "Motor de resúmenes estructurados de documentos PDF (local, sin API)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,6 +15,12 @@ keywords = ["ocr", "resumen", "pdf", "lilacs", "bireme", "local-llm"]
 # Los requisitos externos son de SISTEMA (poppler, tesseract) y de MODELOS
 # (Ollama + qwen2.5:7b / qwen3-vl:8b). Ver INSTALL.md y `pdfsum doctor`.
 dependencies = []
+
+[dependency-groups]
+# Solo para tests (generación de imágenes sintéticas en
+# test_segment.py / test_hybrid_ocr.py / test_hybrid_seg.py).
+# No es dependencia de runtime del paquete.
+dev = ["pillow>=10"]
 
 [project.scripts]
 pdfsum = "pdfsum.cli:main"
