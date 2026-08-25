@@ -1,4 +1,5 @@
 """Tests del verificador de entorno (criterios C3, C4)."""
+
 import unittest
 
 from pdfsum.adapters.doctor import Check, check_environment, environment_ok

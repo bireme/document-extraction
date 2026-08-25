@@ -7,6 +7,7 @@ modelos. Gates:
   - lang:      el idioma del resumen coincide con idioma_principal.
   - abstracts: si se detectaron abstracts de origen, están preservados.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -17,10 +18,21 @@ from .templates import section_keys
 
 # Frases que delatan refusal o que el modelo se dirige al usuario.
 _REFUSAL_MARKERS = [
-    "no puedo generar", "no puedo ayudar", "não posso gerar", "não posso",
-    "i cannot", "i can't", "as an ai", "i'm sorry", "lo siento, pero",
-    "desculpe, mas", "¿cómo puedo ayudar", "como posso ajudar",
-    "sua pergunta", "su pregunta", "your question",
+    "no puedo generar",
+    "no puedo ayudar",
+    "não posso gerar",
+    "não posso",
+    "i cannot",
+    "i can't",
+    "as an ai",
+    "i'm sorry",
+    "lo siento, pero",
+    "desculpe, mas",
+    "¿cómo puedo ayudar",
+    "como posso ajudar",
+    "sua pergunta",
+    "su pregunta",
+    "your question",
 ]
 
 # Secciones que pueden ir vacías legítimamente (metadatos opcionales).
@@ -60,8 +72,7 @@ class QAReport:
 
 
 def _gate_schema(res: SummaryResult, rep: QAReport) -> None:
-    required = [k for k in section_keys(res.plantilla)
-                if k not in _OPTIONAL_KEYS]
+    required = [k for k in section_keys(res.plantilla) if k not in _OPTIONAL_KEYS]
     for key in required:
         val = res.secciones.get(key, "").strip()
         if not val:
@@ -91,18 +102,21 @@ def _gate_language(res: SummaryResult, rep: QAReport) -> None:
     # no marcar error si la discrepancia es entre idiomas cercanos
     if any({detected, res.idioma_principal} <= pair for pair in _CLOSE_LANGS):
         return
-    rep.add("lang",
-            f"idioma del resumen '{detected}' != principal "
-            f"'{res.idioma_principal}'", severity="warning")
+    rep.add(
+        "lang",
+        f"idioma del resumen '{detected}' != principal '{res.idioma_principal}'",
+        severity="warning",
+    )
 
 
 def _gate_abstracts(res: SummaryResult, rep: QAReport) -> None:
     declared = set(res.idiomas_resumo_origem)
     present = {a.lang for a in res.abstracts_origem}
     if declared and declared != present:
-        rep.add("abstracts",
-                f"abstracts declarados {sorted(declared)} != "
-                f"preservados {sorted(present)}")
+        rep.add(
+            "abstracts",
+            f"abstracts declarados {sorted(declared)} != preservados {sorted(present)}",
+        )
 
 
 def check_result(res: SummaryResult) -> QAReport:

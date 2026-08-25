@@ -1,4 +1,5 @@
 """Tests para detección de capítulos (criterios C1-C7)."""
+
 import unittest
 
 from pdfsum.chapters import detect_chapters, verify_coverage
@@ -45,8 +46,10 @@ class TestChapters(unittest.TestCase):
     def test_chapters_son_disjuntos(self):
         """Capítulos no solapan."""
         text = (
-            "Capítulo\n\n1\n\nPRIMER CAPITULO\n" + "Ca1. " * 100
-            + "\n\nCapítulo\n\n2\n\nSEGUNDO CAPITULO\n" + "Ca2. " * 100
+            "Capítulo\n\n1\n\nPRIMER CAPITULO\n"
+            + "Ca1. " * 100
+            + "\n\nCapítulo\n\n2\n\nSEGUNDO CAPITULO\n"
+            + "Ca2. " * 100
         )
         chapters = detect_chapters(text)
         self.assertEqual(len(chapters), 2)
@@ -54,13 +57,14 @@ class TestChapters(unittest.TestCase):
     def test_no_perdida_capitulos(self):
         """Cada capítulo tiene contenido."""
         text = (
-            "Capítulo\n\n1\n\nA\n" + "Content. " * 100
-            + "\n\nCapítulo\n\n2\n\nB\n" + "More. " * 100
+            "Capítulo\n\n1\n\nA\n"
+            + "Content. " * 100
+            + "\n\nCapítulo\n\n2\n\nB\n"
+            + "More. " * 100
         )
         chapters = detect_chapters(text)
         for ch in chapters:
             self.assertGreater(len(ch.text), 50)
-
 
 
 if __name__ == "__main__":

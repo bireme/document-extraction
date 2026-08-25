@@ -7,6 +7,7 @@ persistencia y la API viven en adaptadores.
 Regla clave: no se puede APROBAR un resultado que falla QA gates de severidad
 'error', salvo forzado explícito (queda registrado).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -29,13 +30,14 @@ class ReviewRecord:
     history: list[dict] = field(default_factory=list)
 
     def _log(self, action: str, reviewer: str, note: str) -> None:
-        self.history.append({"action": action, "reviewer": reviewer,
-                             "note": note})
+        self.history.append({"action": action, "reviewer": reviewer, "note": note})
 
     def to_dict(self) -> dict:
         return {
-            "doc_id": self.doc_id, "state": self.state,
-            "reviewer": self.reviewer, "note": self.note,
+            "doc_id": self.doc_id,
+            "state": self.state,
+            "reviewer": self.reviewer,
+            "note": self.note,
             "history": self.history,
         }
 
@@ -71,8 +73,9 @@ def approve(
     record.state = APPROVED
     record.reviewer = reviewer
     if errors and force:
-        note = (note + f" [FORZADO pese a: "
-                f"{', '.join(f.gate for f in errors)}]").strip()
+        note = (
+            note + f" [FORZADO pese a: {', '.join(f.gate for f in errors)}]"
+        ).strip()
     record.note = note
     record._log(APPROVED, reviewer, note)
     return record

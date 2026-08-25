@@ -6,6 +6,7 @@ uno vía el puerto Summarizer, y consolida los resúmenes parciales en uno final
 
 Cubre TODO el texto (sin corte ciego ni pérdida), a diferencia de la porción.
 """
+
 from __future__ import annotations
 
 import re
@@ -41,7 +42,7 @@ def split_blocks(text: str, max_chars: int = DEFAULT_BLOCK_CHARS) -> list[str]:
             else:
                 # párrafo enorme: trocear duro respetando el tamaño
                 for i in range(0, len(part), max_chars):
-                    piece = part[i:i + max_chars]
+                    piece = part[i : i + max_chars]
                     if len(piece) == max_chars:
                         blocks.append(piece.strip())
                     else:
@@ -74,7 +75,7 @@ def summarize_in_blocks(
     partials: list[dict[str, str]] = []
     for i, block in enumerate(blocks):
         req = SummarizeRequest(
-            doc_id=f"{doc_id}#b{i+1}", text=block, lang=lang, template=template
+            doc_id=f"{doc_id}#b{i + 1}", text=block, lang=lang, template=template
         )
         partials.append(summarizer.summarize(req))
 
@@ -85,12 +86,12 @@ def summarize_in_blocks(
         merged[k] = "\n".join(p.get(k, "") for p in partials if p.get(k)).strip()
 
     if len(partials) > 1:
-        union_text = "\n\n".join(
-            f"{k}:\n{v}" for k, v in merged.items() if v
-        )
+        union_text = "\n\n".join(f"{k}:\n{v}" for k, v in merged.items() if v)
         req = SummarizeRequest(
-            doc_id=f"{doc_id}#consolidado", text=union_text,
-            lang=lang, template=template,
+            doc_id=f"{doc_id}#consolidado",
+            text=union_text,
+            lang=lang,
+            template=template,
         )
         final = summarizer.summarize(req)
     else:
@@ -98,7 +99,7 @@ def summarize_in_blocks(
 
     meta = {
         "excerpt_strategy": "blocks",
-        "excerpt_parts": [f"bloque_{i+1}" for i in range(len(blocks))],
+        "excerpt_parts": [f"bloque_{i + 1}" for i in range(len(blocks))],
         "excerpt_truncated": False,
         "excerpt_chars": len(text),
         "n_bloques": len(blocks),

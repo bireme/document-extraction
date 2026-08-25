@@ -1,4 +1,5 @@
 """Tests de QA gates (criterios C1-C5)."""
+
 import unittest
 
 from pdfsum.contract import Abstract, SummaryResult
@@ -7,7 +8,9 @@ from pdfsum.qa import QAReport, check_result
 
 def _good() -> SummaryResult:
     return SummaryResult(
-        doc_id="d", idioma_principal="pt", tipo_documento="divulgacion",
+        doc_id="d",
+        idioma_principal="pt",
+        tipo_documento="divulgacion",
         plantilla="C",
         secciones={
             "titulo": "Prevenção do tabagismo",
@@ -15,7 +18,7 @@ def _good() -> SummaryResult:
             "entidad": "Ministério da Saúde",
             "publico": "população em geral",
             "resumen_ejecutivo": "O documento trata da importância de não fumar "
-                                 "e apresenta o Disque Saúde para apoio.",
+            "e apresenta o Disque Saúde para apoio.",
             "puntos_clave": "- parar de fumar\n- Disque Saúde",
             "terminos": "tabagismo, cessação",
         },

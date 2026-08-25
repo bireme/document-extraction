@@ -14,6 +14,7 @@ Estrategia (determinista):
   3. Dentro de cada columna, bloques verticales: proyección horizontal.
   4. Ensamble en orden de lectura (izq->der, arriba->abajo).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -22,12 +23,12 @@ from typing import Any
 
 _pairwise = pairwise
 
-_UMBRAL_CONTENIDO = 200   # píxel < umbral en gris = contenido (texto)
-_MIN_COL_ANCHO = 30       # ancho mínimo de columna (px)
-_MIN_REGION_ALTO = 20     # alto mínimo de una región válida (px)
-_GAP_BLOQUE = 25          # hueco vertical que separa bloques/párrafos (px)
-_GUTTER_MIN = 40          # ancho mínimo de canal en blanco entre columnas (px)
-_MARGEN = 6               # margen alrededor de cada región
+_UMBRAL_CONTENIDO = 200  # píxel < umbral en gris = contenido (texto)
+_MIN_COL_ANCHO = 30  # ancho mínimo de columna (px)
+_MIN_REGION_ALTO = 20  # alto mínimo de una región válida (px)
+_GAP_BLOQUE = 25  # hueco vertical que separa bloques/párrafos (px)
+_GUTTER_MIN = 40  # ancho mínimo de canal en blanco entre columnas (px)
+_MARGEN = 6  # margen alrededor de cada región
 
 
 @dataclass
@@ -88,9 +89,9 @@ def detect_columns(img: Any) -> list[Region]:
 
 def _region_content(mask: list[list[bool]], r: Region) -> int:
     """Píxeles de contenido dentro de una región."""
-    return sum(mask[x][y]
-               for x in range(r.left, r.right)
-               for y in range(r.top, r.bottom))
+    return sum(
+        mask[x][y] for x in range(r.left, r.right) for y in range(r.top, r.bottom)
+    )
 
 
 def detect_regions(img: Any) -> list[Region]:
@@ -99,12 +100,16 @@ def detect_regions(img: Any) -> list[Region]:
     cols = detect_columns(img)
     regions: list[Region] = []
     for col in cols:
-        sub = [[mask[x][y] for y in range(col.top, col.bottom)]
-               for x in range(col.left, col.right)]
-        proj_y = [sum(sub[x][y] for x in range(len(sub)))
-                  for y in range(col.bottom - col.top)]
-        vgaps = [(col.top + a, col.top + b)
-                 for a, b in _valleys(proj_y, min_run=_GAP_BLOQUE)]
+        sub = [
+            [mask[x][y] for y in range(col.top, col.bottom)]
+            for x in range(col.left, col.right)
+        ]
+        proj_y = [
+            sum(sub[x][y] for x in range(len(sub))) for y in range(col.bottom - col.top)
+        ]
+        vgaps = [
+            (col.top + a, col.top + b) for a, b in _valleys(proj_y, min_run=_GAP_BLOQUE)
+        ]
         cuts = [col.top] + [(a + b) // 2 for a, b in vgaps] + [col.bottom]
         for a, b in _pairwise(cuts):
             cand = Region(col.left, a, col.right, b)

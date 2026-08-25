@@ -1,4 +1,5 @@
 """Tests de los subcomandos doctor y verify (criterios C8, C9)."""
+
 import io
 import unittest
 from contextlib import redirect_stdout
@@ -23,8 +24,9 @@ class TestCLIRepro(unittest.TestCase):
         with TemporaryDirectory() as td:
             buf = io.StringIO()
             with redirect_stdout(buf):
-                rc = main(["verify", "--fake", "--workspace", td,
-                           "--min-coverage", "0.0"])
+                rc = main(
+                    ["verify", "--fake", "--workspace", td, "--min-coverage", "0.0"]
+                )
             out = buf.getvalue()
             self.assertIn("Aceptación:", out)
             # con --fake y umbral 0 el arnés corre y emite veredicto

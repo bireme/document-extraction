@@ -7,6 +7,7 @@ uno. Permite cobertura 100% sin truncamiento ciego.
 Este módulo es DOMINIO: solo regex, string operations, data structures.
 No importa Ollama, HTTP, ni adaptadores.
 """
+
 from __future__ import annotations
 
 import re
@@ -76,7 +77,7 @@ def verify_coverage(text: str, chapters: list[Chapter]) -> bool:
     NOTA: Esta función verifica que los capítulos cubren SU contenido sin pérdidas.
     Los capítulos no incluyen prefacio/portada/índice (contenido previo al primer
     capítulo), que es intencional: el resumen jerárquico se enfoca en capítulos.
-    
+
     Verificamos que cada capítulo se extrae sin pérdida interna.
     """
     if not chapters:

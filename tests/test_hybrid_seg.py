@@ -1,4 +1,5 @@
 """Tests del híbrido con segmentación (criterios C5, C6)."""
+
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -15,7 +16,7 @@ def _pdf_2cols(d: Path) -> Path:
     img = Image.new("L", (800, 600), 255)
     dr = ImageDraw.Draw(img)
     for y in range(50, 550, 18):
-        dr.rectangle([80, y, 340, y + 10], fill=0)   # columna izq
+        dr.rectangle([80, y, 340, y + 10], fill=0)  # columna izq
         dr.rectangle([460, y, 720, y + 10], fill=0)  # columna der
     pdf = d / "doc.pdf"
     pdf.write_bytes(b"%PDF-1.4")
@@ -48,32 +49,34 @@ class TestHybridSeg(unittest.TestCase):
         self.td.cleanup()
 
     def _hybrid(self, vlm):
-        with patch("pdfsum.adapters.hybrid_ocr.shutil.which",
-                   return_value="/usr/bin/x"):
+        with patch(
+            "pdfsum.adapters.hybrid_ocr.shutil.which", return_value="/usr/bin/x"
+        ):
             return HybridOcrTranscriber(lang="por", vlm=vlm)
 
     def test_segmenta_y_ensambla(self):
         """C5: página 2 columnas densa (baja confianza) -> segmenta y usa VLM."""
         vlm = FakePageOCR("REGION")
-        with patch("pdfsum.adapters.hybrid_ocr.shutil.which",
-                   return_value="/usr/bin/x"), \
-             patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1), \
-             patch("pdfsum.adapters.hybrid_ocr._run") as run:
+        with (
+            patch("pdfsum.adapters.hybrid_ocr.shutil.which", return_value="/usr/bin/x"),
+            patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1),
+            patch("pdfsum.adapters.hybrid_ocr._run") as run,
+        ):
             page_img = _make_page_image(self.dir)
 
             def fake_run(cmd, timeout=120):
                 s = " ".join(str(c) for c in cmd)
                 if "pdftotext" in s:
-                    return ""           # sin texto nativo -> escaneado
+                    return ""  # sin texto nativo -> escaneado
                 if "pdftoppm" in s:
                     # producir la imagen rasterizada en el prefijo pedido
                     prefix = Path(cmd[-1])
-                    Image.open(page_img).save(Path(str(prefix) + "-1.jpg"),
-                                              "JPEG")
+                    Image.open(page_img).save(Path(str(prefix) + "-1.jpg"), "JPEG")
                     return ""
                 if "tsv" in s:
-                    return _tsv_low()   # baja confianza -> VLM
+                    return _tsv_low()  # baja confianza -> VLM
                 return "txt"
+
             run.side_effect = fake_run
             tr = self._hybrid(vlm).transcribe(str(self.pdf))
         # el VLM fue invocado por región (al menos 2 regiones de las columnas)
@@ -91,10 +94,11 @@ class TestHybridSeg(unittest.TestCase):
                 seen.append(name)
                 return f"<{name}>"
 
-        with patch("pdfsum.adapters.hybrid_ocr.shutil.which",
-                   return_value="/usr/bin/x"), \
-             patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1), \
-             patch("pdfsum.adapters.hybrid_ocr._run") as run:
+        with (
+            patch("pdfsum.adapters.hybrid_ocr.shutil.which", return_value="/usr/bin/x"),
+            patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1),
+            patch("pdfsum.adapters.hybrid_ocr._run") as run,
+        ):
             page_img = _make_page_image(self.dir)
 
             def fake_run(cmd, timeout=120):
@@ -103,12 +107,12 @@ class TestHybridSeg(unittest.TestCase):
                     return ""
                 if "pdftoppm" in s:
                     prefix = Path(cmd[-1])
-                    Image.open(page_img).save(Path(str(prefix) + "-1.jpg"),
-                                              "JPEG")
+                    Image.open(page_img).save(Path(str(prefix) + "-1.jpg"), "JPEG")
                     return ""
                 if "tsv" in s:
                     return _tsv_low()
                 return "t"
+
             run.side_effect = fake_run
             tr = self._hybrid(MarkingOCR()).transcribe(str(self.pdf))
         # los marcadores aparecen en orden de lectura (col izq antes que der)

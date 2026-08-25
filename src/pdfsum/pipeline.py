@@ -4,6 +4,7 @@ Depende del PUERTO `Summarizer` (contract.py), nunca de un adaptador concreto.
 Recibe el texto ya extraído (la transcripción/OCR es responsabilidad de un
 adaptador aguas arriba) y produce un SummaryResult conforme al contrato.
 """
+
 from __future__ import annotations
 
 from .abstracts import abstract_langs, extract_abstracts
@@ -91,11 +92,11 @@ def _summarize_hierarchical(
 
     # Si hay más de 1 capítulo, re-resumir la consolidación para mayor síntesis
     if len(chapters) > 1:
-        union_text = "\n\n".join(
-            f"{k}:\n{v}" for k, v in merged.items() if v
-        )
+        union_text = "\n\n".join(f"{k}:\n{v}" for k, v in merged.items() if v)
         req = SummarizeRequest(
-            doc_id=f"{doc_id}#consolidado", text=union_text, lang=lang,
+            doc_id=f"{doc_id}#consolidado",
+            text=union_text,
+            lang=lang,
             template=template,
         )
         final = summarizer.summarize(req)

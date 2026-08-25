@@ -4,6 +4,7 @@ Une el pipeline de dominio (summarize_document) con la cola (idempotencia/
 reintentos), los QA gates y las métricas. Escribe un .json por documento y un
 report.json de lote. Hace IO (archivos), por eso vive fuera del dominio puro.
 """
+
 from __future__ import annotations
 
 import json
@@ -67,9 +68,13 @@ def run_batch(
         "metrics": metrics.to_dict(),
         "queue": queue.counts(),
         "documents": [
-            {"doc_id": it.result.doc_id, "tipo": it.result.tipo_documento,
-             "idioma": it.result.idioma_principal, "qa_ok": it.qa.is_ok,
-             "gates": [f.gate for f in it.qa.failures]}
+            {
+                "doc_id": it.result.doc_id,
+                "tipo": it.result.tipo_documento,
+                "idioma": it.result.idioma_principal,
+                "qa_ok": it.qa.is_ok,
+                "gates": [f.gate for f in it.qa.failures],
+            }
             for it in items
         ],
     }

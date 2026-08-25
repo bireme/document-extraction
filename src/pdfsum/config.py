@@ -16,6 +16,7 @@ Formato esperado:
     "max_chars": 40000
   }
 """
+
 from __future__ import annotations
 
 import json

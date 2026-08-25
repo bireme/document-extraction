@@ -1,4 +1,5 @@
 """Tests de extracción de abstracts (criterios C6, C7)."""
+
 import unittest
 
 from pdfsum.abstracts import abstract_langs, extract_abstracts

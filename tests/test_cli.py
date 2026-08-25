@@ -1,4 +1,5 @@
 """Test de la CLI en modo dry-run (criterio C10)."""
+
 import io
 import json
 import time
@@ -33,9 +34,16 @@ class TestCLI(unittest.TestCase):
             self.assertLess(elapsed, 5.0)
             data = json.loads(buf.getvalue())
             # contrato
-            for f in ("doc_id", "idioma_principal", "tipo_documento",
-                      "plantilla", "secciones", "idiomas_resumo_origem",
-                      "abstracts_origem", "meta"):
+            for f in (
+                "doc_id",
+                "idioma_principal",
+                "tipo_documento",
+                "plantilla",
+                "secciones",
+                "idiomas_resumo_origem",
+                "abstracts_origem",
+                "meta",
+            ):
                 self.assertIn(f, data)
             # artículo -> plantilla A, abstracts pt+en detectados
             self.assertEqual(data["tipo_documento"], "articulo")

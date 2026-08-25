@@ -1,4 +1,5 @@
 """Tests del flujo de revisión (criterios C1, C2, C3)."""
+
 import unittest
 
 from pdfsum.contract import SummaryResult
@@ -17,14 +18,19 @@ from pdfsum.review import (
 
 def _good() -> SummaryResult:
     return SummaryResult(
-        doc_id="d", idioma_principal="pt", tipo_documento="divulgacion",
+        doc_id="d",
+        idioma_principal="pt",
+        tipo_documento="divulgacion",
         plantilla="C",
         secciones={
             "titulo": "Prevenção do tabagismo",
-            "tipo_documento": "folheto", "entidad": "Ministério da Saúde",
-            "publico": "população", "resumen_ejecutivo": "Resumo em português "
+            "tipo_documento": "folheto",
+            "entidad": "Ministério da Saúde",
+            "publico": "população",
+            "resumen_ejecutivo": "Resumo em português "
             "sobre a importância de parar de fumar e o Disque Saúde.",
-            "puntos_clave": "- parar", "terminos": "tabagismo",
+            "puntos_clave": "- parar",
+            "terminos": "tabagismo",
         },
     )
 
@@ -52,8 +58,7 @@ class TestReview(unittest.TestCase):
         """C2: editar cambia secciones concretas y marca 'edited'."""
         res = _good()
         rec = ReviewRecord(doc_id="d")
-        res2, rec2 = edit_sections(
-            res, rec, {"titulo": "Novo título"}, reviewer="bob")
+        res2, rec2 = edit_sections(res, rec, {"titulo": "Novo título"}, reviewer="bob")
         self.assertEqual(res2.secciones["titulo"], "Novo título")
         # el resto se preserva
         self.assertEqual(res2.secciones["entidad"], "Ministério da Saúde")

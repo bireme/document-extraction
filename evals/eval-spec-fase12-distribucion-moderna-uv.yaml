@@ -25,9 +25,22 @@ descripcion: >
   - GitHub Actions: agregar job publish-pypi (triggered by tag)
   - Documentar versionado semántico
 
-estado: PENDIENTE
+estado: COMPLETADA
 fecha: 2026-08-25
-resultado: null
+resultado: |
+  10/10 criterios cumplidos. Backend build: setuptools -> hatchling
+  (pyproject.toml). Genera wheel + sdist con `uv build` (verificado en
+  entorno limpio: instala, `pdfsum --help` y `pdfsum doctor` funcionan).
+  Metadata completo (classifiers, project.urls, license). INSTALL.md y
+  README.md documentan 3 vías de instalación (PyPI / uv+repo / venv+pip
+  legacy). Workflow `.github/workflows/publish.yml` publica a Test PyPI
+  primero y luego PyPI production al crear tag `vX.Y.Z` (gate: suite de
+  tests completa antes de publicar). CI (`ci.yml`) suma job `build` que
+  corre `uv build` + smoke test del wheel en venv limpio.
+  Efecto colateral corregido en el mismo ciclo: `ruff format --check`
+  tenía 67 archivos con formato desactualizado (deuda preexistente de
+  Fase 11, no bloqueaba merge porque el CI no exigía ese step en verde);
+  se aplicó `ruff format` (cosmético, 97/97 tests OK después).
 
 criterios:
   - id: C1-uv-build-funciona

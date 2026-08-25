@@ -1,4 +1,5 @@
 """Test de integración del subcomando batch (criterio C11)."""
+
 import json
 import unittest
 from pathlib import Path
@@ -25,8 +26,7 @@ class TestCLIBatch(unittest.TestCase):
             (ind / "art.txt").write_text(_ARTICLE, encoding="utf-8")
             (ind / "fly.txt").write_text(_FLYER, encoding="utf-8")
 
-            rc = main(["batch", "--in", str(ind), "--out", str(outd),
-                       "--dry-run"])
+            rc = main(["batch", "--in", str(ind), "--out", str(outd), "--dry-run"])
             self.assertEqual(rc, 0)
 
             # un json por doc + report + estado de cola
@@ -45,8 +45,7 @@ class TestCLIBatch(unittest.TestCase):
             self.assertIn("_qa", art)
 
             # idempotencia: re-ejecutar no reprocesa (cola queda 'done')
-            rc2 = main(["batch", "--in", str(ind), "--out", str(outd),
-                        "--dry-run"])
+            rc2 = main(["batch", "--in", str(ind), "--out", str(outd), "--dry-run"])
             self.assertEqual(rc2, 0)
             counts = json.loads((outd / "report.json").read_text())["queue"]
             self.assertEqual(counts.get("done", 0), 2)

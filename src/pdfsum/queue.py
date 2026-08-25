@@ -7,6 +7,7 @@ adaptadores ni procesos externos: recibe una función `work` inyectada.
 Idempotencia: la clave de un job es doc_id + hash del contenido de entrada; un
 job ya 'done' con la misma clave no se reprocesa.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -39,8 +40,11 @@ class Job:
 
     def to_dict(self) -> dict:
         return {
-            "key": self.key, "doc_id": self.doc_id, "state": self.state,
-            "attempts": self.attempts, "error": self.error,
+            "key": self.key,
+            "doc_id": self.doc_id,
+            "state": self.state,
+            "attempts": self.attempts,
+            "error": self.error,
             "result": self.result,
         }
 

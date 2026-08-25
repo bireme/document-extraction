@@ -1,4 +1,5 @@
 """Tests del transcriptor híbrido (criterios C4-C7)."""
+
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -40,17 +41,20 @@ class TestHybridOcr(unittest.TestCase):
         self.td.cleanup()
 
     def _hybrid(self, vlm):
-        with patch("pdfsum.adapters.hybrid_ocr.shutil.which",
-                   return_value="/usr/bin/x"):
+        with patch(
+            "pdfsum.adapters.hybrid_ocr.shutil.which", return_value="/usr/bin/x"
+        ):
             return HybridOcrTranscriber(lang="por", vlm=vlm)
 
     def test_usa_tesseract(self):
         """C4: alta confianza -> usa Tesseract y NO invoca el VLM."""
         vlm = FakePageOCR("texto vlm")
-        with patch("pdfsum.adapters.hybrid_ocr.shutil.which",
-                   return_value="/usr/bin/x"), \
-             patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1), \
-             patch("pdfsum.adapters.hybrid_ocr._run") as run:
+        with (
+            patch("pdfsum.adapters.hybrid_ocr.shutil.which", return_value="/usr/bin/x"),
+            patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1),
+            patch("pdfsum.adapters.hybrid_ocr._run") as run,
+        ):
+
             def fake_run(cmd, timeout=120):
                 s = " ".join(cmd)
                 if "pdftotext" in s:
@@ -61,6 +65,7 @@ class TestHybridOcr(unittest.TestCase):
                     _save_page_image(Path(cmd[-1] + "-1.jpg"))
                     return ""
                 return "texto tesseract"
+
             run.side_effect = fake_run
             tr = self._hybrid(vlm).transcribe(str(self.dir / "x.pdf"))
         self.assertIn("texto tesseract", tr.text)
@@ -69,10 +74,12 @@ class TestHybridOcr(unittest.TestCase):
     def test_escala_vlm(self):
         """C5: baja confianza -> escala al VLM y usa su texto."""
         vlm = FakePageOCR("texto vlm")
-        with patch("pdfsum.adapters.hybrid_ocr.shutil.which",
-                   return_value="/usr/bin/x"), \
-             patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1), \
-             patch("pdfsum.adapters.hybrid_ocr._run") as run:
+        with (
+            patch("pdfsum.adapters.hybrid_ocr.shutil.which", return_value="/usr/bin/x"),
+            patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1),
+            patch("pdfsum.adapters.hybrid_ocr._run") as run,
+        ):
+
             def fake_run(cmd, timeout=120):
                 s = " ".join(cmd)
                 if "pdftotext" in s:
@@ -83,6 +90,7 @@ class TestHybridOcr(unittest.TestCase):
                     _save_page_image(Path(cmd[-1] + "-1.jpg"))
                     return ""
                 return "texto tesseract"
+
             run.side_effect = fake_run
             tr = self._hybrid(vlm).transcribe(str(self.dir / "x.pdf"))
         self.assertIn("texto vlm", tr.text)
@@ -91,15 +99,18 @@ class TestHybridOcr(unittest.TestCase):
     def test_nativo_directo(self):
         """C6: PDF nativo -> pdftotext sin rasterizar ni OCR."""
         nativo = "texto largo del documento nativo " * 50
-        with patch("pdfsum.adapters.hybrid_ocr.shutil.which",
-                   return_value="/usr/bin/x"), \
-             patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1), \
-             patch("pdfsum.adapters.hybrid_ocr._run") as run:
+        with (
+            patch("pdfsum.adapters.hybrid_ocr.shutil.which", return_value="/usr/bin/x"),
+            patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1),
+            patch("pdfsum.adapters.hybrid_ocr._run") as run,
+        ):
+
             def fake_run(cmd, timeout=120):
                 s = " ".join(cmd)
                 if "pdftotext" in s:
                     return nativo
                 return ""  # no debería rasterizar
+
             run.side_effect = fake_run
             tr = self._hybrid(FakePageOCR()).transcribe(str(self.dir / "x.pdf"))
         self.assertEqual(tr.text, nativo)
@@ -110,10 +121,12 @@ class TestHybridOcr(unittest.TestCase):
         partir ni validar contra una lista fija (combo multi-idioma)."""
         lang_combo = "por+eng+spa+fra"
         seen_lang_args = []
-        with patch("pdfsum.adapters.hybrid_ocr.shutil.which",
-                   return_value="/usr/bin/x"), \
-             patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1), \
-             patch("pdfsum.adapters.hybrid_ocr._run") as run:
+        with (
+            patch("pdfsum.adapters.hybrid_ocr.shutil.which", return_value="/usr/bin/x"),
+            patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1),
+            patch("pdfsum.adapters.hybrid_ocr._run") as run,
+        ):
+
             def fake_run(cmd, timeout=120):
                 s = " ".join(cmd)
                 if "pdftotext" in s:
@@ -126,9 +139,11 @@ class TestHybridOcr(unittest.TestCase):
                     _save_page_image(Path(cmd[-1] + "-1.jpg"))
                     return ""
                 return "texto tesseract"
+
             run.side_effect = fake_run
-            with patch("pdfsum.adapters.hybrid_ocr.shutil.which",
-                       return_value="/usr/bin/x"):
+            with patch(
+                "pdfsum.adapters.hybrid_ocr.shutil.which", return_value="/usr/bin/x"
+            ):
                 tr = HybridOcrTranscriber(
                     lang=lang_combo, vlm=FakePageOCR()
                 ).transcribe(str(self.dir / "x.pdf"))
@@ -144,10 +159,11 @@ class TestHybridOcr(unittest.TestCase):
         from pdfsum.adapters.fake_transcriber import FakeTranscriber
         from pdfsum.adapters.pdf_batch import run_batch_pdfs
         from pdfsum.workspace import Workspace
+
         ws = Workspace(self.dir / "ws")
         report = run_batch_pdfs(
-            str(self.dir), ws, FakeTranscriber("texto", pages=1),
-            FakeSummarizer())
+            str(self.dir), ws, FakeTranscriber("texto", pages=1), FakeSummarizer()
+        )
         self.assertEqual(report["metrics"]["total"], 1)
 
 

@@ -1,4 +1,5 @@
 """Tests de la cola de jobs (criterios C6, C7, C8)."""
+
 import unittest
 
 from pdfsum.adapters.job_store import MemoryJobStore

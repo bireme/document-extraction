@@ -1,4 +1,5 @@
 """Tests de estrategia de porción (criterios C1-C6)."""
+
 import unittest
 
 from pdfsum.contract import DocType
@@ -8,8 +9,10 @@ from pdfsum.excerpt import find_structural_sections, select_excerpt
 _ARTICLE = (
     "RESUMO\nEste estudo avalia algo importante sobre saúde pública. " * 20
     + "\n\nINTRODUÇÃO\nO problema de investigação parte de la necesidad. " * 40
-    + "\n\nMÉTODOS\n" + ("bla metodológico " * 400)
-    + "\n\nRESULTADOS\n" + ("dado experimental " * 400)
+    + "\n\nMÉTODOS\n"
+    + ("bla metodológico " * 400)
+    + "\n\nRESULTADOS\n"
+    + ("dado experimental " * 400)
     + "\n\nCONCLUSÕES\nConcluímos que la técnica funciona adecuadamente. " * 20
 )
 
@@ -19,7 +22,8 @@ _MANUAL = (
     + "APRESENTAÇÃO\nEste manual apresenta diretrizes fundamentais. " * 15
     + "\n\nSUMÁRIO\n1. Introdução  2. Métodos  3. Anexos\n\n"
     + "INTRODUÇÃO\nO contexto de saúde pública exige diretrizes. " * 20
-    + "\n\n" + ("conteúdo extenso do corpo do manual " * 2000)
+    + "\n\n"
+    + ("conteúdo extenso do corpo do manual " * 2000)
 )
 
 _FLYER = "Deixe de fumar. Ligue Disque Saúde. Ministério da Saúde. " * 5
@@ -52,9 +56,11 @@ class TestExcerpt(unittest.TestCase):
 
     def test_budget(self):
         """C4: la porción nunca excede el presupuesto y reporta metadatos."""
-        for text, dt in ((_ARTICLE, DocType.ARTICULO),
-                         (_MANUAL, DocType.MANUAL),
-                         (_FLYER, DocType.DIVULGACION)):
+        for text, dt in (
+            (_ARTICLE, DocType.ARTICULO),
+            (_MANUAL, DocType.MANUAL),
+            (_FLYER, DocType.DIVULGACION),
+        ):
             exc = select_excerpt(text, dt, max_chars=_BUDGET)
             self.assertLessEqual(len(exc.text), _BUDGET)
             self.assertIsInstance(exc.parts, list)
@@ -67,7 +73,8 @@ class TestExcerpt(unittest.TestCase):
         self.assertNotEqual(exc.text, blind_prefix)
         # incluye contenido de una sección estructural más allá del prefijo
         self.assertTrue(
-            ("SUMÁRIO" in exc.text) or ("INTRODUÇÃO" in exc.text)
+            ("SUMÁRIO" in exc.text)
+            or ("INTRODUÇÃO" in exc.text)
             or ("APRESENTAÇÃO" in exc.text)
         )
 

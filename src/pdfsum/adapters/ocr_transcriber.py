@@ -8,6 +8,7 @@ directo, suficiente para el grueso del corpus.
 
 Este módulo SÍ puede ejecutar procesos externos; es un adaptador, no dominio.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -71,13 +72,26 @@ class OcrTranscriber:
         with tempfile.TemporaryDirectory() as td:
             for p in range(1, max(pages, 1) + 1):
                 prefix = str(Path(td) / f"pg{p}")
-                _run(["pdftoppm", "-jpeg", "-r", str(self.dpi),
-                      "-f", str(p), "-l", str(p), path, prefix])
+                _run(
+                    [
+                        "pdftoppm",
+                        "-jpeg",
+                        "-r",
+                        str(self.dpi),
+                        "-f",
+                        str(p),
+                        "-l",
+                        str(p),
+                        path,
+                        prefix,
+                    ]
+                )
                 imgs = sorted(Path(td).glob(f"pg{p}*.jpg"))
                 if not imgs:
                     continue
-                out = _run(["tesseract", str(imgs[0]), "stdout",
-                            "-l", self.lang, "--psm", "1"])
+                out = _run(
+                    ["tesseract", str(imgs[0]), "stdout", "-l", self.lang, "--psm", "1"]
+                )
                 chunks.append(f"=== pág {p} ===\n{out}")
                 for im in imgs:
                     im.unlink()

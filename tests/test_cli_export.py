@@ -1,4 +1,5 @@
 """Test del subcomando export (criterio C11)."""
+
 import json
 import unittest
 from pathlib import Path
@@ -8,16 +9,33 @@ from pdfsum.cli import main
 
 
 def _write_summary(d: Path, doc_id: str) -> None:
-    (d / f"{doc_id}.json").write_text(json.dumps({
-        "doc_id": doc_id, "idioma_principal": "pt", "tipo_documento": "articulo",
-        "plantilla": "A",
-        "secciones": {"titulo": "Título X", "objetivo": "Avaliar algo.",
-                      "palabras_clave": "Saúde Bucal, Odontologia"},
-        "idiomas_resumo_origem": ["pt"],
-        "abstracts_origem": [{"lang": "pt", "header": "RESUMO",
-                              "text": "Resumo.", "keywords": ""}],
-        "meta": {}, "_qa": {"passed": True, "failures": []},
-    }), encoding="utf-8")
+    (d / f"{doc_id}.json").write_text(
+        json.dumps(
+            {
+                "doc_id": doc_id,
+                "idioma_principal": "pt",
+                "tipo_documento": "articulo",
+                "plantilla": "A",
+                "secciones": {
+                    "titulo": "Título X",
+                    "objetivo": "Avaliar algo.",
+                    "palabras_clave": "Saúde Bucal, Odontologia",
+                },
+                "idiomas_resumo_origem": ["pt"],
+                "abstracts_origem": [
+                    {
+                        "lang": "pt",
+                        "header": "RESUMO",
+                        "text": "Resumo.",
+                        "keywords": "",
+                    }
+                ],
+                "meta": {},
+                "_qa": {"passed": True, "failures": []},
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 class TestCLIExport(unittest.TestCase):

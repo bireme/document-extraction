@@ -10,6 +10,7 @@ Subcomandos:
 
 El flujo canonico arranca desde el PDF (la fuente): usar `run`.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -24,8 +25,10 @@ from .pipeline import summarize_document
 def _build_summarizer(dry_run: bool, model: str):
     if dry_run:
         from .adapters.fake_summarizer import FakeSummarizer
+
         return FakeSummarizer()
     from .adapters.ollama_summarizer import OllamaSummarizer
+
     return OllamaSummarizer(model=model)
 
 
@@ -50,19 +53,24 @@ def cmd_summarize(args: argparse.Namespace) -> int:
 
 def cmd_batch(args: argparse.Namespace) -> int:
     from .adapters.batch_runner import run_batch
+
     if not args.dry_run:
         err = _preflight_resumen(args.model)
         if err is not None:
             return err
     summarizer = _build_summarizer(args.dry_run, args.model)
     report = run_batch(
-        in_dir=args.in_dir, out_dir=args.out_dir, summarizer=summarizer,
+        in_dir=args.in_dir,
+        out_dir=args.out_dir,
+        summarizer=summarizer,
         max_retries=args.max_retries,
     )
     m = report["metrics"]
-    print(f"lote: {m['total']} docs | ok={m['ok']} fallos={m['con_fallos']} "
-          f"| tipos={m['por_tipo']} idiomas={m['por_idioma']} "
-          f"| tiempo_medio={m['tiempo_medio']}s")
+    print(
+        f"lote: {m['total']} docs | ok={m['ok']} fallos={m['con_fallos']} "
+        f"| tipos={m['por_tipo']} idiomas={m['por_idioma']} "
+        f"| tiempo_medio={m['tiempo_medio']}s"
+    )
     return 0
 
 
@@ -70,6 +78,7 @@ def cmd_export(args: argparse.Namespace) -> int:
     import json
 
     from .export import to_lilacs
+
     base = Path(args.in_dir)
     records = []
     for f in sorted(base.glob("*.json")):
@@ -88,6 +97,7 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 def cmd_serve(args: argparse.Namespace) -> int:
     from .adapters.api_server import serve
+
     serve(args.batch_dir, host=args.host, port=args.port)
     return 0
 
@@ -101,19 +111,24 @@ def _build_transcriber(fake: bool, lang: str, vlm_model: str = "qwen3-vl:8b-inst
     """
     if fake:
         from .adapters.fake_transcriber import FakeTranscriber
+
         return FakeTranscriber(text="texto de prueba " * 20, pages=1)
     from .adapters.doctor import _ollama_models
     from .adapters.hybrid_ocr import HybridOcrTranscriber
+
     vlm = None
     try:
         models = _ollama_models() or []
         base = vlm_model.split(":")[0]
         if any(m.startswith(base) for m in models):
             from .adapters.vlm_ocr import VlmPageOCR
+
             vlm = VlmPageOCR(model=vlm_model)
         else:
-            print(f"aviso: modelo VLM '{vlm_model}' no disponible; "
-                  "OCR de escaneos de baja confianza degradará a Tesseract.")
+            print(
+                f"aviso: modelo VLM '{vlm_model}' no disponible; "
+                "OCR de escaneos de baja confianza degradará a Tesseract."
+            )
     except (OSError, ValueError):
         print("aviso: Ollama no accesible; OCR de baja confianza usará Tesseract.")
     return HybridOcrTranscriber(lang=lang, vlm=vlm)
@@ -123,6 +138,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     """Flujo completo desde PDFs: transcribe (cache) -> resume -> report."""
     from .adapters.pdf_batch import run_batch_pdfs
     from .workspace import Workspace
+
     if not (args.fake or args.dry_run):
         err = _preflight_resumen(args.model)
         if err is not None:
@@ -131,13 +147,18 @@ def cmd_run(args: argparse.Namespace) -> int:
     transcriber = _build_transcriber(args.fake, args.lang)
     summarizer = _build_summarizer(args.fake or args.dry_run, args.model)
     report = run_batch_pdfs(
-        args.in_dir, ws, transcriber, summarizer,
+        args.in_dir,
+        ws,
+        transcriber,
+        summarizer,
         long_strategy=args.long_strategy,
     )
     m = report["metrics"]
-    print(f"run: {m['total']} PDFs | ok={m['ok']} fallos={m['con_fallos']} "
-          f"| tipos={m['por_tipo']} | ocr={ws.ocr_dir} "
-          f"| resumenes={ws.summaries_dir}")
+    print(
+        f"run: {m['total']} PDFs | ok={m['ok']} fallos={m['con_fallos']} "
+        f"| tipos={m['por_tipo']} | ocr={ws.ocr_dir} "
+        f"| resumenes={ws.summaries_dir}"
+    )
     return 0
 
 
@@ -145,6 +166,7 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
     """Solo transcribe los PDFs a ocr/<doc_id>.txt (sin resumir)."""
     from .adapters.pdf_batch import transcribe_pdfs
     from .workspace import Workspace
+
     ws = Workspace(args.workspace)
     transcriber = _build_transcriber(args.fake, args.lang)
     meta = transcribe_pdfs(args.in_dir, ws, transcriber)
@@ -162,6 +184,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         format_capabilities,
         format_report,
     )
+
     checks = check_environment()
     print("Verificación de entorno pdfsum:")
     print(format_report(checks))
@@ -171,14 +194,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     ok = environment_ok(checks)
     print(f"\nExtraer PDFs nativos: {'OK' if ok else 'INCOMPLETO'}")
     if not caps["resumen"]:
-        print("AVISO: sin Ollama + modelo de texto NO se pueden generar "
-              "resúmenes (núcleo). Ver INSTALL.md §1.")
+        print(
+            "AVISO: sin Ollama + modelo de texto NO se pueden generar "
+            "resúmenes (núcleo). Ver INSTALL.md §1."
+        )
     return 0 if ok else 1
 
 
 def _preflight_resumen(model: str) -> int | None:
     """Comprueba precondiciones de resumen; devuelve código de error o None."""
     from .adapters.doctor import summarization_ready
+
     ok, msg = summarization_ready(model)
     if not ok:
         print("Precondición no cumplida para resumir:\n" + msg)
@@ -193,20 +219,21 @@ def cmd_verify(args: argparse.Namespace) -> int:
     from .contract import SummaryResult
     from .control import run_control_suite
     from .workspace import Workspace
+
     here = Path(__file__).resolve().parent.parent.parent
     pdfs = args.pdfs or str(here / "samples" / "pdfs")
     control = args.control or str(here / "samples" / "control_set.json")
     ws = Workspace(args.workspace)
     transcriber = _build_transcriber(args.fake, args.lang)
     summarizer = _build_summarizer(args.fake or args.dry_run, args.model)
-    run_batch_pdfs(pdfs, ws, transcriber, summarizer,
-                   long_strategy=args.long_strategy)
+    run_batch_pdfs(pdfs, ws, transcriber, summarizer, long_strategy=args.long_strategy)
     # cargar resultados y evaluar contra el set de control
     results = {}
     for f in ws.summaries_dir.glob("*.json"):
         if f.name == "report.json":
             continue
         import json
+
         d = json.loads(f.read_text(encoding="utf-8"))
         d.pop("_qa", None)
         results[d["doc_id"]] = SummaryResult.from_dict(d)
@@ -219,10 +246,12 @@ def cmd_verify(args: argparse.Namespace) -> int:
         if "error" in v:
             print(f"  - {v['doc_id']}: {v['error']}")
         else:
-            print(f"  - {v['doc_id']}: cobertura {v['coverage']} "
-                  f"lang={'ok' if v['lang_ok'] else 'X'} "
-                  f"tipo={'ok' if v['type_ok'] else 'X'}"
-                  + (f" faltan {v['missing_terms']}" if v['missing_terms'] else ""))
+            print(
+                f"  - {v['doc_id']}: cobertura {v['coverage']} "
+                f"lang={'ok' if v['lang_ok'] else 'X'} "
+                f"tipo={'ok' if v['type_ok'] else 'X'}"
+                + (f" faltan {v['missing_terms']}" if v["missing_terms"] else "")
+            )
     return 0 if verdict.passed else 1
 
 
@@ -245,8 +274,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--lang", default=None, help="forzar idioma (pt/es/en/...)")
     s.add_argument("--pages", type=int, default=1)
     s.add_argument("--model", default="qwen2.5:7b")
-    s.add_argument("--dry-run", action="store_true",
-                   help="usar resumidor fake (sin modelo)")
+    s.add_argument(
+        "--dry-run", action="store_true", help="usar resumidor fake (sin modelo)"
+    )
     s.add_argument("--out", default=None, help="escribir JSON a archivo")
     s.set_defaults(func=cmd_summarize)
 
@@ -255,8 +285,9 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--out", dest="out_dir", required=True, help="directorio salida")
     b.add_argument("--model", default="qwen2.5:7b")
     b.add_argument("--max-retries", dest="max_retries", type=int, default=2)
-    b.add_argument("--dry-run", action="store_true",
-                   help="usar resumidor fake (sin modelo)")
+    b.add_argument(
+        "--dry-run", action="store_true", help="usar resumidor fake (sin modelo)"
+    )
     b.set_defaults(func=cmd_batch)
 
     e = sub.add_parser("export", help="exportar lote a registros LILACS (borrador)")
@@ -272,19 +303,29 @@ def build_parser() -> argparse.ArgumentParser:
 
     r = sub.add_parser("run", help="flujo completo desde PDFs (transcribe+resume)")
     r.add_argument("--in", dest="in_dir", required=True, help="directorio de PDFs")
-    r.add_argument("--workspace", required=True, help="dir de artefactos (ocr/, summaries/)")
-    r.add_argument("--lang", default=get_config_value("lang", "por+eng+spa"),
-                   help="idioma(s) OCR Tesseract, combinables con '+' "
-                        "(default: por+eng+spa; ej. anadir frances: "
-                        "por+eng+spa+fra)")
+    r.add_argument(
+        "--workspace", required=True, help="dir de artefactos (ocr/, summaries/)"
+    )
+    r.add_argument(
+        "--lang",
+        default=get_config_value("lang", "por+eng+spa"),
+        help="idioma(s) OCR Tesseract, combinables con '+' "
+        "(default: por+eng+spa; ej. anadir frances: "
+        "por+eng+spa+fra)",
+    )
     r.add_argument("--model", default=get_config_value("model", "qwen2.5:7b"))
-    r.add_argument("--long-strategy", dest="long_strategy",
-                   default=get_config_value("long_strategy", "excerpt"),
-                   choices=["excerpt", "blocks", "hierarchical"])
-    r.add_argument("--dry-run", action="store_true",
-                   help="resumidor fake (OCR real)")
-    r.add_argument("--fake", action="store_true",
-                   help="transcriber Y resumidor fake (sin poppler/ollama)")
+    r.add_argument(
+        "--long-strategy",
+        dest="long_strategy",
+        default=get_config_value("long_strategy", "excerpt"),
+        choices=["excerpt", "blocks", "hierarchical"],
+    )
+    r.add_argument("--dry-run", action="store_true", help="resumidor fake (OCR real)")
+    r.add_argument(
+        "--fake",
+        action="store_true",
+        help="transcriber Y resumidor fake (sin poppler/ollama)",
+    )
     r.set_defaults(func=cmd_run)
 
     t = sub.add_parser("transcribe", help="solo transcribir PDFs a ocr/*.txt")
@@ -297,22 +338,27 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("doctor", help="verificar dependencias de sistema/modelos")
     d.set_defaults(func=cmd_doctor)
 
-    v = sub.add_parser("verify",
-                       help="verificar resultados sobre la muestra incluida")
-    v.add_argument("--workspace", default="./_verify",
-                   help="dir de artefactos de la verificación")
+    v = sub.add_parser("verify", help="verificar resultados sobre la muestra incluida")
+    v.add_argument(
+        "--workspace", default="./_verify", help="dir de artefactos de la verificación"
+    )
     v.add_argument("--pdfs", default=None, help="dir de PDFs (def: muestra)")
     v.add_argument("--control", default=None, help="set de control (def: incluido)")
     v.add_argument("--lang", default="por+eng+spa")
     v.add_argument("--model", default="qwen2.5:7b")
-    v.add_argument("--long-strategy", dest="long_strategy",
-                   default=get_config_value("long_strategy", "excerpt"),
-                   choices=["excerpt", "blocks", "hierarchical"])
-    v.add_argument("--min-coverage", dest="min_coverage", type=float,
-                   default=0.6)
+    v.add_argument(
+        "--long-strategy",
+        dest="long_strategy",
+        default=get_config_value("long_strategy", "excerpt"),
+        choices=["excerpt", "blocks", "hierarchical"],
+    )
+    v.add_argument("--min-coverage", dest="min_coverage", type=float, default=0.6)
     v.add_argument("--dry-run", action="store_true")
-    v.add_argument("--fake", action="store_true",
-                   help="transcriber+resumidor fake (prueba el arnés)")
+    v.add_argument(
+        "--fake",
+        action="store_true",
+        help="transcriber+resumidor fake (prueba el arnés)",
+    )
     v.set_defaults(func=cmd_verify)
     return p
 

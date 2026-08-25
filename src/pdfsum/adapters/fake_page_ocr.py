@@ -3,6 +3,7 @@
 Devuelve texto fijo sin invocar ningún modelo; cuenta invocaciones para
 verificar cuándo el transcriptor híbrido escala al VLM.
 """
+
 from __future__ import annotations
 
 

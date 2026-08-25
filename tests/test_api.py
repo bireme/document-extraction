@@ -1,4 +1,5 @@
 """Tests de la API de consulta (criterios C8, C9, C10)."""
+
 import json
 import unittest
 import urllib.request
@@ -11,16 +12,32 @@ from pdfsum.adapters.api_server import make_handler
 
 
 def _write_batch(d: Path) -> None:
-    (d / "art.json").write_text(json.dumps({
-        "doc_id": "art", "idioma_principal": "pt", "tipo_documento": "articulo",
-        "plantilla": "A", "secciones": {"titulo": "T"},
-        "idiomas_resumo_origem": [], "abstracts_origem": [], "meta": {},
-        "_qa": {"passed": True, "failures": []},
-    }), encoding="utf-8")
-    (d / "report.json").write_text(json.dumps({
-        "metrics": {"total": 1, "ok": 1}, "queue": {"done": 1},
-        "documents": [{"doc_id": "art"}],
-    }), encoding="utf-8")
+    (d / "art.json").write_text(
+        json.dumps(
+            {
+                "doc_id": "art",
+                "idioma_principal": "pt",
+                "tipo_documento": "articulo",
+                "plantilla": "A",
+                "secciones": {"titulo": "T"},
+                "idiomas_resumo_origem": [],
+                "abstracts_origem": [],
+                "meta": {},
+                "_qa": {"passed": True, "failures": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (d / "report.json").write_text(
+        json.dumps(
+            {
+                "metrics": {"total": 1, "ok": 1},
+                "queue": {"done": 1},
+                "documents": [{"doc_id": "art"}],
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 class TestAPI(unittest.TestCase):

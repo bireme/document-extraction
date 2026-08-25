@@ -9,6 +9,7 @@ Endpoints:
   GET /api/summaries/<doc_id>  -> resumen completo (con _qa) | 404
   GET /api/report              -> report.json del lote | 404
 """
+
 from __future__ import annotations
 
 import json
@@ -23,12 +24,14 @@ def _load_summaries(batch_dir: Path) -> list[dict]:
             continue
         d = json.loads(f.read_text(encoding="utf-8"))
         qa = d.get("_qa", {})
-        out.append({
-            "doc_id": d.get("doc_id"),
-            "tipo": d.get("tipo_documento"),
-            "idioma": d.get("idioma_principal"),
-            "qa_ok": qa.get("passed", None),
-        })
+        out.append(
+            {
+                "doc_id": d.get("doc_id"),
+                "tipo": d.get("tipo_documento"),
+                "idioma": d.get("idioma_principal"),
+                "qa_ok": qa.get("passed", None),
+            }
+        )
     return out
 
 

@@ -5,6 +5,7 @@ Para resumen jerárquico: cuando consolidamos múltiples resúmenes de capítulo
 repetirse/apilarse sin añadir valor. Esta lógica los deduplica y fusiona en
 listas únicas y coherentes.
 """
+
 from __future__ import annotations
 
 
