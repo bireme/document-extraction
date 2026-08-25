@@ -27,7 +27,7 @@ from .queue import JobQueue
 from .review import ReviewRecord, approve, edit_sections, reject
 from .workspace import Workspace
 
-__version__ = "0.9.0"  # Fase 8 (segmentación de página)
+__version__ = "0.10.0"  # Fase 10 (segmentación de página)
 
 __all__ = [
     "CONTRACT_VERSION",
