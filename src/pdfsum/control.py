@@ -4,6 +4,7 @@ Permite evaluar resultados contra casos de control fijos (ground-truth ligero):
 idioma esperado, tipo esperado y términos que deberían aparecer. Produce
 veredictos y un reporte agregado para seguimiento de calidad por lote.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -35,9 +36,12 @@ class CaseVerdict:
 
     def to_dict(self) -> dict:
         return {
-            "doc_id": self.doc_id, "coverage": round(self.coverage, 3),
-            "lang_ok": self.lang_ok, "type_ok": self.type_ok,
-            "missing_terms": self.missing_terms, "passed": self.passed,
+            "doc_id": self.doc_id,
+            "coverage": round(self.coverage, 3),
+            "lang_ok": self.lang_ok,
+            "type_ok": self.type_ok,
+            "missing_terms": self.missing_terms,
+            "passed": self.passed,
         }
 
 
@@ -61,10 +65,8 @@ def evaluate_case(res: SummaryResult, case: ControlCase) -> CaseVerdict:
     return CaseVerdict(
         doc_id=case.doc_id,
         coverage=cov,
-        lang_ok=(not case.expected_lang
-                 or res.idioma_principal == case.expected_lang),
-        type_ok=(not case.expected_type
-                 or res.tipo_documento == case.expected_type),
+        lang_ok=(not case.expected_lang or res.idioma_principal == case.expected_lang),
+        type_ok=(not case.expected_type or res.tipo_documento == case.expected_type),
         missing_terms=missing,
     )
 
@@ -80,7 +82,8 @@ class ControlReport:
 
     def to_dict(self) -> dict:
         return {
-            "total": self.total, "passed": self.passed,
+            "total": self.total,
+            "passed": self.passed,
             "coverage_media": round(self.coverage_media, 3),
             "lang_aciertos": self.lang_aciertos,
             "type_aciertos": self.type_aciertos,
@@ -97,8 +100,7 @@ def run_control_suite(
     for case in cases:
         res = results.get(case.doc_id)
         if res is None:
-            rep.verdicts.append(
-                {"doc_id": case.doc_id, "error": "sin resultado"})
+            rep.verdicts.append({"doc_id": case.doc_id, "error": "sin resultado"})
             continue
         v = evaluate_case(res, case)
         cov_sum += v.coverage

@@ -4,6 +4,32 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [0.12.0] — 2026-08-25 — Distribución moderna: hatchling + uv build + PyPI
+### Añadido
+- Backend de build moderno: `setuptools` → `hatchling` en `pyproject.toml`.
+- `uv build` genera wheel (`.whl`) + sdist (`.tar.gz`) reproducibles;
+  `[tool.hatch.build.targets.sdist].exclude` evita empaquetar `samples/pdfs`,
+  `data_hierarchical`, `data/ocr`, `entregable` (127 KB sdist vs 3.3 MB antes).
+- Metadata PyPI completo: `classifiers`, `project.urls` (Homepage, Repository,
+  Issues, Changelog).
+- `.github/workflows/publish.yml`: publica automáticamente a Test PyPI y luego
+  PyPI production al crear un tag `vX.Y.Z` (gate: suite de tests completa
+  antes de publicar; requiere secrets `TEST_PYPI_API_TOKEN` / `PYPI_API_TOKEN`).
+- `.github/workflows/ci.yml`: nuevo job `build` (`uv build` + smoke test del
+  wheel en venv limpio) en cada push/PR.
+- `INSTALL.md` / `README.md`: 3 vías de instalación documentadas
+  (PyPI / `uv` + repo local / venv+pip legacy) y sección de versionado
+  semántico.
+### Corregido
+- `ruff format --check`: 67 archivos con formato desactualizado (deuda
+  preexistente, no relacionada con esta fase) — normalizados con
+  `ruff format`, cambios puramente cosméticos (sin cambio de comportamiento).
+### Verificado
+- 97/97 tests OK en entorno limpio (`rm -rf .venv && uv sync`).
+- `ruff check` y `ruff format --check`: sin issues.
+- Wheel instalado en venv limpio: `pdfsum --help` y `pdfsum doctor` OK.
+- eval-spec `FASE12`: 10/10 criterios.
+
 ## [0.11.1] — 2026-08-25 — Fix: Pillow como dependencia dev declarada
 ### Corregido
 - **Regresión de la migración a uv (0.11.0)**: `Pillow` nunca estuvo declarado

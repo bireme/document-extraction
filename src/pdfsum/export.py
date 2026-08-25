@@ -9,20 +9,21 @@ Campos LILACS de referencia (Manual de Descrição Bibliográfica):
   05 tipo de documento, título, idioma, resumo, descritores.
 Se usa un subconjunto pragmático y se anota su origen.
 """
+
 from __future__ import annotations
 
 from .contract import SummaryResult
 
 # Mapa de tipo interno -> tipo de documento LILACS (campo 05, aproximado).
 _LILACS_DOCTYPE = {
-    "articulo": "S",   # artigo de periódico (Serial article)
-    "manual": "M",     # monografia / manual
+    "articulo": "S",  # artigo de periódico (Serial article)
+    "manual": "M",  # monografia / manual
     "divulgacion": "M",  # material de divulgação -> monografía/no convencional
 }
 
 # Clave de sección que hace de "resumen" según la plantilla.
 _SUMMARY_KEY = {
-    "A": "objetivo",           # en artículo, el objetivo encabeza el abstract
+    "A": "objetivo",  # en artículo, el objetivo encabeza el abstract
     "B": "objeto_alcance",
     "C": "resumen_ejecutivo",
 }
@@ -51,19 +52,22 @@ def to_lilacs(res: SummaryResult) -> dict:
     doctype = _LILACS_DOCTYPE.get(res.tipo_documento, "M")
     # resúmenes por idioma: el ejecutivo + los abstracts de origen verbatim
     abstracts = [
-        {"lang": res.idioma_principal, "text": _summary_text(res),
-         "source": "generated"}
+        {
+            "lang": res.idioma_principal,
+            "text": _summary_text(res),
+            "source": "generated",
+        }
     ]
     for ab in res.abstracts_origem:
-        abstracts.append(
-            {"lang": ab.lang, "text": ab.text, "source": "origin"}
-        )
+        abstracts.append({"lang": ab.lang, "text": ab.text, "source": "origin"})
 
     return {
         "status": "draft",
-        "_note": ("Borrador para revisión humana. Los descriptores son "
-                  "CANDIDATOS y deben validarse con el vocabulario DeCS/MeSH. "
-                  "El tipo de documento LILACS es aproximado."),
+        "_note": (
+            "Borrador para revisión humana. Los descriptores son "
+            "CANDIDATOS y deben validarse con el vocabulario DeCS/MeSH. "
+            "El tipo de documento LILACS es aproximado."
+        ),
         "lilacs": {
             "05_tipo_documento": doctype,
             "titulo": res.secciones.get(_TITLE_KEY, "").strip(),

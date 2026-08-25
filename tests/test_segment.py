@@ -1,4 +1,5 @@
 """Tests de segmentación de página (criterios C1-C4)."""
+
 import unittest
 
 from PIL import Image, ImageDraw
@@ -53,10 +54,10 @@ class TestSegment(unittest.TestCase):
     def test_reading_order(self):
         """C3: orden de lectura izq->der, arriba->abajo."""
         from itertools import pairwise
+
         regs = sort_reading_order(detect_regions(_img_2cols()))
         for a, b in pairwise(regs):
-            self.assertTrue((a.left < b.left) or
-                            (a.left == b.left and a.top <= b.top))
+            self.assertTrue((a.left < b.left) or (a.left == b.left and a.top <= b.top))
 
     def test_cobertura(self):
         """C4: multicolumna -> >1 región y cubre el contenido."""

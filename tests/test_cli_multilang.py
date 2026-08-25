@@ -1,4 +1,5 @@
 """Tests FASE9: default OCR multi-idioma (C1, C2)."""
+
 import unittest
 
 from pdfsum.cli import build_parser
@@ -19,10 +20,17 @@ class TestDefaultLangMultilang(unittest.TestCase):
     def test_lang_override_propagates(self):
         """C2: el usuario puede anadir idiomas via '+' y se propaga intacto."""
         p = build_parser()
-        args = p.parse_args([
-            "run", "--in", "x", "--workspace", "y",
-            "--lang", "por+eng+spa+fra",
-        ])
+        args = p.parse_args(
+            [
+                "run",
+                "--in",
+                "x",
+                "--workspace",
+                "y",
+                "--lang",
+                "por+eng+spa+fra",
+            ]
+        )
         self.assertEqual(args.lang, "por+eng+spa+fra")
 
 

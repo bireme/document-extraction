@@ -7,6 +7,7 @@ Fase 4: cobertura de términos esperados + acierto de idioma y tipo.
 Un lote PASA la aceptación si la cobertura media supera un umbral y todos los
 casos aciertan idioma y tipo.
 """
+
 from __future__ import annotations
 
 import json

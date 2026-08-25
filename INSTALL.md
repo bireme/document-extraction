@@ -167,13 +167,15 @@ export PDFSUM_SUMMARIZER_BACKEND="openai"
 de Summarizer en la Sección 2 (Ollama local o servicios remotos).
 
 El núcleo Python no tiene dependencias externas (solo stdlib): se instala directo.
+Tres opciones, ordenadas por recomendación:
 
-### Opción A: `uv` (recomendado — 10x más rápido)
+### Opción A: `uv` + repo local (desarrollo — recomendado para contribuir)
 
 [Instala `uv`](https://docs.astral.sh/uv/getting-started/) si aún no lo tienes.
 
 ```bash
-uv sync                   # crea .venv + instala pdfsum (determini stico en uv.lock)
+git clone https://github.com/idourra/pdf-summarizer.git && cd pdf-summarizer
+uv sync                   # crea .venv + instala pdfsum (determinístico en uv.lock)
 uv run pdfsum --help      # sin 'source .venv/bin/activate'
 ```
 
@@ -183,10 +185,26 @@ Los comandos `pdfsum` se invocan así:
 - `uv run pdfsum verify`
 
 > **Ventaja**: uv.lock garantiza reproducibilidad; instalación ~1-2s (vs. 30s+ con pip).
+> Es la vía recomendada si vas a modificar el código (ver `CONTRIBUTING.md`).
 
-### Opción B: venv + pip (fallback clásico)
+### Opción B: `pip install pdfsum` (desde PyPI — recomendado para usuarios)
 
-Si no tenés/querés `uv`:
+Si solo quieres **usar** `pdfsum` (sin clonar el repo ni tocar código):
+
+```bash
+pip install pdfsum
+pdfsum --help
+pdfsum doctor
+pdfsum verify
+```
+
+> **Nota**: requiere que el paquete esté publicado en PyPI (ver "Distribución
+> moderna" más abajo). Si aún no está publicado, usa la Opción A o instala
+> el wheel generado localmente: `uv build && pip install dist/pdfsum-*.whl`.
+
+### Opción C: venv + pip desde repo local (legacy, no recomendado)
+
+Solo si no puedes usar `uv` ni PyPI (entorno restringido):
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -195,7 +213,7 @@ pdfsum --help
 ```
 
 > **Nota**: `pip` es más lento (~30-60s en 1ra instalación); no hay uv.lock
-> para reproducibilidad garantizada.
+> para reproducibilidad garantizada. Preferir Opción A o B.
 
 ---
 
@@ -286,7 +304,54 @@ pdfsum serve --batch-dir ./data/summaries --port 8765
 
 ---
 
-## 7. Cómo distribuir el proyecto (repo local, sin remoto)
+## 7. Distribución moderna: build + publicación en PyPI
+
+El proyecto usa `hatchling` como build backend (`pyproject.toml`), compatible
+con `uv build` para generar artefactos reproducibles.
+
+### Generar wheel + sdist
+
+```bash
+uv build
+ls -lh dist/
+# pdfsum-X.Y.Z-py3-none-any.whl  (wheel binario)
+# pdfsum-X.Y.Z.tar.gz            (source distribution)
+```
+
+### Verificar el wheel en un entorno limpio
+
+```bash
+python3 -m venv /tmp/pdfsum-check
+/tmp/pdfsum-check/bin/pip install dist/pdfsum-*.whl
+/tmp/pdfsum-check/bin/pdfsum --help
+/tmp/pdfsum-check/bin/pdfsum doctor
+```
+
+### Publicar en PyPI (mantenedores)
+
+**Paso 1 — Test PyPI primero (siempre):**
+```bash
+export UV_PUBLISH_TOKEN="pypi-..."   # token de https://test.pypi.org
+uv publish --publish-url https://test.pypi.org/legacy/ dist/*
+
+# Verificar instalación desde Test PyPI:
+pip install --index-url https://test.pypi.org/simple/ pdfsum
+```
+
+**Paso 2 — PyPI production (solo si Test PyPI funciona):**
+```bash
+export UV_PUBLISH_TOKEN="pypi-..."   # token de https://pypi.org
+uv publish dist/*
+```
+
+> **Automatización**: el workflow `.github/workflows/publish.yml` ejecuta
+> este flujo automáticamente al crear un tag `vX.Y.Z` (ver la sección
+> "Versionado semántico" en `CHANGELOG.md` y `CONTRIBUTING.md`). Requiere
+> el secret `PYPI_API_TOKEN` configurado en GitHub → Settings → Secrets.
+
+---
+
+## 8. Cómo distribuir el proyecto (repo local, sin remoto)
 
 El proyecto vive en un **repositorio git local**. Para entregarlo a un tercero
 sin publicarlo en GitHub/GitLab:
@@ -311,7 +376,7 @@ En ambos casos, el receptor sigue §2–§4 para instalar y verificar.
 
 ---
 
-## 7. Reproducibilidad: qué está fijado y qué no
+## 9. Reproducibilidad: qué está fijado y qué no
 
 | Fijado (determinista) | No fijado (varía) |
 |---|---|

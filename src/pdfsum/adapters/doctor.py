@@ -7,6 +7,7 @@ ollama+modelos; escaneos difíciles: VLM).
 
 Este módulo SÍ puede tocar procesos externos; es un adaptador.
 """
+
 from __future__ import annotations
 
 import json
@@ -39,8 +40,11 @@ def _tesseract_langs() -> list[str]:
         return []
     try:
         out = subprocess.run(
-            ["tesseract", "--list-langs"], capture_output=True, text=True,
-            timeout=10, check=False,
+            ["tesseract", "--list-langs"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         ).stdout
         return [ln.strip() for ln in out.splitlines()[1:] if ln.strip()]
     except (OSError, subprocess.SubprocessError):
@@ -65,40 +69,64 @@ def check_environment(
 
     # poppler (requisito duro: clasificar + extraer nativos + rasterizar)
     for tool in ("pdftotext", "pdfinfo", "pdftoppm"):
-        checks.append(Check(tool, bool(_tool(tool)),
-                            "encontrado" if _tool(tool) else "FALTA (poppler-utils)",
-                            hard=True))
+        checks.append(
+            Check(
+                tool,
+                bool(_tool(tool)),
+                "encontrado" if _tool(tool) else "FALTA (poppler-utils)",
+                hard=True,
+            )
+        )
 
     # tesseract (opcional: OCR de escaneados)
     has_tess = bool(_tool("tesseract"))
-    checks.append(Check("tesseract", has_tess,
-                        "encontrado" if has_tess else "falta (OCR de imagen)",
-                        hard=False))
+    checks.append(
+        Check(
+            "tesseract",
+            has_tess,
+            "encontrado" if has_tess else "falta (OCR de imagen)",
+            hard=False,
+        )
+    )
     langs = _tesseract_langs()
     for lang in ("por", "spa", "eng"):
-        checks.append(Check(f"tesseract-{lang}", lang in langs,
-                            "instalado" if lang in langs else "falta",
-                            hard=False))
+        checks.append(
+            Check(
+                f"tesseract-{lang}",
+                lang in langs,
+                "instalado" if lang in langs else "falta",
+                hard=False,
+            )
+        )
 
     # ollama + modelos (opcional para el arnés, necesario para resumen real)
     models = _ollama_models()
     if models is None:
-        checks.append(Check("ollama", False, "no responde en localhost:11434",
-                            hard=False))
+        checks.append(
+            Check("ollama", False, "no responde en localhost:11434", hard=False)
+        )
     else:
         checks.append(Check("ollama", True, f"{len(models)} modelos", hard=False))
-        checks.append(Check(f"model:{text_model}",
-                            any(m.startswith(text_model) for m in models),
-                            "presente" if any(m.startswith(text_model)
-                                              for m in models) else "falta",
-                            hard=False))
-        checks.append(Check(f"model:{vlm_model}",
-                            any(m.startswith(vlm_model.split(':')[0])
-                                for m in models),
-                            "presente (o variante)" if any(
-                                m.startswith(vlm_model.split(':')[0])
-                                for m in models) else "falta (OCR de imagen)",
-                            hard=False))
+        checks.append(
+            Check(
+                f"model:{text_model}",
+                any(m.startswith(text_model) for m in models),
+                "presente"
+                if any(m.startswith(text_model) for m in models)
+                else "falta",
+                hard=False,
+            )
+        )
+        checks.append(
+            Check(
+                f"model:{vlm_model}",
+                any(m.startswith(vlm_model.split(":")[0]) for m in models),
+                "presente (o variante)"
+                if any(m.startswith(vlm_model.split(":")[0]) for m in models)
+                else "falta (OCR de imagen)",
+                hard=False,
+            )
+        )
     return checks
 
 
@@ -117,10 +145,10 @@ def capabilities(checks: list[Check]) -> dict[str, bool]:
     """
     by = {c.name: c.ok for c in checks}
     poppler = by.get("pdftotext") and by.get("pdfinfo") and by.get("pdftoppm")
-    text_model = any(k.startswith("model:") and "vl" not in k and v
-                     for k, v in by.items())
-    vlm_model = any(k.startswith("model:") and "vl" in k and v
-                    for k, v in by.items())
+    text_model = any(
+        k.startswith("model:") and "vl" not in k and v for k, v in by.items()
+    )
+    vlm_model = any(k.startswith("model:") and "vl" in k and v for k, v in by.items())
     return {
         "extraer_nativo": bool(poppler),
         "ocr_imagen": bool(poppler and by.get("tesseract")),
@@ -140,8 +168,9 @@ def summarization_ready(
     if models is None:
         return False, (
             "Ollama no responde en localhost:11434. Instala/arranca Ollama y "
-            "descarga el modelo:\n  ollama pull " + model +
-            "\nDiagnóstico: 'pdfsum doctor'. Detalles: INSTALL.md §1."
+            "descarga el modelo:\n  ollama pull "
+            + model
+            + "\nDiagnóstico: 'pdfsum doctor'. Detalles: INSTALL.md §1."
         )
     if not any(m.startswith(model) for m in models):
         return False, (

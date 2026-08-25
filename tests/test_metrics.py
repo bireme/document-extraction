@@ -1,4 +1,5 @@
 """Tests de métricas de lote (criterio C9)."""
+
 import unittest
 
 from pdfsum.contract import SummaryResult
@@ -8,14 +9,19 @@ from pdfsum.qa import check_result
 
 def _res(doc_id, tipo, idioma):
     return SummaryResult(
-        doc_id=doc_id, idioma_principal=idioma, tipo_documento=tipo,
+        doc_id=doc_id,
+        idioma_principal=idioma,
+        tipo_documento=tipo,
         plantilla="C",
         secciones={
-            "titulo": "T", "tipo_documento": "folheto", "entidad": "MS",
+            "titulo": "T",
+            "tipo_documento": "folheto",
+            "entidad": "MS",
             "publico": "geral",
             "resumen_ejecutivo": "Resumo suficientemente longo em português "
-                                 "para o gate de idioma funcionar bem.",
-            "puntos_clave": "- a", "terminos": "x",
+            "para o gate de idioma funcionar bem.",
+            "puntos_clave": "- a",
+            "terminos": "x",
         },
     )
 

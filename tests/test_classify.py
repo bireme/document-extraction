@@ -1,4 +1,5 @@
 """Tests de clasificación (criterios C3, C4, C5)."""
+
 import unittest
 
 from pdfsum.classify import (
@@ -20,8 +21,9 @@ Conclusions: works.
 Keywords: health.
 """
 
-_MANUAL = ("SUMÁRIO\nApresentação\n1. Introdução\n2. Métodos\n"
-           + "conteúdo do manual. " * 50)
+_MANUAL = (
+    "SUMÁRIO\nApresentação\n1. Introdução\n2. Métodos\n" + "conteúdo do manual. " * 50
+)
 
 _FLYER = "Deixe de fumar. Ligue Disque Saúde. Ministério da Saúde."
 
@@ -33,17 +35,20 @@ class TestClassify(unittest.TestCase):
         self.assertEqual(classify_source(50, 3), SourceKind.ESCANEADO)
         self.assertEqual(classify_source(0, 0), SourceKind.ESCANEADO)
         # umbral configurable
-        self.assertEqual(classify_source(90, 1, threshold=80),
-                         SourceKind.NATIVO)
+        self.assertEqual(classify_source(90, 1, threshold=80), SourceKind.NATIVO)
 
     def test_language(self):
         """C4: distingue pt/es/en; unknown con vacío."""
-        self.assertEqual(detect_language(
-            "O paciente não está com a doença, também é saúde."), "pt")
-        self.assertEqual(detect_language(
-            "El paciente no está con la enfermedad, también es salud."), "es")
-        self.assertEqual(detect_language(
-            "The patient has the disease and the study results."), "en")
+        self.assertEqual(
+            detect_language("O paciente não está com a doença, também é saúde."), "pt"
+        )
+        self.assertEqual(
+            detect_language("El paciente no está con la enfermedad, también es salud."),
+            "es",
+        )
+        self.assertEqual(
+            detect_language("The patient has the disease and the study results."), "en"
+        )
         self.assertEqual(detect_language(""), "unknown")
 
     def test_doc_type_and_template(self):

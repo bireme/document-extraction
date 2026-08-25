@@ -90,15 +90,27 @@ EOF
 
 ## Instalación
 
-### Recomendado: `uv` (10x más rápido)
+### Opción A — Desde PyPI (usuarios, sin clonar el repo)
 
 ```bash
+pip install pdfsum
+pdfsum --help
+pdfsum doctor
+```
+
+### Opción B — `uv` + repo local (desarrollo, recomendado para contribuir)
+
+```bash
+git clone https://github.com/idourra/pdf-summarizer.git && cd pdf-summarizer
 uv sync                          # crea .venv + instala (determinista vía uv.lock)
 uv run pdfsum doctor             # REQUIERE: Ollama corriendo O servicios remotos configurados
 uv run pdfsum verify             # confirma resultados sobre la muestra incluida
 ```
 
-### Alternativa: venv + pip (legacy, más lento)
+> `uv` es la vía recomendada para desarrollo: instalación ~1-2s (vs 30-60s
+> con pip) y reproducibilidad garantizada por `uv.lock`.
+
+### Opción C — venv + pip desde repo local (legacy, más lento)
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -147,6 +159,19 @@ uv run pdfsum serve --batch-dir ./_resumenes --port 8765
 Salida: JSON con `doc_id`, `idioma_principal`, `tipo_documento`, `plantilla`,
 `secciones`, `idiomas_resumo_origem`, `abstracts_origem`, `meta`.
 
+## Versionado
+
+Semantic Versioning (`MAJOR.MINOR.PATCH`):
+
+| Cambio | Ejemplo |
+|---|---|
+| `MAJOR` | Cambio incompatible en el contrato JSON de salida |
+| `MINOR` | Nueva fase/capacidad compatible (p. ej. 0.9 → 0.10 = resumen jerárquico) |
+| `PATCH` | Correcciones sin cambio de contrato (p. ej. 0.11.0 → 0.11.1 = fix dependencia dev) |
+
+Historial completo en [`CHANGELOG.md`](CHANGELOG.md). Cada versión integrada
+se marca con `git tag -a vX.Y.Z`.
+
 ## Desarrollo
 
 ```bash
@@ -174,5 +199,13 @@ make check    # lint + test
 - **Fase 4 (mejora continua):** ✅ completada — 12/12 criterios
   (`evals/eval-spec-fase4-mejora.yaml`). Resumen por bloques (documentos
   gigantes completos) + set de control con métricas de cobertura.
-- **Roadmap completo:** las 5 fases (0-4) implementadas y verificadas.
+- **Fase 10 (resumen jerárquico por capítulos):** ✅ completada — 12/12
+  criterios (`evals/eval-spec-fase10-resumen-jerarquico-capitulos.yaml`).
+  Estrategia `--long-strategy hierarchical` para libros/documentos largos
+  (detección de capítulos + resumen y consolidación por capítulo).
+- **Fase 11 (migración a uv):** ✅ completada (`evals/eval-spec-fase11-migracion-uv.yaml`).
+  Gestor de dependencias moderno, `uv.lock` para reproducibilidad.
+- **Fase 12 (distribución moderna):** ✅ completada
+  (`evals/eval-spec-fase12-distribucion-moderna-uv.yaml`). Backend `hatchling`,
+  `uv build` genera wheel/sdist, publicación en PyPI (`pip install pdfsum`).
 - Ver `docs/ESTADO.md` y `docs/PROPUESTA-PRODUCTO.md`.

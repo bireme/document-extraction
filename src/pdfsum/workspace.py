@@ -11,6 +11,7 @@ Layout:
     summaries/report.json    reporte agregado del lote
     lilacs.json              export de catalogación (borrador)
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

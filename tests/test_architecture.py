@@ -3,6 +3,7 @@
 Verifican por AST que el dominio no importa adaptadores concretos, y que el
 resumidor es un puerto (Protocol) que los adaptadores implementan.
 """
+
 import ast
 import unittest
 from pathlib import Path
@@ -10,11 +11,25 @@ from pathlib import Path
 SRC = Path(__file__).resolve().parents[1] / "src" / "pdfsum"
 
 # Módulos de dominio puro (no deben tocar adaptadores/procesos externos).
-DOMAIN_MODULES = ["contract.py", "classify.py", "abstracts.py",
-                  "templates.py", "pipeline.py", "excerpt.py",
-                  "qa.py", "metrics.py", "queue.py",
-                  "review.py", "export.py", "chunking.py", "control.py",
-                  "workspace.py", "acceptance.py", "ocr_routing.py", "segment.py"]
+DOMAIN_MODULES = [
+    "contract.py",
+    "classify.py",
+    "abstracts.py",
+    "templates.py",
+    "pipeline.py",
+    "excerpt.py",
+    "qa.py",
+    "metrics.py",
+    "queue.py",
+    "review.py",
+    "export.py",
+    "chunking.py",
+    "control.py",
+    "workspace.py",
+    "acceptance.py",
+    "ocr_routing.py",
+    "segment.py",
+]
 
 # Nombres de import prohibidos en el dominio.
 FORBIDDEN = {"ollama", "requests", "urllib", "subprocess", "socket", "httpx"}
@@ -42,8 +57,7 @@ class TestArchitecture(unittest.TestCase):
         for mod in DOMAIN_MODULES:
             imps = _imports(SRC / mod)
             bad = (imps & FORBIDDEN) | ({FORBIDDEN_LOCAL} & imps)
-            self.assertFalse(
-                bad, f"{mod} importa dependencias prohibidas: {bad}")
+            self.assertFalse(bad, f"{mod} importa dependencias prohibidas: {bad}")
 
     def test_summarizer_is_port(self):
         """C9: Summarizer es un Protocol y los adaptadores lo cumplen."""

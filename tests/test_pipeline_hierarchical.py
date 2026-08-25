@@ -1,4 +1,5 @@
 """Tests para pipeline con long_strategy='hierarchical' (criterios C4-C5)."""
+
 import unittest
 
 from pdfsum.adapters.fake_summarizer import FakeSummarizer
@@ -16,10 +17,12 @@ class TestPipelineHierarchical(unittest.TestCase):
             "Prefacio: este es un libro.\n\n"
             "Capítulo\n\n1\n\n"
             "INTRODUCCIÓN\n"
-            "Párrafo intro.\n" * 1000  # ~15K chars
+            "Párrafo intro.\n"
+            * 1000  # ~15K chars
             + "\n\nCapítulo\n\n2\n\n"
             "MÉTODOS\n"
-            "Párrafo método.\n" * 1000  # ~15K chars
+            "Párrafo método.\n"
+            * 1000  # ~15K chars
             + "\n\nCapítulo\n\n3\n\n"
             "RESULTADOS\n"
             "Párrafo resultado.\n" * 1000  # ~15K chars
@@ -48,8 +51,10 @@ class TestPipelineHierarchical(unittest.TestCase):
         # Texto MUY largo con capítulos explícitos (>40K para disparar jerarquía)
         text = (
             "Intro\n\n"
-            "Capítulo\n\n1\n\nTÍTULO1\n" + ("Contenido.\n" * 2000)
-            + "\nCapítulo\n\n2\n\nTÍTULO2\n" + ("Contenido.\n" * 2000)
+            "Capítulo\n\n1\n\nTÍTULO1\n"
+            + ("Contenido.\n" * 2000)
+            + "\nCapítulo\n\n2\n\nTÍTULO2\n"
+            + ("Contenido.\n" * 2000)
         )
 
         result = summarize_document(

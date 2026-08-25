@@ -1,4 +1,5 @@
 """Tests del flujo desde PDFs con OCR cacheado (criterios C2-C5)."""
+
 import json
 import unittest
 from pathlib import Path
@@ -10,9 +11,11 @@ from pdfsum.adapters.pdf_batch import run_batch_pdfs, transcribe_pdfs
 from pdfsum.contract import SourceKind
 from pdfsum.workspace import Workspace
 
-_TEXT = ("RESUMO\nObjetivo: avaliar sarampo. Métodos: estudo. "
-         "Resultados: dados. Conclusões: ok.\nPalavras-chave: saúde.\n"
-         "ABSTRACT\nObjective: assess.\nKeywords: health.\n")
+_TEXT = (
+    "RESUMO\nObjetivo: avaliar sarampo. Métodos: estudo. "
+    "Resultados: dados. Conclusões: ok.\nPalavras-chave: saúde.\n"
+    "ABSTRACT\nObjective: assess.\nKeywords: health.\n"
+)
 
 
 class CountingTranscriber:
@@ -24,8 +27,9 @@ class CountingTranscriber:
 
     def transcribe(self, path):
         self.calls += 1
-        return FakeTranscriber(self._text, pages=4,
-                               source_kind=SourceKind.NATIVO).transcribe(path)
+        return FakeTranscriber(
+            self._text, pages=4, source_kind=SourceKind.NATIVO
+        ).transcribe(path)
 
 
 def _make_pdfs(d: Path, names):
@@ -37,12 +41,13 @@ class TestBatchPdf(unittest.TestCase):
     def test_batch_desde_pdf(self):
         """C2: procesa *.pdf -> ocr/ + summaries/ + report.json."""
         with TemporaryDirectory() as td:
-            ind = Path(td) / "in"; ind.mkdir()
+            ind = Path(td) / "in"
+            ind.mkdir()
             _make_pdfs(ind, ["art"])
             ws = Workspace(Path(td) / "ws")
             report = run_batch_pdfs(
-                str(ind), ws, FakeTranscriber(_TEXT, pages=4),
-                FakeSummarizer())
+                str(ind), ws, FakeTranscriber(_TEXT, pages=4), FakeSummarizer()
+            )
             self.assertTrue(ws.summary_path("art").exists())
             self.assertTrue(ws.report_path.exists())
             self.assertEqual(report["metrics"]["total"], 1)
@@ -50,7 +55,8 @@ class TestBatchPdf(unittest.TestCase):
     def test_ocr_cacheado(self):
         """C3: si ocr/<id>.txt existe, no se re-transcribe."""
         with TemporaryDirectory() as td:
-            ind = Path(td) / "in"; ind.mkdir()
+            ind = Path(td) / "in"
+            ind.mkdir()
             _make_pdfs(ind, ["art"])
             ws = Workspace(Path(td) / "ws")
             tr = CountingTranscriber(_TEXT)
@@ -62,7 +68,8 @@ class TestBatchPdf(unittest.TestCase):
     def test_ocr_persistido(self):
         """C4: existe ocr/<id>.txt con contenido tras el lote."""
         with TemporaryDirectory() as td:
-            ind = Path(td) / "in"; ind.mkdir()
+            ind = Path(td) / "in"
+            ind.mkdir()
             _make_pdfs(ind, ["art"])
             ws = Workspace(Path(td) / "ws")
             transcribe_pdfs(str(ind), ws, FakeTranscriber(_TEXT, pages=4))
@@ -73,18 +80,22 @@ class TestBatchPdf(unittest.TestCase):
     def test_report_origen(self):
         """C5: report incluye source_kind por documento."""
         with TemporaryDirectory() as td:
-            ind = Path(td) / "in"; ind.mkdir()
+            ind = Path(td) / "in"
+            ind.mkdir()
             _make_pdfs(ind, ["art"])
             ws = Workspace(Path(td) / "ws")
             report = run_batch_pdfs(
-                str(ind), ws,
+                str(ind),
+                ws,
                 FakeTranscriber(_TEXT, pages=4, source_kind=SourceKind.NATIVO),
-                FakeSummarizer())
+                FakeSummarizer(),
+            )
             doc = report["documents"][0]
             self.assertEqual(doc["source_kind"], "nativo")
-            self.assertEqual(json.loads(
-                ws.summary_path("art").read_text())["meta"]["source_kind"],
-                "nativo")
+            self.assertEqual(
+                json.loads(ws.summary_path("art").read_text())["meta"]["source_kind"],
+                "nativo",
+            )
 
 
 if __name__ == "__main__":

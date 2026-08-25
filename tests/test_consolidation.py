@@ -1,4 +1,5 @@
 """Tests para consolidación inteligente de resúmenes (criterio C6)."""
+
 import unittest
 
 from pdfsum.consolidation import consolidate_sections, deduplicate_field
@@ -77,7 +78,7 @@ class TestDeduplication(unittest.TestCase):
         partials = [
             {"titulo": "Cap 1", "terminos": "- ATP"},
             {"titulo": "Cap 2", "terminos": "   "},  # solo espacios
-            {"titulo": "Cap 3", "terminos": ""},    # vacío
+            {"titulo": "Cap 3", "terminos": ""},  # vacío
         ]
 
         result = consolidate_sections(partials)

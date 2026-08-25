@@ -4,6 +4,7 @@ Localiza los bloques RESUMO/ABSTRACT/RESUMEN/... y los preserva VERBATIM, cada
 uno etiquetado con su idioma, sin traducir ni fusionar. Portado y consolidado
 desde el piloto (extract_abstracts.py), aquí como función pura del dominio.
 """
+
 from __future__ import annotations
 
 import re
@@ -12,8 +13,12 @@ from .contract import Abstract
 
 # Encabezados de bloque de resumen -> idioma.
 _HEADERS = [
-    ("RESUMO", "pt"), ("ABSTRACT", "en"), ("RESUMEN", "es"),
-    ("RÉSUMÉ", "fr"), ("RESUME", "fr"), ("RIASSUNTO", "it"),
+    ("RESUMO", "pt"),
+    ("ABSTRACT", "en"),
+    ("RESUMEN", "es"),
+    ("RÉSUMÉ", "fr"),
+    ("RESUME", "fr"),
+    ("RIASSUNTO", "it"),
     ("ZUSAMMENFASSUNG", "de"),
 ]
 _HEADER_TO_LANG = {h.upper(): lg for h, lg in _HEADERS}
@@ -32,7 +37,9 @@ _BODY_START_RE = re.compile(
 _CUT_TAIL = [
     r"(?i)\bCom\.\s*Ci[eê]ncias\s+Sa[uú]de\b",
     r"(?i)\bRev\.?\s*[A-Z][a-z]+\.?\s*\d{4}",
-    r"(?i)\bTelefone\b", r"(?i)\bE[- ]?mail\b", r"(?i)\bEndere[cç]o\b",
+    r"(?i)\bTelefone\b",
+    r"(?i)\bE[- ]?mail\b",
+    r"(?i)\bEndere[cç]o\b",
     r"(?i)\bPalabras[- ]llave\b",
 ]
 
@@ -55,7 +62,7 @@ def extract_abstracts(text: str) -> list[Abstract]:
         kwm = _KW_RE.search(chunk)
         if kwm:
             body = chunk[: kwm.start()].strip()
-            kw = re.split(r"\n\s*\n", chunk[kwm.end():].strip())[0].strip()
+            kw = re.split(r"\n\s*\n", chunk[kwm.end() :].strip())[0].strip()
         else:
             body = chunk
 

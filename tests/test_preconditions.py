@@ -1,4 +1,5 @@
 """Tests de precondiciones y capacidades (criterios C1-C5)."""
+
 import io
 import unittest
 from contextlib import redirect_stdout
@@ -41,8 +42,9 @@ class TestPreconditions(unittest.TestCase):
 
     def test_preflight_ok(self):
         """C2: modelo presente -> (True, msg)."""
-        with patch("pdfsum.adapters.doctor._ollama_models",
-                   return_value=["qwen2.5:7b", "otro"]):
+        with patch(
+            "pdfsum.adapters.doctor._ollama_models", return_value=["qwen2.5:7b", "otro"]
+        ):
             ok, msg = summarization_ready("qwen2.5:7b")
         self.assertTrue(ok)
         self.assertIn("disponibles", msg)
@@ -55,17 +57,17 @@ class TestPreconditions(unittest.TestCase):
         self.assertIn("ollama pull", msg)
         self.assertIn("INSTALL.md", msg)
         # ollama arriba pero sin el modelo
-        with patch("pdfsum.adapters.doctor._ollama_models",
-                   return_value=["otro:1b"]):
+        with patch("pdfsum.adapters.doctor._ollama_models", return_value=["otro:1b"]):
             ok2, msg2 = summarization_ready("qwen2.5:7b")
         self.assertFalse(ok2)
         self.assertIn("falta el modelo", msg2)
 
     def test_cli_precondicion(self):
         """C4: 'run' sin ollama/modelo -> mensaje claro, código != 0."""
-        with TemporaryDirectory() as td, \
-                patch("pdfsum.adapters.doctor._ollama_models",
-                      return_value=None):
+        with (
+            TemporaryDirectory() as td,
+            patch("pdfsum.adapters.doctor._ollama_models", return_value=None),
+        ):
             buf = io.StringIO()
             with redirect_stdout(buf):
                 rc = main(["run", "--in", td, "--workspace", td])

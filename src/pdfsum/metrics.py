@@ -3,6 +3,7 @@
 Resume el resultado de procesar un lote: recuentos por tipo/idioma, calidad
 (cuántos pasaron los QA gates) y tiempos. Solo agrega datos; no ejecuta nada.
 """
+
 from __future__ import annotations
 
 from collections import Counter

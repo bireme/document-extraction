@@ -1,4 +1,5 @@
 """Tests del export LILACS (criterios C4, C5, C6)."""
+
 import unittest
 
 from pdfsum.contract import Abstract, SummaryResult
@@ -7,7 +8,9 @@ from pdfsum.export import to_lilacs
 
 def _article() -> SummaryResult:
     return SummaryResult(
-        doc_id="art1", idioma_principal="pt", tipo_documento="articulo",
+        doc_id="art1",
+        idioma_principal="pt",
+        tipo_documento="articulo",
         plantilla="A",
         secciones={
             "titulo": "Avaliação do tratamento restaurador atraumático",

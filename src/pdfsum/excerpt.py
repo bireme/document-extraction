@@ -10,6 +10,7 @@ en lugar de cortar a ciegas los primeros N caracteres (problema del piloto).
 Si el documento cabe en el presupuesto, se devuelve completo. Solo cuando
 excede, se aplica la estrategia estructural.
 """
+
 from __future__ import annotations
 
 import re
@@ -22,12 +23,27 @@ DEFAULT_MAX_CHARS = 42000
 # Encabezados estructurales -> etiqueta canónica (pt/es/en).
 _STRUCTURE = [
     ("sumario", r"(?im)^\s*(SUM[ÁA]RIO|[ÍI]NDICE|TABLE OF CONTENTS|CONTENTS)\b"),
-    ("apresentacao", (r"(?im)^\s*(APRESENTA[ÇC][ÃA]O|PREF[ÁA]CIO|PRESENTACI[ÓO]N|"
-                      r"PREFACE|FOREWORD|PR[ÓO]LOGO)\b")),
-    ("introducao", (r"(?im)^\s*(INTRODU[ÇC][ÃA]O|INTRODUCCI[ÓO]N|INTRODUCTION|"
-                    r"1\.?\s+INTRODU)\b")),
-    ("conclusao", (r"(?im)^\s*(CONCLUS[ÕO]ES?|CONCLUSIONES?|CONCLUSIONS?|"
-                   r"CONSIDERA[ÇC][ÕO]ES\s+FINAIS)\b")),
+    (
+        "apresentacao",
+        (
+            r"(?im)^\s*(APRESENTA[ÇC][ÃA]O|PREF[ÁA]CIO|PRESENTACI[ÓO]N|"
+            r"PREFACE|FOREWORD|PR[ÓO]LOGO)\b"
+        ),
+    ),
+    (
+        "introducao",
+        (
+            r"(?im)^\s*(INTRODU[ÇC][ÃA]O|INTRODUCCI[ÓO]N|INTRODUCTION|"
+            r"1\.?\s+INTRODU)\b"
+        ),
+    ),
+    (
+        "conclusao",
+        (
+            r"(?im)^\s*(CONCLUS[ÕO]ES?|CONCLUSIONES?|CONCLUSIONS?|"
+            r"CONSIDERA[ÇC][ÕO]ES\s+FINAIS)\b"
+        ),
+    ),
     ("abstract", r"(?im)^\s*(RESUMO|ABSTRACT|RESUMEN|R[ÉE]SUM[ÉE])\b"),
 ]
 
@@ -60,7 +76,7 @@ def find_structural_sections(text: str) -> list[Section]:
 
 
 def _window(text: str, start: int, size: int) -> str:
-    return text[start:start + size].strip()
+    return text[start : start + size].strip()
 
 
 def _articulo_excerpt(text: str, max_chars: int) -> Excerpt:
@@ -78,8 +94,12 @@ def _articulo_excerpt(text: str, max_chars: int) -> Excerpt:
             chunks.append((name, _window(text, secs[name], size)))
     if not chunks:
         # sin estructura reconocible: prefijo (mejor que nada) marcado truncado
-        return Excerpt(text=text[:max_chars].strip(), parts=["prefijo"],
-                       truncated=len(text) > max_chars, strategy="articulo")
+        return Excerpt(
+            text=text[:max_chars].strip(),
+            parts=["prefijo"],
+            truncated=len(text) > max_chars,
+            strategy="articulo",
+        )
     total = 0
     sep = 2  # "\n\n" entre partes
     for name, chunk in chunks:
@@ -90,8 +110,9 @@ def _articulo_excerpt(text: str, max_chars: int) -> Excerpt:
             parts.append(chunk)
             used.append(name)
             total += extra + len(chunk)
-    return Excerpt(text="\n\n".join(parts), parts=used,
-                   truncated=True, strategy="articulo")
+    return Excerpt(
+        text="\n\n".join(parts), parts=used, truncated=True, strategy="articulo"
+    )
 
 
 def _manual_excerpt(text: str, max_chars: int) -> Excerpt:
@@ -126,12 +147,17 @@ def select_excerpt(
     Si el documento cabe en max_chars, se devuelve completo (strategy='full').
     """
     if len(text) <= max_chars:
-        return Excerpt(text=text.strip(), parts=["completo"], truncated=False,
-                       strategy="full")
+        return Excerpt(
+            text=text.strip(), parts=["completo"], truncated=False, strategy="full"
+        )
     if doc_type == DocType.ARTICULO:
         return _articulo_excerpt(text, max_chars)
     if doc_type == DocType.MANUAL:
         return _manual_excerpt(text, max_chars)
     # DIVULGACION largo (raro): prefijo honesto
-    return Excerpt(text=text[:max_chars].strip(), parts=["prefijo"],
-                   truncated=True, strategy="divulgacion")
+    return Excerpt(
+        text=text[:max_chars].strip(),
+        parts=["prefijo"],
+        truncated=True,
+        strategy="divulgacion",
+    )

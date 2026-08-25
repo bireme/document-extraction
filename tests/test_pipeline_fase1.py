@@ -1,4 +1,5 @@
 """Tests de integración del pipeline con estrategia de porción (C9, C10)."""
+
 import unittest
 
 from pdfsum.adapters.fake_summarizer import FakeSummarizer
@@ -11,7 +12,8 @@ _MANUAL = (
     + "APRESENTAÇÃO\nEste manual apresenta diretrizes. " * 15
     + "\n\nSUMÁRIO\n1. Introdução  2. Métodos\n\n"
     + "INTRODUÇÃO\nO contexto exige diretrizes claras. " * 20
-    + "\n\n" + ("corpo extenso do manual " * 3000)
+    + "\n\n"
+    + ("corpo extenso do manual " * 3000)
 )
 
 
@@ -19,8 +21,12 @@ class TestPipelineFase1(unittest.TestCase):
     def test_pipeline_applies_excerpt(self):
         """C9: el pipeline aplica porción y lo registra en meta."""
         res = summarize_document(
-            doc_id="m1", text=_MANUAL, summarizer=FakeSummarizer(),
-            pages=30, doc_type=DocType.MANUAL, max_chars=4000,
+            doc_id="m1",
+            text=_MANUAL,
+            summarizer=FakeSummarizer(),
+            pages=30,
+            doc_type=DocType.MANUAL,
+            max_chars=4000,
         )
         self.assertEqual(res.meta["excerpt_strategy"], "manual")
         self.assertTrue(res.meta["excerpt_truncated"])
@@ -30,8 +36,12 @@ class TestPipelineFase1(unittest.TestCase):
     def test_manual_largo(self):
         """C10: manual largo -> incluye estructura, no prefijo ciego."""
         res = summarize_document(
-            doc_id="m2", text=_MANUAL, summarizer=FakeSummarizer(),
-            pages=30, doc_type=DocType.MANUAL, max_chars=4000,
+            doc_id="m2",
+            text=_MANUAL,
+            summarizer=FakeSummarizer(),
+            pages=30,
+            doc_type=DocType.MANUAL,
+            max_chars=4000,
         )
         parts = set(res.meta["excerpt_parts"])
         # evidencia de enrutado por estructura (no solo 'portada'/prefijo)
@@ -39,11 +49,13 @@ class TestPipelineFase1(unittest.TestCase):
 
     def test_summarize_pdf_via_transcriber(self):
         """C9 (extra): summarize_pdf usa el puerto Transcriber."""
-        tr = FakeTranscriber(text=_MANUAL, pages=30,
-                             source_kind=SourceKind.NATIVO)
+        tr = FakeTranscriber(text=_MANUAL, pages=30, source_kind=SourceKind.NATIVO)
         res = summarize_pdf(
-            "/tmp/x.pdf", transcriber=tr, summarizer=FakeSummarizer(),
-            doc_type=DocType.MANUAL, max_chars=4000,
+            "/tmp/x.pdf",
+            transcriber=tr,
+            summarizer=FakeSummarizer(),
+            doc_type=DocType.MANUAL,
+            max_chars=4000,
         )
         self.assertEqual(res.doc_id, "x")
         self.assertEqual(res.meta["pages"], 30)

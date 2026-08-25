@@ -1,16 +1,28 @@
 [build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
 
 [project]
 name = "pdfsum"
-version = "0.11.1"
+version = "0.12.0"
 description = "Motor de resúmenes estructurados de documentos PDF (local, sin API)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "INFOMED / BIREME" }]
 keywords = ["ocr", "resumen", "pdf", "lilacs", "bireme", "local-llm"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Text Processing :: General",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 # Sin dependencias Python obligatorias: el núcleo usa solo la stdlib.
 # Los requisitos externos son de SISTEMA (poppler, tesseract) y de MODELOS
 # (Ollama + qwen2.5:7b / qwen3-vl:8b). Ver INSTALL.md y `pdfsum doctor`.
@@ -26,13 +38,23 @@ dev = ["pillow>=10"]
 pdfsum = "pdfsum.cli:main"
 
 [project.urls]
-Homepage = "local-repo"
+Homepage = "https://github.com/idourra/pdf-summarizer"
+Repository = "https://github.com/idourra/pdf-summarizer"
+Issues = "https://github.com/idourra/pdf-summarizer/issues"
+Changelog = "https://github.com/idourra/pdf-summarizer/blob/master/CHANGELOG.md"
 
-[tool.setuptools]
-package-dir = { "" = "src" }
+[tool.hatch.build.targets.wheel]
+packages = ["src/pdfsum"]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.hatch.build.targets.sdist]
+# Excluir datos de muestra/artefactos generados: no forman parte del
+# paquete distribuible, solo del repo de desarrollo.
+exclude = [
+  "samples/pdfs",
+  "data_hierarchical",
+  "data/ocr",
+  "entregable",
+]
 
 [tool.ruff]
 line-length = 88

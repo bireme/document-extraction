@@ -1,4 +1,5 @@
 """Tests de empaquetado (criterios C1, C2)."""
+
 import unittest
 from pathlib import Path
 
@@ -14,13 +15,21 @@ class TestPackaging(unittest.TestCase):
         self.assertEqual(data["project"]["name"], "pdfsum")
         self.assertIn("pdfsum", data["project"]["scripts"])
         self.assertEqual(data["project"]["scripts"]["pdfsum"], "pdfsum.cli:main")
-        self.assertEqual(data["tool"]["setuptools"]["package-dir"][""], "src")
+        # Fase 12: backend moderno hatchling (antes: setuptools).
+        self.assertIn("hatchling", data["build-system"]["requires"][0])
+        self.assertEqual(data["build-system"]["build-backend"], "hatchling.build")
+        self.assertEqual(
+            data["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"],
+            ["src/pdfsum"],
+        )
         self.assertGreaterEqual(
-            data["project"]["requires-python"].replace(">=", ""), "3.10")
+            data["project"]["requires-python"].replace(">=", ""), "3.10"
+        )
 
     def test_version_sync(self):
         """C2: versión de pyproject == pdfsum.__version__."""
         import pdfsum
+
         data = tomllib.loads((ROOT / "pyproject.toml").read_text())
         self.assertEqual(data["project"]["version"], pdfsum.__version__)
 

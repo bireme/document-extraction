@@ -8,6 +8,7 @@ archivo en lugar de leerla). Lección del piloto aplicada:
 - Prompt positivo y directo (sin 'escape hatch' de rendirse), en el idioma.
 - Filtrar el bloque de razonamiento <think>...</think>.
 """
+
 from __future__ import annotations
 
 import re
@@ -39,7 +40,10 @@ class VlmPageOCR:
         try:
             proc = subprocess.run(
                 ["ollama", "run", self.model, message],
-                capture_output=True, text=True, timeout=self.timeout, check=False,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                check=False,
             )
             raw = proc.stdout
         except (OSError, subprocess.SubprocessError):

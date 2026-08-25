@@ -4,6 +4,7 @@ Define los tipos que cruzan la frontera del motor y el PUERTO del resumidor.
 Este módulo es DOMINIO PURO: no importa adaptadores (Ollama, Tesseract, HTTP),
 no ejecuta modelos ni procesos externos. Solo estructuras y contratos.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,16 +18,16 @@ CONTRACT_VERSION = "1.0"
 class SourceKind(str, Enum):
     """Origen del texto del PDF."""
 
-    NATIVO = "nativo"        # texto embebido, extraíble directo
+    NATIVO = "nativo"  # texto embebido, extraíble directo
     ESCANEADO = "escaneado"  # imagen pura, requiere OCR
-    MIXTO = "mixto"          # texto parcial
+    MIXTO = "mixto"  # texto parcial
 
 
 class DocType(str, Enum):
     """Tipo de documento (decide plantilla y estrategia de porción)."""
 
-    ARTICULO = "articulo"        # artículo científico -> plantilla A (IMRAD)
-    MANUAL = "manual"            # manual/informe extenso -> plantilla B
+    ARTICULO = "articulo"  # artículo científico -> plantilla A (IMRAD)
+    MANUAL = "manual"  # manual/informe extenso -> plantilla B
     DIVULGACION = "divulgacion"  # folleto/cartaz/edital -> plantilla C
 
 
@@ -120,8 +121,7 @@ class Summarizer(Protocol):
     Debe devolver un dict de secciones (nombre_seccion -> contenido).
     """
 
-    def summarize(self, req: SummarizeRequest) -> dict[str, str]:
-        ...
+    def summarize(self, req: SummarizeRequest) -> dict[str, str]: ...
 
 
 @runtime_checkable
@@ -132,8 +132,7 @@ class Transcriber(Protocol):
     de este Protocol, nunca de Tesseract/poppler/VLM directamente.
     """
 
-    def transcribe(self, path: str) -> TranscriptResult:
-        ...
+    def transcribe(self, path: str) -> TranscriptResult: ...
 
 
 @runtime_checkable
@@ -144,8 +143,7 @@ class PageOCR(Protocol):
     cuando Tesseract tiene baja confianza; el hibrido no depende de Ollama.
     """
 
-    def ocr_image(self, image_path: str, lang: str) -> str:
-        ...
+    def ocr_image(self, image_path: str, lang: str) -> str: ...
 
 
 @runtime_checkable
@@ -156,11 +154,8 @@ class JobStore(Protocol):
     JSON, SQLite. El dominio (queue) depende de este Protocol, no del backend.
     """
 
-    def get(self, key: str) -> dict | None:
-        ...
+    def get(self, key: str) -> dict | None: ...
 
-    def put(self, key: str, value: dict) -> None:
-        ...
+    def put(self, key: str, value: dict) -> None: ...
 
-    def all(self) -> dict[str, dict]:
-        ...
+    def all(self) -> dict[str, dict]: ...

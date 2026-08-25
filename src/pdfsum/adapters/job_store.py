@@ -6,6 +6,7 @@
 La persistencia en archivo es suficiente para operación por lotes local; un
 backend SQLite/Redis sería otro adaptador sin tocar el dominio.
 """
+
 from __future__ import annotations
 
 import json

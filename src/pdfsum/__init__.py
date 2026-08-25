@@ -5,6 +5,7 @@ hexagonal: `contract`, `classify`, `templates`, `abstracts`, `excerpt`,
 `pipeline`, `qa`, `metrics`, `queue` son DOMINIO puro; `adapters/` implementa
 los puertos (Summarizer, Transcriber, JobStore).
 """
+
 from .chunking import split_blocks, summarize_in_blocks
 from .contract import (
     CONTRACT_VERSION,
@@ -27,7 +28,7 @@ from .queue import JobQueue
 from .review import ReviewRecord, approve, edit_sections, reject
 from .workspace import Workspace
 
-__version__ = "0.11.1"  # Fix: Pillow como dependencia dev declarada
+__version__ = "0.12.0"  # Fase 12 (distribución moderna: hatchling + uv build + PyPI)
 
 __all__ = [
     "CONTRACT_VERSION",

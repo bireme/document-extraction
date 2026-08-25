@@ -3,6 +3,7 @@
 No usa modelos: rellena el esquema de la plantilla con texto determinista
 derivado de la petición. Permite validar el contrato y la CLI sin GPU/Ollama.
 """
+
 from __future__ import annotations
 
 from ..contract import SummarizeRequest

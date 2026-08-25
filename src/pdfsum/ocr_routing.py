@@ -5,6 +5,7 @@ media es alta y hay suficientes palabras; si no, escalar al VLM. Aquí solo vive
 la DECISIÓN y el parseo de la confianza; la ejecución (Tesseract/VLM) es de los
 adaptadores.
 """
+
 from __future__ import annotations
 
 import csv
