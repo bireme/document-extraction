@@ -4,9 +4,12 @@ pyproject.toml
 src/pdfsum/__init__.py
 src/pdfsum/abstracts.py
 src/pdfsum/acceptance.py
+src/pdfsum/chapters.py
 src/pdfsum/chunking.py
 src/pdfsum/classify.py
 src/pdfsum/cli.py
+src/pdfsum/config.py
+src/pdfsum/consolidation.py
 src/pdfsum/contract.py
 src/pdfsum/control.py
 src/pdfsum/excerpt.py
@@ -43,6 +46,7 @@ tests/test_acceptance.py
 tests/test_api.py
 tests/test_architecture.py
 tests/test_batch_pdf.py
+tests/test_chapters.py
 tests/test_chunking.py
 tests/test_classify.py
 tests/test_cli.py
@@ -51,6 +55,7 @@ tests/test_cli_export.py
 tests/test_cli_multilang.py
 tests/test_cli_repro.py
 tests/test_cli_run.py
+tests/test_consolidation.py
 tests/test_contract.py
 tests/test_control.py
 tests/test_doctor.py
@@ -62,6 +67,7 @@ tests/test_metrics.py
 tests/test_ocr_routing.py
 tests/test_packaging.py
 tests/test_pipeline_fase1.py
+tests/test_pipeline_hierarchical.py
 tests/test_preconditions.py
 tests/test_qa.py
 tests/test_queue.py

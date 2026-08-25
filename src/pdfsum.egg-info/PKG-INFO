@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: pdfsum
-Version: 0.9.0
+Version: 0.11.1
 Summary: Motor de resúmenes estructurados de documentos PDF (local, sin API)
 Author: INFOMED / BIREME
 License-Expression: MIT
@@ -13,9 +13,9 @@ Dynamic: license-file
 
 # pdfsum — motor de resúmenes estructurados de PDF
 
-Producto derivado del piloto BIREME–INFOMED. **Versión actual: 0.9.0**
-(flujo completo desde PDF: OCR híbrido con segmentación + resumen + QA +
-export LILACS + API).
+Producto derivado del piloto BIREME–INFOMED. **Versión actual: 0.11.0**
+(flujo completo desde PDF: OCR híbrido con segmentación + resumen jerárquico
+con coexistencia de estrategias + QA + export LILACS + API).
 
 > 🚀 **Guía rápida de uso (1 página, con ejemplos ejecutables): [`GUIA-USO.md`](GUIA-USO.md)**
 
@@ -44,45 +44,116 @@ Regla de dependencia: **el dominio no importa adaptadores** (verificado por
 `test_architecture.py` vía AST). Cambiar de modelo local a cloud = nuevo
 adaptador, sin tocar el núcleo.
 
+## ⚙️ Requisitos Críticos (ANTES de instalar)
+
+**IMPORTANTE**: pdfsum requiere un **Summarizer** configurado. Elige UNO:
+
+### ✅ Opción A: Modelos Locales con Ollama (RECOMENDADO)
+
+**Requisitos hardware:**
+- GPU ≥ **8 GB VRAM** (ej: RTX 5060, RTX 4060, etc.)
+- Ollama instalado y ejecutándose: `ollama serve`
+- Modelos descargados:
+  ```bash
+  ollama pull qwen2.5:7b          # ~6.3 GB (esencial)
+  ollama pull qwen3-vl:8b-instruct # ~8.8 GB (opcional, para OCR)
+  ```
+
+**Ventajas:**
+- ✅ Sin costo de API
+- ✅ Privacidad total (datos locales)
+- ✅ Rápido (si GPU buena)
+- ✅ Sin internet requerido para procesamiento
+
+**Desventajas:**
+- ❌ Inversión en hardware GPU
+- ❌ Modelos ocupan 6-9 GB en disco
+
+### ⚠️ Opción B: Modelos Remotos (Sin GPU o GPU < 8 GB)
+
+**Requisitos:**
+- API key de OpenAI, Anthropic, HuggingFace, etc.
+- Plan pagado en el proveedor
+- Conexión a internet
+
+**Configuración rápida:**
+```bash
+cat > ~/.pdfsum-config.json << 'EOF'
+{
+  "summarizer_backend": "openai",
+  "openai_api_key": "sk-...",
+  "openai_model": "gpt-4-turbo"
+}
+EOF
+```
+
+**Ventajas:**
+- ✅ No requiere GPU
+- ✅ Modelos de última generación
+- ✅ Sin mantenimiento de modelos
+
+**Desventajas:**
+- ❌ Costo por uso (más caro)
+- ❌ Datos salen a internet
+- ❌ Latencia de red
+
+**👉 Ver `INSTALL.md` Sección 2 para configuración detallada**
+
+---
+
 ## Instalación
+
+### Recomendado: `uv` (10x más rápido)
+
+```bash
+uv sync                          # crea .venv + instala (determinista vía uv.lock)
+uv run pdfsum doctor             # REQUIERE: Ollama corriendo O servicios remotos configurados
+uv run pdfsum verify             # confirma resultados sobre la muestra incluida
+```
+
+### Alternativa: venv + pip (legacy, más lento)
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e .        # expone el comando 'pdfsum'
-pdfsum doctor           # verifica dependencias (poppler/tesseract/ollama)
-pdfsum verify           # confirma resultados similares sobre la muestra incluida
+pip install -e .
+pdfsum doctor
+pdfsum verify
 ```
-Guía completa (requisitos, modelos, distribución) en `INSTALL.md`.
+
+**⚠️ SI `pdfsum doctor` dice "XX ollama: no encontrado"**
+→ Configura modelos remotos en `~/.pdfsum-config.json` (Opción B arriba)
+
+**Guía completa** (requisitos de sistema, modelos, troubleshooting):
+→ [`INSTALL.md`](INSTALL.md) **Sección 2 (Modelos Local vs Remoto)**
 
 ## Uso
 
 ```bash
 # FLUJO COMPLETO desde PDFs (la fuente): transcribe (OCR) + resume + report
 # Requiere poppler + tesseract (OCR) y Ollama + qwen2.5:7b (resumen).
-PYTHONPATH=src python3 -m pdfsum.cli run --in ./pdfs --workspace ./data --lang por
+uv run pdfsum run --in ./pdfs --workspace ./data --lang por
 #   -> ./data/ocr/<doc_id>.txt        (transcripciones cacheadas)
 #   -> ./data/summaries/<doc_id>.json (resúmenes + _qa)
 #   -> ./data/summaries/report.json   (métricas del lote)
 
 # solo transcribir (PDF -> ocr/*.txt), sin resumir
-PYTHONPATH=src python3 -m pdfsum.cli transcribe --in ./pdfs --workspace ./data
+uv run pdfsum transcribe --in ./pdfs --workspace ./data
 
 # resumen de un texto ya transcrito (paso 2 aislado)
-PYTHONPATH=src python3 -m pdfsum.cli summarize \
-    --text transcripcion.txt --pages 4 --out resumen.json
+uv run pdfsum summarize --text transcripcion.txt --pages 4 --out resumen.json
 
 # dry-run sin modelo (contrato + clasificación, para probar el flujo)
-PYTHONPATH=src python3 -m pdfsum.cli summarize --text transcripcion.txt --dry-run
+uv run pdfsum summarize --text transcripcion.txt --dry-run
 
 # lote: directorio de .txt con cola idempotente + QA gates
-PYTHONPATH=src python3 -m pdfsum.cli batch --in ./_ocr_out --out ./_resumenes
+uv run pdfsum batch --in ./_ocr_out --out ./_resumenes
 # -> un .json por doc (con bloque _qa) + report.json (métricas del lote)
 
 # export a registros LILACS (borrador para revisión humana)
-PYTHONPATH=src python3 -m pdfsum.cli export --in ./_resumenes --out lilacs.json
+uv run pdfsum export --in ./_resumenes --out lilacs.json
 
 # API de consulta local (solo lectura) sobre el lote
-PYTHONPATH=src python3 -m pdfsum.cli serve --batch-dir ./_resumenes --port 8765
+uv run pdfsum serve --batch-dir ./_resumenes --port 8765
 # GET /api/summaries | /api/summaries/<doc_id> | /api/report
 ```
 

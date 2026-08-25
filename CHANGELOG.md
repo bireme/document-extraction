@@ -4,6 +4,26 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [0.11.1] — 2026-08-25 — Fix: Pillow como dependencia dev declarada
+### Corregido
+- **Regresión de la migración a uv (0.11.0)**: `Pillow` nunca estuvo declarado
+  en `pyproject.toml`; en un `uv sync` limpio (entorno aislado, sin paquetes
+  globales) los tests `test_segment.py`, `test_hybrid_ocr.py` y
+  `test_hybrid_seg.py` fallaban con `ModuleNotFoundError: No module named
+  'PIL'` (3 módulos completos sin cargar → 89/97 tests reales ejecutados,
+  no 97/97 como afirmaba el registro de 0.11.0).
+- Causa raíz: la verificación de 0.11.0 se corrió sobre un entorno que ya
+  tenía Pillow instalado globalmente (fuera de uv), lo que ocultó la falta
+  de declaración explícita.
+- Fix: nuevo `[dependency-groups] dev = ["pillow>=10"]` en `pyproject.toml`
+  (Pillow solo se usa para generar imágenes sintéticas en tests, nunca en
+  `src/`). `uv sync` instala grupos dev por defecto — sin cambios en el
+  flujo de instalación para el usuario.
+### Verificado
+- `rm -rf .venv && uv sync && uv run python -m unittest discover tests`:
+  **97/97 tests OK** en entorno completamente limpio.
+- `uv run ruff check .`: sin issues.
+
 ## [0.11.0] — 2026-08-25 — Migración a uv (gestor moderno Python)
 ### Cambiado
 - **Flujo de instalación**: `uv sync` es primario (10x más rápido, ~1-2s);
