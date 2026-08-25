@@ -20,6 +20,27 @@ Motor de resúmenes estructurados de documentos PDF con:
 
 ---
 
+## ⚠️ Requisito Crítico ANTES de Empezar
+
+**pdfsum necesita un modelo LLM**. Elige UNO:
+
+**✅ Opción A: Ollama (local, recomendado)**
+- Necesitas GPU con **≥ 8 GB VRAM**
+- Instala Ollama: https://ollama.com
+- Descargas modelos (6-9 GB): `ollama pull qwen2.5:7b`
+- Ejecuta: `ollama serve` (en otra terminal, déjalo corriendo)
+- Sin costos de API, privacidad total
+
+**⚠️ Opción B: Servicios Remotos (OpenAI, Anthropic, etc.)**
+- Si NO tienes GPU o GPU < 8 GB
+- Obtén API key (OpenAI, Anthropic, etc.)
+- Configura en `~/.pdfsum-config.json`
+- Costo por uso, pero sin hardware
+
+**Ver INSTALL.md Sección 2 para instrucciónes completas**
+
+---
+
 ## 🚀 Inicio Rápido
 
 ### 1️⃣ Clonar el repo
@@ -29,11 +50,30 @@ git clone https://github.com/idourra/pdf-summarizer.git
 cd pdf-summarizer
 ```
 
-### 2️⃣ Instalar (recomendado: uv)
+### 2️⃣ Configurar Modelo (Ollama O servicios remotos)
+
+**Si usas Ollama:**
+```bash
+# Terminal 1: Ejecutar Ollama (dejar corriendo)
+ollama serve
+
+# Terminal 2: Descargar modelo
+ollama pull qwen2.5:7b
+```
+
+**Si usas servicios remotos:**
+```bash
+echo '{
+  "summarizer_backend": "openai",
+  "openai_api_key": "sk-YOUR-KEY"
+}' > ~/.pdfsum-config.json
+```
+
+### 3️⃣ Instalar (recomendado: uv)
 
 ```bash
 uv sync                  # instala en ~1-2s (determinístico via uv.lock)
-uv run pdfsum doctor     # verifica dependencias (poppler/tesseract/ollama)
+uv run pdfsum doctor     # verifica que Ollama/API está configurado ✓
 uv run pdfsum verify     # confirma resultados sobre muestra
 ```
 
@@ -43,7 +83,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
 
-### 3️⃣ Usar
+### 4️⃣ Usar
 
 ```bash
 # Procesar PDFs desde directorio
@@ -52,6 +92,10 @@ uv run pdfsum run --in ./pdfs --workspace ./data --lang por
 # Ver ayuda
 uv run pdfsum --help
 ```
+
+**Si ves error "XX ollama: no encontrado" en `pdfsum doctor`:**
+- Opción A: Instala Ollama y ejecuta `ollama serve`
+- Opción B: Configura API key de OpenAI/Anthropic en `~/.pdfsum-config.json`
 
 **Documentación completa**: [`INSTALL.md`](INSTALL.md) | [`GUIA-USO.md`](GUIA-USO.md)
 

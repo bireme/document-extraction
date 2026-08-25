@@ -31,13 +31,70 @@ Regla de dependencia: **el dominio no importa adaptadores** (verificado por
 `test_architecture.py` vía AST). Cambiar de modelo local a cloud = nuevo
 adaptador, sin tocar el núcleo.
 
+## ⚙️ Requisitos Críticos (ANTES de instalar)
+
+**IMPORTANTE**: pdfsum requiere un **Summarizer** configurado. Elige UNO:
+
+### ✅ Opción A: Modelos Locales con Ollama (RECOMENDADO)
+
+**Requisitos hardware:**
+- GPU ≥ **8 GB VRAM** (ej: RTX 5060, RTX 4060, etc.)
+- Ollama instalado y ejecutándose: `ollama serve`
+- Modelos descargados:
+  ```bash
+  ollama pull qwen2.5:7b          # ~6.3 GB (esencial)
+  ollama pull qwen3-vl:8b-instruct # ~8.8 GB (opcional, para OCR)
+  ```
+
+**Ventajas:**
+- ✅ Sin costo de API
+- ✅ Privacidad total (datos locales)
+- ✅ Rápido (si GPU buena)
+- ✅ Sin internet requerido para procesamiento
+
+**Desventajas:**
+- ❌ Inversión en hardware GPU
+- ❌ Modelos ocupan 6-9 GB en disco
+
+### ⚠️ Opción B: Modelos Remotos (Sin GPU o GPU < 8 GB)
+
+**Requisitos:**
+- API key de OpenAI, Anthropic, HuggingFace, etc.
+- Plan pagado en el proveedor
+- Conexión a internet
+
+**Configuración rápida:**
+```bash
+cat > ~/.pdfsum-config.json << 'EOF'
+{
+  "summarizer_backend": "openai",
+  "openai_api_key": "sk-...",
+  "openai_model": "gpt-4-turbo"
+}
+EOF
+```
+
+**Ventajas:**
+- ✅ No requiere GPU
+- ✅ Modelos de última generación
+- ✅ Sin mantenimiento de modelos
+
+**Desventajas:**
+- ❌ Costo por uso (más caro)
+- ❌ Datos salen a internet
+- ❌ Latencia de red
+
+**👉 Ver `INSTALL.md` Sección 2 para configuración detallada**
+
+---
+
 ## Instalación
 
 ### Recomendado: `uv` (10x más rápido)
 
 ```bash
 uv sync                          # crea .venv + instala (determinista vía uv.lock)
-uv run pdfsum doctor             # verifica dependencias
+uv run pdfsum doctor             # REQUIERE: Ollama corriendo O servicios remotos configurados
 uv run pdfsum verify             # confirma resultados sobre la muestra incluida
 ```
 
@@ -50,8 +107,11 @@ pdfsum doctor
 pdfsum verify
 ```
 
+**⚠️ SI `pdfsum doctor` dice "XX ollama: no encontrado"**
+→ Configura modelos remotos en `~/.pdfsum-config.json` (Opción B arriba)
+
 **Guía completa** (requisitos de sistema, modelos, troubleshooting):
-→ [`INSTALL.md`](INSTALL.md)
+→ [`INSTALL.md`](INSTALL.md) **Sección 2 (Modelos Local vs Remoto)**
 
 ## Uso
 

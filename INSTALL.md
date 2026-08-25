@@ -30,8 +30,17 @@ aplicación, la ejecute y **verifique que obtiene resultados similares**.
 > en cualquier momento con **`pdfsum doctor`** (muestra checks + capacidades).
 
 ### Hardware (referencia del pilotaje)
-- GPU con **≥ 8 GB VRAM** (probado en RTX 5060 Laptop, 8 GB) + ~16 GB RAM.
-- Con GPU superior, los modelos corren igual o más rápido.
+
+**OPCIÓN A: Local con GPU (recomendado)**
+- GPU con **≥ 8 GB VRAM** (probado en RTX 5060 Laptop, 8 GB) + ~16 GB RAM
+- Todos los modelos corren localmente sin costo de API
+- Con GPU superior, más rápido aún
+
+**OPCIÓN B: Sin GPU local (o GPU < 8 GB)**
+- Configura acceso a servicios de modelos remotos (OpenAI API, Anthropic, etc.)
+- Requiere API key de proveedor externo + plan pagado
+- Ver Sección 5 (Configuración de Modelos Remotos)
+- Ideal si no tienes GPU o quieres máxima privacidad sin inversión local
 
 ### Software de sistema
 - **Python ≥ 3.10**
@@ -41,25 +50,123 @@ aplicación, la ejecute y **verifique que obtiene resultados similares**.
   instala los tres paquetes de idioma como mínimo. Para más idiomas en el
   corpus (p. ej. francés), instala el paquete y añade el código a `--lang`
   (ej. `--lang por+eng+spa+fra`).
-- **Ollama** (runtime de modelos locales) + los modelos:
-  - `qwen2.5:7b` — generación de resúmenes (texto).
-  - `qwen3-vl:8b-instruct` — OCR de escaneos difíciles (visión, opcional).
+- **Ollama** (runtime de modelos locales) + los modelos [**SOLO si tienes GPU ≥ 8 GB**]
+  - `qwen2.5:7b` — generación de resúmenes (texto, 6.3 GB VRAM)
+  - `qwen3-vl:8b-instruct` — OCR de escaneos difíciles (visión, opcional)
+  - **CRÍTICO**: Sin Ollama + modelos descargados, los comandos de resumen fallarán
 
 ```bash
-# Debian/Ubuntu
+# Debian/Ubuntu (requiere GPU ≥ 8 GB)
 sudo apt install python3 python3-venv poppler-utils \
      tesseract-ocr tesseract-ocr-por tesseract-ocr-spa tesseract-ocr-eng
 
-# Ollama (ver https://ollama.com) y modelos
-ollama pull qwen2.5:7b
-ollama pull qwen3-vl:8b-instruct
+# Ollama DEBE estar instalado Y ejecutándose
+# Ver: https://ollama.com
+
+# Descargar los modelos (requiere ~6-9 GB de disco + espacio en GPU)
+ollama pull qwen2.5:7b          # ~6.3 GB
+ollama pull qwen3-vl:8b-instruct # ~8.8 GB (opcional, para OCR avanzado)
+
+# Iniciar Ollama (en otra terminal, déjalo corriendo)
+ollama serve
 ```
 
 ---
 
-## 2. Instalación de la aplicación
+## 2. Configuración de Modelos (Local vs. Remoto)
 
-El núcleo no tiene dependencias Python (solo stdlib): se instala directo.
+### 🔴 REQUISITO CRÍTICO: Configurar Summarizer
+
+Antes de usar `pdfsum`, **DEBE** haber un Summarizer configurado:
+
+#### ✅ Opción A: Modelos Locales (Ollama) — RECOMENDADO
+
+**Requiere:**
+- GPU con ≥ 8 GB VRAM (probado en RTX 5060 Laptop)
+- Ollama instalado y ejecutándose (`ollama serve`)
+- Modelos descargados (`ollama pull qwen2.5:7b`)
+- Sin costos de API, máxima privacidad, máxima velocidad (si GPU es buena)
+
+```bash
+# Verificar que Ollama está corriendo
+curl http://localhost:11434/api/tags
+# Debe retornar JSON con lista de modelos
+
+# Si no está corriendo, iniciar en otra terminal:
+ollama serve
+```
+
+**Ventajas:**
+- ✅ Sin costo de API
+- ✅ Datos NO salen de tu máquina (privacidad total)
+- ✅ Rápido (si GPU es decente)
+- ✅ Sin dependencia de internet para procesamiento
+
+**Desventajas:**
+- ❌ Requiere GPU ≥ 8 GB (inversión inicial)
+- ❌ Modelos ocupan 6-9 GB en disco
+
+#### ⚠️ Opción B: Modelos Remotos (OpenAI, Anthropic, etc.)
+
+**Requiere:**
+- API key de proveedor (OpenAI, Anthropic, HuggingFace, etc.)
+- Conexión a internet constante
+- Plan pagado en el proveedor
+- Sin inversión en GPU local
+
+**Configuración:**
+```bash
+# Crear archivo .pdfsum-config.json en casa
+cat > ~/.pdfsum-config.json << 'EOF'
+{
+  "summarizer_backend": "openai",
+  "openai_api_key": "sk-...",
+  "openai_model": "gpt-4-turbo",
+  "transcriber_backend": "openai"
+}
+EOF
+
+# O variables de entorno
+export OPENAI_API_KEY="sk-..."
+export PDFSUM_SUMMARIZER_BACKEND="openai"
+```
+
+**Ventajas:**
+- ✅ No requiere GPU
+- ✅ Modelos de última generación (GPT-4, Claude 3, etc.)
+- ✅ Escalable sin límite local
+
+**Desventajas:**
+- ❌ Costo por uso (caro si procesas muchos documentos)
+- ❌ Datos salen a servidores externos
+- ❌ Dependencia de internet
+- ❌ Latencia de red
+
+**Proveedores recomendados:**
+- OpenAI (gpt-4-turbo, gpt-4o)
+- Anthropic (claude-3-opus)
+- HuggingFace (modelos open source)
+- Replicate (modelos open source hosted)
+
+#### 🤔 ¿Cuál elegir?
+
+| Escenario | Recomendación |
+|---|---|
+| Tengo GPU ≥ 8 GB | **Ollama local** (mejor relación costo/beneficio) |
+| No tengo GPU | **Servicios remotos** (OpenAI, Anthropic, etc.) |
+| Procesamiento ocasional | **Servicios remotos** (costo bajo) |
+| Procesamiento masivo | **Ollama local** (sin costos recurrentes) |
+| Privacidad crítica | **Ollama local** (datos en casa) |
+| Máxima calidad | **OpenAI/Anthropic** (GPT-4, Claude 3) |
+
+---
+
+## 3. Instalación de la aplicación
+
+**IMPORTANTE**: Antes de instalar, asegúrate de haber elegido tu estrategia
+de Summarizer en la Sección 2 (Ollama local o servicios remotos).
+
+El núcleo Python no tiene dependencias externas (solo stdlib): se instala directo.
 
 ### Opción A: `uv` (recomendado — 10x más rápido)
 
@@ -92,7 +199,7 @@ pdfsum --help
 
 ---
 
-## 3. Verificar el entorno
+## 4. Verificar la Instalación
 
 ### Con `uv`:
 ```bash
@@ -104,13 +211,34 @@ uv run pdfsum doctor
 source .venv/bin/activate && pdfsum doctor
 ```
 Lista cada dependencia como `[duro]` u `[opc]` y dice si el **entorno mínimo**
-(flujo con PDFs nativos) está listo. Los `[opc]` que falten limitan capacidades
-(p. ej. sin `tesseract` no se procesan escaneos; sin `ollama` no hay resumen
-real).
+está listo:
+
+**Salida típica:**
+```
+Verificación de entorno pdfsum:
+  OK [duro]  pdftotext: encontrado
+  OK [duro]  pdfinfo: encontrado
+  OK [duro]  pdftoppm: encontrado
+  OK [opc]   tesseract: encontrado
+  OK [opc]   tesseract-por: instalado
+  OK [duro]  ollama: corriendo (en localhost:11434)
+  OK [duro]  model:qwen2.5:7b: descargado y disponible
+  ⚠️ [opc]   model:qwen3-vl:8b-instruct: NO (OCR avanzado solo)
+```
+
+**Qué significa cada línea:**
+- `OK [duro]`: Obligatorio. Sin esto, pdfsum no funciona.
+- `OK [opc]`: Opcional. Funcionalidad limitada sin esto (ej: sin tesseract → no OCR)
+- `⚠️ [opc]`: Opcional pero ausente (no crtico, pero nice-to-have)
+- `XX [duro]`: ERROR CRÍTICO. Debes configurar esto antes de continuar.
+
+**Caso especial: Ollama**
+- Si ves `XX ollama: no encontrado` → configura modelos remotos (Sección 2, Opción B)
+- Si ves `OK ollama: corriendo` pero `XX model:qwen2.5:7b` → descargar: `ollama pull qwen2.5:7b`
 
 ---
 
-## 4. Verificar que obtiene resultados similares
+## 5. Verificar que obtiene resultados similares
 
 La aplicación incluye una **muestra** (`samples/pdfs/`) y un **set de control**
 (`samples/control_set.json`) con expectativas verificables.
@@ -140,7 +268,7 @@ Aceptación: PASS
 
 ---
 
-## 5. Uso real sobre tus propios PDFs
+## 6. Uso real sobre tus propios PDFs
 
 ```bash
 # flujo completo desde una carpeta de PDFs (la fuente)
@@ -158,7 +286,7 @@ pdfsum serve --batch-dir ./data/summaries --port 8765
 
 ---
 
-## 6. Cómo distribuir el proyecto (repo local, sin remoto)
+## 7. Cómo distribuir el proyecto (repo local, sin remoto)
 
 El proyecto vive en un **repositorio git local**. Para entregarlo a un tercero
 sin publicarlo en GitHub/GitLab:
