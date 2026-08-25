@@ -61,18 +61,47 @@ ollama pull qwen3-vl:8b-instruct
 
 El núcleo no tiene dependencias Python (solo stdlib): se instala directo.
 
+### Opción A: `uv` (recomendado — 10x más rápido)
+
+[Instala `uv`](https://docs.astral.sh/uv/getting-started/) si aún no lo tienes.
+
+```bash
+uv sync                   # crea .venv + instala pdfsum (determini stico en uv.lock)
+uv run pdfsum --help      # sin 'source .venv/bin/activate'
+```
+
+Los comandos `pdfsum` se invocan así:
+- `uv run pdfsum run --in ./pdfs --workspace ./data`
+- `uv run pdfsum doctor`
+- `uv run pdfsum verify`
+
+> **Ventaja**: uv.lock garantiza reproducibilidad; instalación ~1-2s (vs. 30s+ con pip).
+
+### Opción B: venv + pip (fallback clásico)
+
+Si no tenés/querés `uv`:
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e .          # desde la raíz del proyecto (donde está pyproject.toml)
-pdfsum --help             # el comando 'pdfsum' queda disponible
+pip install -e .
+pdfsum --help
 ```
+
+> **Nota**: `pip` es más lento (~30-60s en 1ra instalación); no hay uv.lock
+> para reproducibilidad garantizada.
 
 ---
 
 ## 3. Verificar el entorno
 
+### Con `uv`:
 ```bash
-pdfsum doctor
+uv run pdfsum doctor
+```
+
+### Con venv:
+```bash
+source .venv/bin/activate && pdfsum doctor
 ```
 Lista cada dependencia como `[duro]` u `[opc]` y dice si el **entorno mínimo**
 (flujo con PDFs nativos) está listo. Los `[opc]` que falten limitan capacidades
@@ -86,8 +115,14 @@ real).
 La aplicación incluye una **muestra** (`samples/pdfs/`) y un **set de control**
 (`samples/control_set.json`) con expectativas verificables.
 
+### Con `uv`:
 ```bash
-pdfsum verify --workspace ./_verify --lang por+eng+spa
+uv run pdfsum verify --workspace ./_verify --lang por+eng+spa
+```
+
+### Con venv:
+```bash
+source .venv/bin/activate && pdfsum verify --workspace ./_verify --lang por+eng+spa
 ```
 Corre el flujo completo (transcribe → resume) sobre la muestra y evalúa contra
 el set de control. Imprime:

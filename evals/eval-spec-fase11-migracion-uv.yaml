@@ -1,0 +1,120 @@
+---
+id: FASE11-MIGRACION-UV
+titulo: "Migración a uv: gestor moderno de dependencias Python (reproducibilidad)"
+descripcion: >
+  Reemplazar venv + pip por uv, el gestor de dependencias Python moderno
+  (escrito en Rust, 100x más rápido). Beneficios:
+  - uv.lock determinístico (reproducibilidad garantizada)
+  - Instalación de Python automática (uv python install)
+  - Resolución de deps robusta con backtracking
+  - UX mejorada (output claro, mejor rendimiento)
+  - Estándar emergente en ecosistema Python (ruff ya usa uv)
+
+  Cambios:
+  - Actualizar pyproject.toml con herramientas uv
+  - Generar uv.lock en el repo (gitignore ajustado)
+  - Reescribir INSTALL.md: pasos más simples y rápidos
+  - Verificar que `uv sync` + `uv run` funcionan sin regresión
+  - Deprecar referencias a venv (.venv en .gitignore ya existía)
+
+estado: PENDIENTE
+fecha: 2026-08-25
+resultado: null
+
+criterios:
+  - id: C1-uv-lock-generado
+    tipo: unit
+    descripcion: >
+      Ejecutar `uv sync` genera uv.lock con todas las deps resueltas
+      determinísticamente. Lock file debe estar en git (para reproducibilidad).
+      Ningún warning/error de resolución.
+    verificacion: "ls uv.lock && grep '^version = ' uv.lock"
+
+  - id: C2-install-md-actualizado
+    tipo: documentation
+    descripcion: >
+      INSTALL.md reescrito para guiar por pasos uv:
+      1. Prerequisites del sistema (poppler, tesseract, ollama)
+      2. `uv sync` (crea .venv automáticamente)
+      3. `uv run pdfsum doctor` (sin activar venv)
+      4. `uv run pdfsum verify` (valida instalación)
+      Mencionar que la vía antigua (venv + pip) sigue funcionando pero es lenta.
+    verificacion: "grep -q 'uv sync' INSTALL.md && grep -q 'uv run' INSTALL.md"
+
+  - id: C3-reproducibilidad-verificada
+    tipo: integration
+    descripcion: >
+      Clonar el repo en directorio limpio, ejecutar `uv sync` dos veces,
+      verificar que genera idéntico .venv (hashes iguales en lock).
+      Ejecutar `uv run pdfsum verify` — debe pasar sin diff.
+    verificacion: "uv sync && uv run pdfsum verify"
+
+  - id: C4-pyproject-uv-compatible
+    tipo: unit
+    descripcion: >
+      pyproject.toml incluye sección [tool.uv] si es necesaria
+      (generalmente no: setuptools + uv son compatibles out-of-box).
+      El archivo puede compilarse con `uv build` sin errores.
+    verificacion: "uv build (o skip si no hay bin wheel needed)"
+
+  - id: C5-gitignore-ajustado
+    tipo: unit
+    descripcion: >
+      .gitignore ya excluye .venv (ubicación donde uv crea el env).
+      No incluye uv.lock (queremos que esté en git para reproducibilidad).
+      Verificar que uv.lock NO está ignorado, .venv SÍ está ignorado.
+    verificacion: "grep -q '^.venv' .gitignore && ! grep -q '^uv.lock' .gitignore"
+
+  - id: C6-tests-sin-regresion
+    tipo: metrics
+    descripcion: >
+      Ejecutar suite de tests con `uv run python -m unittest discover tests -v`.
+      97 tests deben pasar (mismo número, mismo resultado que con venv).
+      Tiempo debe ser ≤2s (similar a venv, el overhead es mínimo).
+    verificacion: "uv run python -m unittest discover tests"
+
+  - id: C7-cli-funcional
+    tipo: integration
+    descripcion: >
+      Comandos CLI funcionales vía `uv run`:
+      - `uv run pdfsum doctor` imprime capacidades
+      - `uv run pdfsum verify` verifica muestra
+      - `uv run pdfsum run --help` muestra opciones
+      Sin necesidad de `source .venv/bin/activate`.
+    verificacion: "uv run pdfsum doctor && uv run pdfsum verify"
+
+  - id: C8-velocidad-comparada
+    tipo: metrics
+    descripcion: >
+      Documentar mejora de velocidad en INSTALL.md o CHANGELOG:
+      venv + pip (1ra vez): ~30-60s
+      uv sync (1ra vez): ~2-5s
+      Ratio: 10-20x más rápido. Medir con time.
+    verificacion: "time uv sync (comparar vs venv setup histórico)"
+
+  - id: C9-lint-no-regresion
+    tipo: metrics
+    descripcion: >
+      ruff check (ya configurado en pyproject.toml) debe pasar.
+      Verificar que cambios en INSTALL.md no rompan markdown (no es crítico
+      pero evita cambios sin revisar).
+    verificacion: "ruff check src/ tests/"
+
+invariantes:
+  - "uv.lock es determinístico y está en git (reproducibilidad garantizada)."
+  - "pyproject.toml es válido y compilable por uv."
+  - ".gitignore: .venv ignorado, uv.lock no ignorado."
+  - "INSTALL.md guía por vía uv como PRIMARY, venv como alternativa legacy."
+  - "Todos los tests pasan sin regresión (97/97)."
+  - "CLI funciona via `uv run` sin necesidad de source/activate."
+  - "Sin dependencias nuevas en Python (setuptools sigue siendo el backend)."
+
+no_objetivos:
+  - "Cambiar el backend de build (setuptools → hatchling, poetry, etc.)
+     — setup.py ya es moderno (pyproject.toml). Backend es orthogonal a uv."
+  - "Cambiar el modelo de distribución (wheel vs sdist)
+     — seguir como está, uv es agnostic."
+  - "Certificar uv para producción en CI/CD — esto es local-dev primero.
+     En una Fase 12 podría agregarse GitHub Actions con uv si lo requieren."
+  - "Migrarse a PEP 735 (lock format estándar, aún draft) — uv.lock es el
+     estándar de facto hoy; PEP 735 podrá reemplazo en futuro."
