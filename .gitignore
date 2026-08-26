@@ -12,3 +12,12 @@ _verify/
 *.egg-info/
 build/
 dist/
+
+input/*
+!input/.gitkeep
+
+output/*
+!output/.gitkeep
+
+logs/*
+!logs/.gitkeep

@@ -1,0 +1,16 @@
+.git
+.github
+__pycache__
+*.py[cod]
+.pytest_cache
+.venv
+venv
+
+input
+output
+logs
+
+data
+data_hierarchical
+
+*.pdf
