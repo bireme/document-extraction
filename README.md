@@ -119,6 +119,26 @@ pdfsum doctor
 pdfsum verify
 ```
 
+### Opción D — Docker / Docker Compose (sin instalar Python/poppler/tesseract en el host)
+
+```bash
+docker build -t pdfsum .
+docker run --rm pdfsum pdfsum doctor
+
+# Modo A (default, sin GPU passthrough): usa un Ollama ya corriendo en el host
+cp .env.example .env && docker compose up --build
+
+# Modo B (bundled, requiere GPU + NVIDIA Container Toolkit):
+echo 'OLLAMA_HOST=http://ollama:11434' > .env
+docker compose --profile gpu up --build
+```
+
+Ambos modos son configurables vía `.env` (`OLLAMA_HOST`) sin tocar
+`compose.yml`; el servicio `ollama` embebido (con GPU) es opt-in detrás de
+`--profile gpu`, nunca obligatorio. Detalle completo (incluye el fix de la
+dependencia Pillow para el fallback de OCR por región) →
+[`INSTALL.md` Sección 10](INSTALL.md#10-ejecutar-con-docker--docker-compose).
+
 **⚠️ SI `pdfsum doctor` dice "XX ollama: no encontrado"**
 → Configura modelos remotos en `~/.pdfsum-config.json` (Opción B arriba)
 

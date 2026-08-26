@@ -23,16 +23,20 @@ classifiers = [
   "Topic :: Text Processing :: General",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-# Sin dependencias Python obligatorias: el núcleo usa solo la stdlib.
-# Los requisitos externos son de SISTEMA (poppler, tesseract) y de MODELOS
-# (Ollama + qwen2.5:7b / qwen3-vl:8b). Ver INSTALL.md y `pdfsum doctor`.
-dependencies = []
+# Dependencia Python obligatoria: Pillow. La usa en runtime real
+# adapters/hybrid_ocr.py (fallback de OCR por región cuando el VLM no
+# está disponible), no solo los tests. Fase 13 (FASE13-DOCKER-OLLAMA-RUNTIME):
+# antes vivía solo en [dependency-groups].dev y por eso `pip install .`
+# (p.ej. dentro del Dockerfile) no la instalaba -> ModuleNotFoundError en
+# producción. El resto del núcleo sigue siendo solo stdlib. Los requisitos
+# de SISTEMA (poppler, tesseract) y de MODELOS (Ollama + qwen2.5:7b /
+# qwen3-vl:8b) siguen fuera de pip — ver INSTALL.md y `pdfsum doctor`.
+dependencies = ["pillow>=10"]
 
 [dependency-groups]
-# Solo para tests (generación de imágenes sintéticas en
-# test_segment.py / test_hybrid_ocr.py / test_hybrid_seg.py).
-# No es dependencia de runtime del paquete.
-dev = ["pillow>=10"]
+# Grupo dev vacío tras Fase 13: pillow pasó a dependencia principal (arriba).
+# Se conserva la sección por si se necesitan deps de solo-test a futuro.
+dev = []
 
 [project.scripts]
 pdfsum = "pdfsum.cli:main"
