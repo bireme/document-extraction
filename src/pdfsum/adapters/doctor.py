@@ -20,7 +20,8 @@ from dataclasses import dataclass
 # Modelos recomendados (por defecto del producto).
 DEFAULT_TEXT_MODEL = "qwen2.5:7b"
 DEFAULT_VLM_MODEL = "qwen3-vl:8b-instruct"
-OLLAMA_TAGS = "http://localhost:11434/api/tags"
+_OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+OLLAMA_TAGS = f"http://{_OLLAMA_HOST}/api/tags"
 
 
 @dataclass
@@ -103,7 +104,7 @@ def check_environment(
     models = _ollama_models()
     if models is None:
         checks.append(
-            Check("ollama", False, "no responde en localhost:11434", hard=False)
+            Check("ollama", False, f"no responde en {_OLLAMA_HOST}", hard=False)
         )
     else:
         checks.append(Check("ollama", True, f"{len(models)} modelos", hard=False))
@@ -167,7 +168,7 @@ def summarization_ready(
     models = _ollama_models()
     if models is None:
         return False, (
-            "Ollama no responde en localhost:11434. Instala/arranca Ollama y "
+            f"Ollama no responde en {_OLLAMA_HOST}. Instala/arranca Ollama y "
             "descarga el modelo:\n  ollama pull "
             + model
             + "\nDiagnóstico: 'pdfsum doctor'. Detalles: INSTALL.md §1."
