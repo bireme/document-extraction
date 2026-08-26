@@ -1,0 +1,23 @@
+services:
+  ollama:
+    image: ollama/ollama:0.33.0
+    container_name: document-extraction-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+    gpus: all
+
+  pdfsum:
+    build:
+      context: .
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    volumes:
+      - ./input:/input:ro
+      - ./output:/output
+      - ./logs:/logs
+    depends_on:
+      - ollama
+
+volumes:
+  ollama_models:

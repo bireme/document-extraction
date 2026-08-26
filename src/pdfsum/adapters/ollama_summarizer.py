@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import json
 import re
+import os
 import urllib.request
 
 from ..contract import SummarizeRequest
 from ..templates import section_keys, section_names
 
-_ENDPOINT = "http://localhost:11434/api/generate"
+_OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+_ENDPOINT = f"{_OLLAMA_HOST}/api/generate"
 _DEFAULT_NUM_CTX = 16384
 _MAX_CHARS = 42000
 
