@@ -1,0 +1,154 @@
+---
+id: FASE13-DOCKER-OLLAMA-RUNTIME
+titulo: "Fix Pillow runtime + Docker/Ollama configurable (local u orquestado)"
+descripcion: >
+  PR #1 (bireme/master, mergeado 2026-08-26) añadió Dockerfile + compose.yml.
+  Verificación manual post-merge encontró dos gaps:
+
+  1. `pdfsum transcribe`/`run` sobre PDFs escaneados que activan el fallback
+     de OCR por región (`adapters/hybrid_ocr.py::_ocr_regions`, cuando el VLM
+     no está disponible) falla dentro del contenedor Docker con
+     `ModuleNotFoundError: No module named 'PIL'`. Causa: `pyproject.toml`
+     declara `dependencies = []` (núcleo "solo stdlib") y `pillow` solo en
+     `[dependency-groups].dev` (agregado en 0.11.1 para que los *tests*, no
+     el runtime, no fallaran). La imagen instala con `pip install .` (sin
+     grupo `dev`) → Pillow ausente en producción pese a ser import real de
+     una ruta de producción.
+
+  2. `compose.yml` fuerza GPU (`gpus: all`) en el servicio `ollama` sin vía
+     de opt-out: en hosts sin NVIDIA Container Toolkit (caso verificado en
+     esta máquina: GPU física presente, toolkit ausente) `docker compose up`
+     no puede levantar `ollama`, y no hay forma declarada de usar un Ollama
+     ya instalado/corriendo en el host en su lugar.
+
+  Esta fase corrige (1) como dependencia real de runtime y hace (2)
+  configurable y abierto: por defecto `docker compose up` NO exige GPU
+  (usa un Ollama del host vía `OLLAMA_HOST`), y el Ollama-en-contenedor con
+  GPU pasa a ser opt-in vía `docker compose --profile gpu up`.
+
+estado: COMPLETADA
+fecha: 2026-08-26
+resultado: |
+  7/7 criterios cumplidos.
+  - C1: pillow>=10 movido a [project.dependencies]; uv.lock regenerado.
+  - C2: verificado manualmente con `docker build` + `docker run` sobre
+    samples/pdfs/56186_10006001927.pdf (el que fallaba antes): transcribe
+    OK, sin ModuleNotFoundError.
+  - C3: job `docker` nuevo en ci.yml (build + smoke doctor/transcribe +
+    validación compose en ambos perfiles).
+  - C4/C5: compose.yml con `ollama` detrás de `profiles: [gpu]`, sin
+    depends_on obligatorio, OLLAMA_HOST con default a host.docker.internal
+    vía ${OLLAMA_HOST:-...}; .env.example documentando ambos modos.
+  - C6: README.md/INSTALL.md §10 reescritos con Modo A (default, host
+    Ollama) y Modo B (--profile gpu); limitación Pillow retirada (ya no
+    aplica).
+  - C7: `make check` 97/97 tests + lint limpio (incluye 2 fixes
+    cosméticos de orden de imports en doctor.py/ollama_summarizer.py,
+    deuda preexistente no relacionada, bloqueaba `make check`).
+
+criterios:
+  - id: C1-pillow-dependencia-runtime
+    tipo: unit
+    descripcion: >
+      `pyproject.toml` declara `pillow` en `[project.dependencies]` (runtime
+      real), no solo en `[dependency-groups].dev`. `hybrid_ocr.py` importa
+      PIL en un módulo de adaptador (no de dominio) — sigue respetando la
+      regla hexagonal (test_architecture.py no cambia).
+    verificacion: >
+      python3 -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb'));
+      assert any('pillow' in x.lower() for x in d['project']['dependencies'])"
+
+  - id: C2-docker-build-instala-pillow
+    tipo: integration
+    descripcion: >
+      La imagen Docker construida desde el `Dockerfile` del repo instala
+      Pillow como parte de `pip install .` (sin grupo dev) y puede ejecutar
+      sin traceback el fallback de OCR por región sobre el PDF de muestra
+      que antes fallaba (`samples/pdfs/56186_10006001927.pdf`).
+    verificacion: >
+      docker build -t pdfsum-test . &&
+      docker run --rm -v $PWD/samples/pdfs:/input:ro -v /tmp/out:/output
+      pdfsum-test pdfsum transcribe --in /input --workspace /output --lang por
+      # debe terminar con exit 0, sin ModuleNotFoundError
+
+  - id: C3-ci-docker-smoke
+    tipo: architecture
+    descripcion: >
+      `.github/workflows/ci.yml` incluye un job (o step) que construye la
+      imagen Docker y corre un smoke test (`pdfsum doctor` + transcribe de
+      la muestra que ejercita el fallback PIL) en cada push/PR, para que la
+      regresión de C2 no vuelva a pasar inadvertida como en el merge de
+      PR #1.
+    verificacion: "grep -q 'docker build' .github/workflows/ci.yml"
+
+  - id: C4-compose-gpu-opcional
+    tipo: unit
+    descripcion: >
+      `compose.yml`: el servicio `ollama` (con `gpus: all`) queda detrás de
+      `profiles: [gpu]` (no arranca con `docker compose up` por defecto).
+      El servicio `pdfsum` ya NO tiene `depends_on: ollama` obligatorio y su
+      `OLLAMA_HOST` es configurable vía variable de entorno con default a
+      un Ollama del host (`${OLLAMA_HOST:-http://host.docker.internal:11434}`),
+      con `extra_hosts` para que `host.docker.internal` resuelva en Linux.
+    verificacion: >
+      python3 -c "import yaml; d=yaml.safe_load(open('compose.yml'));
+      assert d['services']['ollama'].get('profiles') == ['gpu'];
+      assert 'depends_on' not in d['services']['pdfsum'];
+      assert '\${OLLAMA_HOST' in open('compose.yml').read()"
+
+  - id: C5-env-example-documentado
+    tipo: documentation
+    descripcion: >
+      Nuevo `.env.example` (patrón ya usado por `.pdfsum-config.example.json`)
+      documenta `OLLAMA_HOST` y su default, con comentario de los dos modos
+      (host Ollama vs. `--profile gpu` bundled). Referenciado desde
+      INSTALL.md §10.
+    verificacion: "test -f .env.example && grep -q OLLAMA_HOST .env.example"
+
+  - id: C6-docs-dos-modos
+    tipo: documentation
+    descripcion: >
+      INSTALL.md §10 y README.md documentan explícitamente los DOS modos de
+      uso de Ollama con Docker:
+      - Modo A (default, sin GPU passthrough): `docker compose up`, usa
+        Ollama ya corriendo en el host vía `OLLAMA_HOST`.
+      - Modo B (bundled, requiere NVIDIA Container Toolkit):
+        `docker compose --profile gpu up`, levanta el `ollama` propio.
+      Se retira/actualiza cualquier mención previa de la limitación Pillow
+      como "conocida y no corregida" (ya corregida en esta fase).
+    verificacion: >
+      grep -q -- '--profile gpu' INSTALL.md README.md &&
+      ! grep -q 'Limitación conocida' INSTALL.md
+
+  - id: C7-sin-regresion
+    tipo: metrics
+    descripcion: >
+      `make check` (ruff + unittest) pasa completo tras el cambio. `uv.lock`
+      regenerado y consistente con el nuevo `pillow` en dependencias
+      principales (`uv lock` sin --upgrade agresivo, solo resolver el
+      movimiento de grupo). Ningún test menos, ningún test nuevo roto.
+    verificacion: "uv sync && make check"
+
+invariantes:
+  - >-
+    hybrid_ocr.py sigue siendo un adaptador (no dominio);
+    test_architecture.py sin cambios de alcance.
+  - >-
+    El servicio ollama embebido en compose.yml sigue soportando GPU
+    (gpus: all) para quien lo quiera vía --profile gpu.
+  - >-
+    OLLAMA_HOST se resuelve igual en CLI nativo, uv run, y ambos modos
+    de Docker (ya lo hacía adapters/ollama_summarizer.py y doctor.py
+    vía os.getenv).
+  - "Ningún criterio de fases anteriores (FASE0-FASE12) se rompe."
+
+no_objetivos:
+  - >-
+    Instalar/soportar nvidia-container-toolkit automáticamente
+    (responsabilidad del host).
+  - >-
+    Migrar el servicio ollama a un backend sin GPU (CPU-only sigue
+    siendo lento y fuera de alcance de esta fase).
+  - >-
+    Publicar imagen Docker en un registry (Docker Hub/GHCR) — build
+    local por ahora.

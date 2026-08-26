@@ -10,8 +10,8 @@ Este módulo SÍ puede tocar procesos externos; es un adaptador.
 
 from __future__ import annotations
 
-import os
 import json
+import os
 import shutil
 import subprocess
 import urllib.error

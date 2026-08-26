@@ -4,6 +4,88 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [Unreleased] — Fix runtime Pillow + Ollama configurable en Docker (FASE13)
+### Corregido
+- **Pillow ahora dependencia real de runtime** (`pyproject.toml`:
+  `dependencies = ["pillow>=10"]`, antes solo en `[dependency-groups].dev`).
+  Corrige el `ModuleNotFoundError: No module named 'PIL'` documentado abajo
+  (entrada anterior) para el fallback de OCR por región dentro de Docker.
+  `uv.lock` regenerado.
+- Lint preexistente (orden de imports en `adapters/doctor.py` y
+  `adapters/ollama_summarizer.py`, deuda no relacionada que bloqueaba
+  `make check`): normalizado con `ruff check --fix` (cambio puramente
+  cosmético, sin cambio de comportamiento).
+### Cambiado
+- `compose.yml`: el servicio `ollama` (con `gpus: all`) ahora vive detrás de
+  `profiles: ["gpu"]` (opt-in, no arranca con `docker compose up` por
+  defecto). El servicio `pdfsum` ya no tiene `depends_on: ollama` forzoso;
+  `OLLAMA_HOST` es configurable vía `${OLLAMA_HOST:-http://host.docker.internal:11434}`
+  con `extra_hosts: host-gateway` para que resuelva también en Linux.
+- Nuevo `.env.example` documentando ambos modos (Ollama del host — default,
+  sin GPU passthrough — vs. Ollama embebido con `--profile gpu`).
+- `.github/workflows/ci.yml`: nuevo job `docker` (build de imagen + smoke
+  test de `doctor`/`transcribe` sobre la muestra que ejercita el fallback
+  Pillow + validación de `compose.yml` en ambos perfiles) para que esta
+  regresión no vuelva a pasar inadvertida.
+- `README.md` / `INSTALL.md` §10: reescritos con los dos modos de uso de
+  Ollama con Docker; retirada la limitación conocida (ya resuelta).
+### Verificado
+- `make check`: 97/97 tests, lint limpio.
+- `docker build` + `docker run ... pdfsum transcribe` sobre
+  `samples/pdfs/56186_10006001927.pdf` (el PDF que antes fallaba): OK, sin
+  traceback.
+- `docker compose config` y `docker compose --profile gpu config`: ambos
+  manifiestos válidos.
+- Detalle completo y criterios: `evals/eval-spec-fase13-docker-ollama-runtime.yaml`.
+
+## [Unreleased] — Soporte Docker / Docker Compose
+### Añadido
+- `Dockerfile` (`python:3.12-slim` + `poppler-utils` + `tesseract-ocr` con
+  idiomas `por`/`eng`/`spa` + `curl`; `pip install .` del paquete; `CMD
+  ["pdfsum", "--help"]`). PR #1 (`bireme/master`, mergeado 2026-08-26).
+- `compose.yml`: servicio `pdfsum` (build local) + servicio `ollama`
+  (`ollama/ollama:0.33.0`, con `gpus: all` y volumen nombrado
+  `ollama_models`), volúmenes `./input:/input:ro`, `./output:/output`,
+  `./logs:/logs`, `OLLAMA_HOST=http://ollama:11434` inyectado al servicio
+  `pdfsum`.
+- `.dockerignore` (excluye `.git`, `.venv`, `__pycache__`, PDFs de prueba,
+  `data/`, `data_hierarchical/`) y carpetas `input/`, `output/`, `logs/`
+  (con `.gitkeep`) como puntos de montaje.
+### Verificado (2026-08-26, manual, ver `INSTALL.md` §10)
+- `docker build -t pdfsum .`: build limpio OK (paquete `pdfsum` instalado vía
+  `pip install .` dentro de la imagen).
+- `docker run --rm pdfsum` (CMD por defecto) y `pdfsum doctor` dentro del
+  contenedor: OK — reporta correctamente poppler/tesseract disponibles y
+  Ollama no alcanzable (esperado sin el servicio `ollama` arriba).
+- `docker compose config`: manifiesto válido, sin errores de sintaxis.
+- `pdfsum transcribe` dentro del contenedor sobre `samples/pdfs/`: **1 de 2
+  PDFs de muestra falla** con `ModuleNotFoundError: No module named 'PIL'`
+  en `adapters/hybrid_ocr.py:_ocr_regions` (ruta de OCR por región cuando el
+  VLM no está disponible y degrada a Tesseract con recorte de regiones).
+### Conocido — limitación encontrada en esta verificación
+> ✅ **Resuelta** en la entrada `[Unreleased] — Fix runtime Pillow + Ollama
+> configurable en Docker (FASE13)` de arriba.
+- **Causa raíz**: `pyproject.toml` declara `dependencies = []` (núcleo solo
+  stdlib) y `Pillow` solo en `[dependency-groups].dev` (añadido en 0.11.1
+  para que los *tests* no fallaran). La imagen Docker instala con
+  `pip install .` (sin grupos `dev`), así que `Pillow` **no** está presente
+  en runtime — pero `hybrid_ocr.py` sí lo importa en producción para el
+  fallback de OCR por región. Fuera de Docker esto queda enmascarado porque
+  `uv sync` (entorno de desarrollo) instala el grupo `dev` por defecto.
+- **Impacto**: `pdfsum run` / `pdfsum transcribe` sobre PDFs escaneados que
+  activan el fallback por región (típicamente cuando el VLM
+  `qwen3-vl:8b-instruct` no está disponible) fallan con traceback dentro del
+  contenedor. No afecta PDFs con texto nativo ni todos los escaneados (1 de
+  los 2 PDFs de muestra funcionó sin problema).
+- **Recomendación**: seguir el flujo EDD (spec antes de código) para abrir
+  `fix/OS-NNN` que mueva `pillow` de `dev` a `dependencies` en
+  `pyproject.toml` — es una dependencia de runtime real, no solo de tests.
+- **Alternativa de infraestructura sin fix de código**: si el host no tiene
+  `nvidia-container-toolkit` (caso de esta verificación), el servicio
+  `ollama` de `compose.yml` (`gpus: all`) no arrancará; usar en su lugar un
+  Ollama nativo del host y apuntar el contenedor `pdfsum` vía
+  `OLLAMA_HOST=http://host.docker.internal:11434` (ver `INSTALL.md` §10).
+
 ## [0.12.0] — 2026-08-25 — Distribución moderna: hatchling + uv build + PyPI
 ### Añadido
 - Backend de build moderno: `setuptools` → `hatchling` en `pyproject.toml`.

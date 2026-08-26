@@ -376,7 +376,100 @@ En ambos casos, el receptor sigue §2–§4 para instalar y verificar.
 
 ---
 
-## 9. Reproducibilidad: qué está fijado y qué no
+## 10. Ejecutar con Docker / Docker Compose
+
+Alternativa a instalar `poppler`/`tesseract`/Python en el host: el repo
+incluye `Dockerfile` + `compose.yml` (PR #1, `bireme/master`, mergeado
+2026-08-26; runtime completado en FASE13-DOCKER-OLLAMA-RUNTIME). La imagen
+empaqueta `poppler-utils` + `tesseract-ocr` (`por`+`eng`+`spa`) + el paquete
+`pdfsum` (con **Pillow incluido**, dependencia real de runtime) instalado
+con `pip install .`.
+
+### Solo el contenedor `pdfsum` (build + run)
+
+```bash
+docker build -t pdfsum .
+docker run --rm pdfsum                # equivale a: pdfsum --help
+docker run --rm pdfsum pdfsum doctor  # diagnóstico de entorno dentro del contenedor
+```
+
+Para procesar tus PDFs, monta `input` (solo lectura) y `output`/`logs`:
+
+```bash
+docker run --rm \
+  -v "$PWD/input:/input:ro" \
+  -v "$PWD/output:/output" \
+  -v "$PWD/logs:/logs" \
+  pdfsum pdfsum run --in /input --workspace /output --lang por
+```
+
+### Con `docker compose`: dos modos, ambos configurables por `.env`
+
+```bash
+cp .env.example .env     # elige/ajusta OLLAMA_HOST (ver comentarios dentro)
+```
+
+`compose.yml` define dos servicios: `pdfsum` (siempre) y `ollama` (opt-in,
+solo con `--profile gpu`). Ninguno depende forzosamente del otro para
+arrancar: el modo se elige con la variable `OLLAMA_HOST` (via `.env` o env
+del shell) y, si quieres el Ollama embebido, con `--profile gpu`.
+
+#### Modo A (default) — Ollama del HOST, sin GPU passthrough
+
+Es el default de `compose.yml` (`OLLAMA_HOST` cae a
+`http://host.docker.internal:11434` si no se sobreescribe). Requiere tener
+un Ollama corriendo en la máquina host (fuera de Docker):
+
+```bash
+ollama serve                       # en el host, en otra terminal
+ollama pull qwen2.5:7b             # una vez
+docker compose up --build          # solo levanta el servicio pdfsum
+```
+
+Funciona sin GPU pasada al contenedor ni NVIDIA Container Toolkit — la GPU
+(si la usas) la consume el Ollama nativo del host, no Docker.
+
+#### Modo B (bundled) — Ollama en su propio contenedor, con GPU
+
+```bash
+echo 'OLLAMA_HOST=http://ollama:11434' > .env
+docker compose --profile gpu up --build
+```
+
+Levanta también el servicio `ollama` (imagen `ollama/ollama:0.33.0`,
+volumen nombrado `ollama_models` para persistir modelos descargados,
+`gpus: all`).
+
+> ⚠️ **El servicio `ollama` (perfil `gpu`) requiere GPU pasada al
+> contenedor** (`gpus: all`), lo que exige el **NVIDIA Container Toolkit**
+> instalado y configurado en el host (`nvidia-ctk`), además del driver
+> NVIDIA. Verifica con `docker info | grep -i runtime` (debe listar
+> `nvidia`) antes de `docker compose --profile gpu up`. Sin el toolkit, usa
+> el Modo A (default) en su lugar — caso verificado en esta máquina: GPU
+> física presente, toolkit ausente, Modo A funcional.
+
+(En Linux, `host.docker.internal` se resuelve gracias al `extra_hosts:
+host-gateway` ya incluido en `compose.yml`; con `docker run` suelto en vez
+de compose, añade `--add-host=host.docker.internal:host-gateway`.)
+
+### Verificado (2026-08-26) — qué funciona
+
+| Comando | Resultado |
+|---|---|
+| `docker build -t pdfsum .` | ✅ OK (incluye Pillow) |
+| `docker run --rm pdfsum` / `pdfsum --help` | ✅ OK |
+| `docker run --rm pdfsum pdfsum doctor` | ✅ OK |
+| `docker compose config` / `--profile gpu config` | ✅ ambos manifiestos válidos |
+| `pdfsum transcribe` sobre PDF nativo/escaneado simple | ✅ OK |
+| `pdfsum transcribe` sobre escaneado con fallback OCR por región (antes fallaba con `ModuleNotFoundError: No module named 'PIL'`) | ✅ OK tras mover `pillow` a `dependencies` en `pyproject.toml` |
+| `docker compose --profile gpu up` (Ollama embebido, GPU real) | ⚠️ no verificado end-to-end en esta máquina (sin `nvidia-container-toolkit`); `docker compose --profile gpu config` sí valida |
+
+Detalle técnico del fix y criterios ejecutables:
+`evals/eval-spec-fase13-docker-ollama-runtime.yaml`.
+
+---
+
+## 11. Reproducibilidad: qué está fijado y qué no
 
 | Fijado (determinista) | No fijado (varía) |
 |---|---|

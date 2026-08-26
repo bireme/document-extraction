@@ -1,8 +1,14 @@
 services:
+  # Ollama embebido, con GPU (opt-in). No arranca con `docker compose up`
+  # por defecto: solo con `docker compose --profile gpu up`. Requiere
+  # NVIDIA Container Toolkit instalado/configurado en el host (ver
+  # INSTALL.md §10). Si lo activas, apunta pdfsum a él con
+  # OLLAMA_HOST=http://ollama:11434 (ver .env.example).
   ollama:
     image: ollama/ollama:0.33.0
     container_name: document-extraction-ollama
     restart: unless-stopped
+    profiles: ["gpu"]
     volumes:
       - ollama_models:/root/.ollama
     gpus: all
@@ -11,13 +17,21 @@ services:
     build:
       context: .
     environment:
-      OLLAMA_HOST: http://ollama:11434
+      # Default: Ollama corriendo en el HOST (fuera de Docker), sin
+      # requerir GPU passthrough ni el perfil "gpu". Sobreescribible con
+      # un .env (copia .env.example) o `OLLAMA_HOST=... docker compose up`.
+      # Con `--profile gpu`, cambia esto a http://ollama:11434.
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+    extra_hosts:
+      # Permite que host.docker.internal resuelva también en Linux
+      # (en Docker Desktop/macOS/Windows ya funciona sin esto).
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./input:/input:ro
       - ./output:/output
       - ./logs:/logs
-    depends_on:
-      - ollama
+    # Sin depends_on: pdfsum no requiere el servicio `ollama` (perfil
+    # "gpu") para arrancar; el modo default apunta a un Ollama del host.
 
 volumes:
   ollama_models:
