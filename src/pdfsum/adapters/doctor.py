@@ -22,7 +22,7 @@ from dataclasses import dataclass
 DEFAULT_TEXT_MODEL = "qwen2.5:7b"
 DEFAULT_VLM_MODEL = "qwen3-vl:8b-instruct"
 _OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
-OLLAMA_TAGS = f"http://{_OLLAMA_HOST}/api/tags"
+OLLAMA_TAGS = f"{_OLLAMA_HOST}/api/tags"
 
 
 @dataclass
