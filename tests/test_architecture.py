@@ -14,6 +14,7 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "pdfsum"
 DOMAIN_MODULES = [
     "contract.py",
     "classify.py",
+    "bibframe.py",
     "abstracts.py",
     "templates.py",
     "pipeline.py",

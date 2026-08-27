@@ -4,6 +4,34 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [Unreleased] — Registros bibliográficos BIBFRAME (FASE15)
+### Añadido
+- **Extracción de datos bibliográficos** de los documentos procesados:
+  nuevo adaptador `adapters/pdf_metadata.py` (metadata embebida del PDF
+  vía `pdfinfo`: Title, Subject/capítulo, Author, Keywords, CreationDate,
+  Pages; tolerante a fallos) + módulo de DOMINIO `bibframe.py` que
+  combina esa metadata (precedencia, es explícita) con el resumen ya
+  generado (título, entidad, términos candidatos, idioma, páginas) y
+  registra la fuente de cada campo.
+- **Registro BIBFRAME 2.x en JSON-LD por cada PDF/documento**: nuevo
+  subcomando `pdfsum bibframe --in <summaries> [--pdfs <dir>] --out
+  <dir>` — emite `<doc_id>.bibframe.json` (par bf:Work + bf:Instance
+  enlazados por bf:instanceOf, vocabulario id.loc.gov) cuando hay dato
+  mínimo (título), y `bibframe_report.json` con generados/omitidos y
+  motivo. Idioma mapeado a códigos LOC (es->spa, pt->por, en->eng).
+  Registros marcados `draft` para revisión humana (mismo criterio que el
+  export LILACS), con bloque `_pdfsum.sources` de trazabilidad.
+- `Workspace.bibframe_dir`/`bibframe_path()`; documentado en README.md y
+  GUIA-USO.md.
+### Verificado
+- 21 tests nuevos (154 total): dominio (precedencia/dato mínimo/JSON-LD),
+  adaptador (subprocess mockeado), CLI (un registro por doc, omitidos
+  con motivo, --pdfs opcional). Arquitectura AST: bibframe.py en
+  DOMAIN_MODULES, sin imports de adaptadores.
+- E2E real: 15/15 registros generados sobre el lote ECIMED procesado,
+  con metadata real de los PDFs (título del libro, autor, año, capítulo)
+  + materias/idioma del resumen. Spec: `evals/eval-spec-fase15-bibframe.yaml`.
+
 ## [Unreleased] — bin/pdfsum-docker: wrapper CLI para Docker
 ### Añadido
 - `bin/pdfsum-docker`: wrapper bash que arma el `docker run --network

@@ -10,6 +10,7 @@ Layout:
     summaries/<doc_id>.json  resúmenes estructurados
     summaries/report.json    reporte agregado del lote
     lilacs.json              export de catalogación (borrador)
+    bibframe/<doc_id>.bibframe.json  registros bibliográficos BIBFRAME (borrador)
 """
 
 from __future__ import annotations
@@ -46,3 +47,10 @@ class Workspace:
     @property
     def lilacs_path(self) -> Path:
         return self.root / "lilacs.json"
+
+    @property
+    def bibframe_dir(self) -> Path:
+        return self.root / "bibframe"
+
+    def bibframe_path(self, doc_id: str) -> Path:
+        return self.bibframe_dir / f"{doc_id}.bibframe.json"

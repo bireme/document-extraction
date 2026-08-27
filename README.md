@@ -185,6 +185,10 @@ uv run pdfsum batch --in ./_ocr_out --out ./_resumenes
 # export a registros LILACS (borrador para revisión humana)
 uv run pdfsum export --in ./_resumenes --out lilacs.json
 
+# registros bibliográficos BIBFRAME (JSON-LD), uno por documento/PDF
+# (metadata embebida del PDF con precedencia si pasas --pdfs; borrador)
+uv run pdfsum bibframe --in ./_resumenes --pdfs ./mis_pdfs --out ./_bibframe
+
 # API de consulta local (solo lectura) sobre el lote
 uv run pdfsum serve --batch-dir ./_resumenes --port 8765
 # GET /api/summaries | /api/summaries/<doc_id> | /api/report
