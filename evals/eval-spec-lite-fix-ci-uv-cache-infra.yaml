@@ -1,28 +1,48 @@
 ---
 id: FIX-CI-UV-CACHE-INFRA
 titulo: >-
-  CI roto por cache:uv redundante en actions/setup-python
+  CI roto por cache:uv redundante + ruff no declarado
   (infra, no código)
 descripcion: >
   `gh run list --branch master` muestra CI en rojo desde antes de esta
   sesión (Fase 11 "fix/dev-deps-pillow-uv", Fase 12, el merge del PR #1 de
-  Docker...), siempre con el mismo error en el step "Set up Python":
-  `##[error]Caching for 'uv' is not supported`. Bloquea la señal de CI de
-  cualquier PR (incluidos los de FASE13/FASE14 de esta sesión), sin
-  relación con el código de esos cambios.
+  Docker...). Investigando el PR #2 (fix docker/pillow) se encontraron DOS
+  bugs de infra encadenados, ninguno relacionado con el código de ningún
+  PR:
 
-  Causa: `.github/workflows/ci.yml` ya usa `astral-sh/setup-uv@v2` (que
-  trae su propio caché, visible en el log como `UV_CACHE_DIR`) y ADEMÁS
-  pide `cache: "uv"` en `actions/setup-python@v5` — redundante y no
-  soportado por esa combinación de acciones en este runner.
+  1. `##[error]Caching for 'uv' is not supported` en el step "Set up
+     Python": `astral-sh/setup-uv@v2` (paso anterior) ya trae su propio
+     caché (`UV_CACHE_DIR`); el `cache: "uv"` adicional en
+     `actions/setup-python@v5` es redundante y no soportado en este
+     runner.
+  2. Una vez resuelto (1), aparece `error: Failed to spawn: ruff` /
+     `No such file or directory`: `ruff` NUNCA estuvo declarado como
+     dependencia (solo configurado en `[tool.ruff]`). Funcionaba en
+     desarrollo local por accidente (`ruff` instalado global en la
+     máquina; `uv run` cae a PATH si el venv no lo tiene) pero nunca pudo
+     funcionar en un runner de CI limpio.
+
+  Como consecuencia colateral de (2), al correr por primera vez
+  `ruff format --check` (nunca ejecutable en CI hasta ahora, y nunca
+  parte de `make check` localmente) aparecieron 5 archivos con formato
+  desactualizado de las Fases 13/14 de esta misma sesión — corregidos
+  aquí también (cambios puramente cosméticos, `ruff format`).
 
 estado: COMPLETADA
 fecha: 2026-08-27
 resultado: |
-  Fix mecánico de una línea x3 (retirar `cache: "uv"` de los 3 steps
-  `actions/setup-python@v5` en ci.yml: jobs test/build/docs). Sin cambio
-  de comportamiento esperado (astral-sh/setup-uv ya cachea). Verificado
-  con yamllint + `gh pr checks` en el PR real (ver PR).
+  4/4 criterios cumplidos. Dos fixes de infra encadenados:
+  1. Retirado `cache: "uv"` redundante de los 3 steps
+     `actions/setup-python@v5` (jobs test/build/docs) -- confirmado en
+     PR real: "Set up Python" pasa (antes fallaba en el mismo step).
+  2. `ruff` agregado a `[dependency-groups].dev` (nunca declarado) --
+     `uv sync` ahora lo instala en el venv del proyecto; sin esto,
+     "Lint with ruff" fallaba con "Failed to spawn: ruff" incluso ya
+     resuelto (1).
+  Colateral: `ruff format --check` (ejecutable en CI por primera vez)
+  encontró 5 archivos con formato desactualizado de FASE13/14 de esta
+  sesión -- corregidos con `ruff format` (cosmético, sin cambio de
+  comportamiento). make check + ruff format --check: limpios.
 
 criterios:
   - id: C1-sin-cache-uv-redundante
@@ -40,6 +60,24 @@ criterios:
       ejecutar `uv sync`/tests reales (aunque fallen o pasen por otra
       razón, ya no por este bug de infra).
     verificacion: "gh pr checks <PR> (o gh run view <run-id>)"
+
+  - id: C3-ruff-declarado-como-dep-dev
+    tipo: unit
+    descripcion: >
+      `ruff` declarado en `[dependency-groups].dev` de `pyproject.toml`;
+      `uv sync` lo instala en `.venv/bin/ruff` del proyecto (verificable
+      sin depender de un `ruff` global de la máquina).
+    verificacion: "uv sync && test -x .venv/bin/ruff"
+
+  - id: C4-lint-y-format-limpios
+    tipo: metrics
+    descripcion: >
+      `uv run ruff check src/ tests/` y `uv run ruff format --check src/
+      tests/` pasan limpios (el segundo nunca había podido ejecutarse en
+      CI). Sin cambio de comportamiento del código (solo formato).
+    verificacion: >
+      uv run ruff check src/ tests/ && uv run ruff format --check
+      src/ tests/
 
 invariantes:
   - >-

@@ -154,7 +154,7 @@ def check_environment(
                 has_key,
                 f"configurada (usar\u00e1 modelo '{text_model}')"
                 if has_key
-                else f"falta (export {env_var}=\"...\")",
+                else f'falta (export {env_var}="...")',
                 hard=False,
             )
         )
@@ -239,7 +239,7 @@ def summarization_ready(
             return True, f"backend '{backend}' configurado (API key en {env_var})."
         return False, (
             f"Backend '{backend}' seleccionado pero falta la API key.\n"
-            f"  export {env_var}=\"...\"\n"
+            f'  export {env_var}="..."\n'
             "Diagnóstico: 'pdfsum doctor'. Detalles: INSTALL.md §2."
         )
     models = _ollama_models()

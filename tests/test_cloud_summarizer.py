@@ -51,7 +51,9 @@ class TestCloudSummarizer(unittest.TestCase):
 
     def test_api_key_desde_env_var_por_proveedor(self):
         with patch.dict("os.environ", {"OPENROUTER_API_KEY": "sk-or-test"}):
-            s = CloudSummarizer(provider="openrouter", model="qwen/qwen-2.5-7b-instruct")
+            s = CloudSummarizer(
+                provider="openrouter", model="qwen/qwen-2.5-7b-instruct"
+            )
         self.assertEqual(s.api_key, "sk-or-test")
 
     def test_summarize_llama_endpoint_correcto_y_parsea_secciones(self):

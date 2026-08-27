@@ -88,4 +88,6 @@ def build_summarizer(backend: str, model: str, dry_run: bool = False):
         from .cloud_summarizer import CloudSummarizer
 
         return CloudSummarizer(provider=backend, model=model)
-    raise ValueError(f"backend '{backend}' desconocido; opciones: {', '.join(BACKENDS)}")
+    raise ValueError(
+        f"backend '{backend}' desconocido; opciones: {', '.join(BACKENDS)}"
+    )

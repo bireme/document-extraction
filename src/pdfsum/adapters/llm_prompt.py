@@ -40,7 +40,9 @@ INSTRUCTIONS = {
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", flags=re.DOTALL)
 
 
-def build_prompt(text: str, lang: str, template: str, max_chars: int = MAX_CHARS) -> str:
+def build_prompt(
+    text: str, lang: str, template: str, max_chars: int = MAX_CHARS
+) -> str:
     """Arma el prompt: instrucción por idioma + esquema de secciones + texto."""
     instr = INSTRUCTIONS.get(lang, INSTRUCTIONS["pt"])
     names = section_names(template, lang)

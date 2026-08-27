@@ -60,9 +60,7 @@ class AnthropicSummarizer:
         )
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        return "".join(
-            block.get("text", "") for block in data.get("content", [])
-        )
+        return "".join(block.get("text", "") for block in data.get("content", []))
 
     def summarize(self, req: SummarizeRequest) -> dict[str, str]:
         prompt = build_prompt(req.text, req.lang, req.template, MAX_CHARS)

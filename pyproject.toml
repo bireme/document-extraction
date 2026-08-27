@@ -34,9 +34,12 @@ classifiers = [
 dependencies = ["pillow>=10"]
 
 [dependency-groups]
-# Grupo dev vacío tras Fase 13: pillow pasó a dependencia principal (arriba).
-# Se conserva la sección por si se necesitan deps de solo-test a futuro.
-dev = []
+# ruff: NUNCA estuvo declarado (solo configurado en [tool.ruff] abajo).
+# `uv run ruff` funcionaba en dev por accidente (ruff instalado global en
+# la máquina, `uv run` cae a PATH si el venv no lo tiene) pero fallaba en
+# CI (runner limpio, sin ruff global): "Failed to spawn: ruff". Declararlo
+# aquí hace que `uv sync` lo instale en el venv del proyecto siempre.
+dev = ["ruff>=0.16"]
 
 [project.scripts]
 pdfsum = "pdfsum.cli:main"
