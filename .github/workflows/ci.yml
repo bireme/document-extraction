@@ -31,7 +31,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: "uv"
+          # sin cache:uv -- astral-sh/setup-uv@v2 (paso anterior) ya cachea
+          # (UV_CACHE_DIR); redundante aqui rompe con "Caching for 'uv' is
+          # not supported" en este runner.
 
       - name: Install dependencies (uv sync)
         run: uv sync
@@ -63,7 +65,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "uv"
+          # ver nota arriba (job test): sin cache:uv redundante
 
       - name: Build wheel + sdist (uv build)
         run: |
@@ -76,6 +78,38 @@ jobs:
           /tmp/pdfsum-smoke/bin/pip install dist/pdfsum-*.whl
           /tmp/pdfsum-smoke/bin/pdfsum --help
           /tmp/pdfsum-smoke/bin/pdfsum doctor || true
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t pdfsum-ci .
+
+      - name: Smoke test - help and doctor
+        run: |
+          docker run --rm pdfsum-ci pdfsum --help
+          docker run --rm pdfsum-ci pdfsum doctor || true
+
+      # Ejercita el fallback de OCR por región / Pillow, ver criterio C2
+      # en evals/eval-spec-fase13-docker-ollama-runtime.yaml
+      - name: Smoke test - transcribe muestra
+        run: |
+          mkdir -p /tmp/ci-in /tmp/ci-out /tmp/ci-logs
+          cp samples/pdfs/*.pdf /tmp/ci-in/
+          docker run --rm \
+            -v /tmp/ci-in:/input:ro -v /tmp/ci-out:/output \
+            -v /tmp/ci-logs:/logs \
+            pdfsum-ci pdfsum transcribe --in /input \
+            --workspace /output --lang por
+          test -n "$(ls -A /tmp/ci-out/ocr)" \
+            || (echo "sin salida OCR" && exit 1)
+
+      - name: Validate compose.yml (default + gpu profile)
+        run: |
+          docker compose config >/dev/null
+          docker compose --profile gpu config >/dev/null
 
   docs:
     runs-on: ubuntu-latest
@@ -91,7 +125,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "uv"
+          # ver nota arriba (job test): sin cache:uv redundante
 
       - name: Check INSTALL.md and README.md exist
         run: |

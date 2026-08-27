@@ -56,27 +56,29 @@ adaptador, sin tocar el núcleo.
 - ❌ Inversión en hardware GPU
 - ❌ Modelos ocupan 6-9 GB en disco
 
-### ⚠️ Opción B: Modelos Remotos (Sin GPU o GPU < 8 GB)
+### ✅ Opción B: Backends Cloud — OpenAI, OpenRouter, Anthropic (Sin GPU)
 
 **Requisitos:**
-- API key de OpenAI, Anthropic, HuggingFace, etc.
-- Plan pagado en el proveedor
-- Conexión a internet
+- API key del proveedor elegido, **en variable de entorno** (nunca en
+  `.pdfsum-config.json`): `OPENAI_API_KEY` / `OPENROUTER_API_KEY` /
+  `ANTHROPIC_API_KEY`.
+- Conexión a internet.
 
 **Configuración rápida:**
 ```bash
-cat > ~/.pdfsum-config.json << 'EOF'
-{
-  "summarizer_backend": "openai",
-  "openai_api_key": "sk-...",
-  "openai_model": "gpt-4-turbo"
-}
-EOF
+export PDFSUM_SUMMARIZER_BACKEND="openrouter"   # openai | openrouter | anthropic
+export OPENROUTER_API_KEY="sk-or-..."
+pdfsum doctor   # confirma backend + API key configurada
 ```
+
+Default por proveedor — `openrouter` usa `qwen/qwen-2.5-7b-instruct` (el
+**mismo** peso abierto que Ollama local, corriendo en la nube);
+`openai`/`anthropic` no hostean Qwen, usan `gpt-4o-mini`/`claude-haiku-4-5`
+por defecto. Cualquiera es overrideable con `--model`/`cloud_model`.
 
 **Ventajas:**
 - ✅ No requiere GPU
-- ✅ Modelos de última generación
+- ✅ Modelos de última generación (o los mismos pesos abiertos, vía OpenRouter)
 - ✅ Sin mantenimiento de modelos
 
 **Desventajas:**
@@ -119,8 +121,33 @@ pdfsum doctor
 pdfsum verify
 ```
 
+### Opción D — Docker / Docker Compose (sin instalar Python/poppler/tesseract en el host)
+
+```bash
+docker build -t pdfsum .
+docker run --rm pdfsum pdfsum doctor
+
+# Modo A (default, sin GPU passthrough): usa un Ollama ya corriendo en el host
+cp .env.example .env && docker compose up --build
+
+# Modo B (bundled, requiere GPU + NVIDIA Container Toolkit):
+echo 'OLLAMA_HOST=http://ollama:11434' > .env
+docker compose --profile gpu up --build
+
+# Modo C (cloud puro, sin Ollama en absoluto):
+printf 'PDFSUM_SUMMARIZER_BACKEND=openrouter\nOPENROUTER_API_KEY=sk-or-...\n' > .env
+docker compose up --build
+```
+
+Los tres modos son configurables vía `.env` (`OLLAMA_HOST` o
+`PDFSUM_SUMMARIZER_BACKEND`+API key) sin tocar
+`compose.yml`; el servicio `ollama` embebido (con GPU) es opt-in detrás de
+`--profile gpu`, nunca obligatorio. Detalle completo (incluye el fix de la
+dependencia Pillow para el fallback de OCR por región) →
+[`INSTALL.md` Sección 10](INSTALL.md#10-ejecutar-con-docker--docker-compose).
+
 **⚠️ SI `pdfsum doctor` dice "XX ollama: no encontrado"**
-→ Configura modelos remotos en `~/.pdfsum-config.json` (Opción B arriba)
+→ Configura un backend cloud (env var + opcionalmente `.pdfsum-config.json`, Opción B arriba)
 
 **Guía completa** (requisitos de sistema, modelos, troubleshooting):
 → [`INSTALL.md`](INSTALL.md) **Sección 2 (Modelos Local vs Remoto)**

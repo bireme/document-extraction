@@ -21,3 +21,6 @@ output/*
 
 logs/*
 !logs/.gitkeep
+
+# docker compose: .env real (con overrides locales), no el .env.example
+.env

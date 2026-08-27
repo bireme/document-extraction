@@ -3,7 +3,10 @@
 import unittest
 from pathlib import Path
 
-import tomllib
+try:
+    import tomllib  # stdlib desde Python 3.11
+except ModuleNotFoundError:  # Python 3.10 (requires-python = ">=3.10")
+    import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 

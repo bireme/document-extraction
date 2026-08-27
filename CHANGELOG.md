@@ -4,6 +4,137 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [Unreleased] — Backends de inferencia en la nube configurables (FASE14)
+### Añadido
+- **Backends cloud reales para el Summarizer** (antes solo prometidos en
+  docs, nunca implementados): `adapters/cloud_summarizer.py`
+  (`CloudSummarizer`, API Chat Completions estilo OpenAI — sirve para
+  `openai`, `openrouter` y cualquier gateway compatible vía `base_url`) y
+  `adapters/anthropic_summarizer.py` (`AnthropicSummarizer`, API Messages
+  nativa de Anthropic). Sin SDKs nuevos: `urllib`, mismo patrón que
+  `ollama_summarizer.py`.
+- `adapters/llm_prompt.py`: instrucciones por idioma + parseo de secciones
+  Markdown extraídos de `ollama_summarizer.py` a un módulo agnóstico de
+  transporte, reusado por los 3 adaptadores (sin duplicación).
+- `adapters/summarizer_factory.py`: resuelve backend (flag CLI > env
+  `PDFSUM_SUMMARIZER_BACKEND` > `.pdfsum-config.json` `summarizer_backend`
+  > default `ollama`) y modelo (flag > config `model`/`cloud_model` >
+  default por backend). Default real "mismos modelos en la nube": el
+  backend `openrouter` usa `qwen/qwen-2.5-7b-instruct` (mismo peso abierto
+  que `qwen2.5:7b` local, hosteado). `openai`/`anthropic` no hostean Qwen
+  → default propio del proveedor (`gpt-4o-mini` / `claude-haiku-4-5`).
+  Cualquier modelo es configurable (`--model`/`cloud_model`).
+- CLI: flag `--backend {ollama,openai,openrouter,anthropic}` en
+  `summarize`, `batch`, `run`, `verify`, `doctor`.
+- `doctor.py` backend-aware: si el backend es cloud, chequea presencia de
+  la API key (env var) en vez de Ollama+modelo, sin llamada de red; Ollama
+  se sigue reportando aparte (informativo, solo para el fallback VLM de
+  OCR de escaneos difíciles, independiente del backend de resumen).
+- `compose.yml`: pasa `PDFSUM_SUMMARIZER_BACKEND`, `OPENAI_API_KEY`,
+  `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` al contenedor `pdfsum` vía
+  `${VAR:-}` (nunca hardcodeadas); nuevo "Modo C" (cloud puro, sin Ollama)
+  documentado en `.env.example`/`INSTALL.md` §10.
+### Corregido
+- README.md/INSTALL.md §2 ("Opción B: Modelos Remotos"): la versión
+  anterior rometía `summarizer_backend`/`openai_api_key` en
+  `.pdfsum-config.json` que el código **nunca implementó** (`cli.py` solo
+  construía `OllamaSummarizer`/`FakeSummarizer`). Reescrita para reflejar
+  el mecanismo real (esta fase) y corregidas dos referencias cruzadas a
+  secciones incorrectas, preexistentes.
+### Seguridad
+- Ninguna API key se lee de `.pdfsum-config.json` ni se imprime en
+  mensajes de error — solo variables de entorno (`OPENAI_API_KEY` /
+  `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY`), verificado con test dedicado.
+### Verificado
+- `make check`: 133/133 tests (97 previos + 36 nuevos), lint limpio; 0
+  llamadas de red reales en tests (urlopen mockeado).
+- Docker real: `docker run -e PDFSUM_SUMMARIZER_BACKEND=openai -e
+  OPENAI_API_KEY=test pdfsum pdfsum doctor` → backend detectado, key
+  confirmada, capacidad "resumen" en SÍ sin Ollama.
+- Detalle completo: `evals/eval-spec-fase14-backends-cloud.yaml`.
+
+## [Unreleased] — Fix runtime Pillow + Ollama configurable en Docker (FASE13)
+### Corregido
+- **Pillow ahora dependencia real de runtime** (`pyproject.toml`:
+  `dependencies = ["pillow>=10"]`, antes solo en `[dependency-groups].dev`).
+  Corrige el `ModuleNotFoundError: No module named 'PIL'` documentado abajo
+  (entrada anterior) para el fallback de OCR por región dentro de Docker.
+  `uv.lock` regenerado.
+- Lint preexistente (orden de imports en `adapters/doctor.py` y
+  `adapters/ollama_summarizer.py`, deuda no relacionada que bloqueaba
+  `make check`): normalizado con `ruff check --fix` (cambio puramente
+  cosmético, sin cambio de comportamiento).
+### Cambiado
+- `compose.yml`: el servicio `ollama` (con `gpus: all`) ahora vive detrás de
+  `profiles: ["gpu"]` (opt-in, no arranca con `docker compose up` por
+  defecto). El servicio `pdfsum` ya no tiene `depends_on: ollama` forzoso;
+  `OLLAMA_HOST` es configurable vía `${OLLAMA_HOST:-http://host.docker.internal:11434}`
+  con `extra_hosts: host-gateway` para que resuelva también en Linux.
+- Nuevo `.env.example` documentando ambos modos (Ollama del host — default,
+  sin GPU passthrough — vs. Ollama embebido con `--profile gpu`).
+- `.github/workflows/ci.yml`: nuevo job `docker` (build de imagen + smoke
+  test de `doctor`/`transcribe` sobre la muestra que ejercita el fallback
+  Pillow + validación de `compose.yml` en ambos perfiles) para que esta
+  regresión no vuelva a pasar inadvertida.
+- `README.md` / `INSTALL.md` §10: reescritos con los dos modos de uso de
+  Ollama con Docker; retirada la limitación conocida (ya resuelta).
+### Verificado
+- `make check`: 97/97 tests, lint limpio.
+- `docker build` + `docker run ... pdfsum transcribe` sobre
+  `samples/pdfs/56186_10006001927.pdf` (el PDF que antes fallaba): OK, sin
+  traceback.
+- `docker compose config` y `docker compose --profile gpu config`: ambos
+  manifiestos válidos.
+- Detalle completo y criterios: `evals/eval-spec-fase13-docker-ollama-runtime.yaml`.
+
+## [Unreleased] — Soporte Docker / Docker Compose
+### Añadido
+- `Dockerfile` (`python:3.12-slim` + `poppler-utils` + `tesseract-ocr` con
+  idiomas `por`/`eng`/`spa` + `curl`; `pip install .` del paquete; `CMD
+  ["pdfsum", "--help"]`). PR #1 (`bireme/master`, mergeado 2026-08-26).
+- `compose.yml`: servicio `pdfsum` (build local) + servicio `ollama`
+  (`ollama/ollama:0.33.0`, con `gpus: all` y volumen nombrado
+  `ollama_models`), volúmenes `./input:/input:ro`, `./output:/output`,
+  `./logs:/logs`, `OLLAMA_HOST=http://ollama:11434` inyectado al servicio
+  `pdfsum`.
+- `.dockerignore` (excluye `.git`, `.venv`, `__pycache__`, PDFs de prueba,
+  `data/`, `data_hierarchical/`) y carpetas `input/`, `output/`, `logs/`
+  (con `.gitkeep`) como puntos de montaje.
+### Verificado (2026-08-26, manual, ver `INSTALL.md` §10)
+- `docker build -t pdfsum .`: build limpio OK (paquete `pdfsum` instalado vía
+  `pip install .` dentro de la imagen).
+- `docker run --rm pdfsum` (CMD por defecto) y `pdfsum doctor` dentro del
+  contenedor: OK — reporta correctamente poppler/tesseract disponibles y
+  Ollama no alcanzable (esperado sin el servicio `ollama` arriba).
+- `docker compose config`: manifiesto válido, sin errores de sintaxis.
+- `pdfsum transcribe` dentro del contenedor sobre `samples/pdfs/`: **1 de 2
+  PDFs de muestra falla** con `ModuleNotFoundError: No module named 'PIL'`
+  en `adapters/hybrid_ocr.py:_ocr_regions` (ruta de OCR por región cuando el
+  VLM no está disponible y degrada a Tesseract con recorte de regiones).
+### Conocido — limitación encontrada en esta verificación
+> ✅ **Resuelta** en la entrada `[Unreleased] — Fix runtime Pillow + Ollama
+> configurable en Docker (FASE13)` de arriba.
+- **Causa raíz**: `pyproject.toml` declara `dependencies = []` (núcleo solo
+  stdlib) y `Pillow` solo en `[dependency-groups].dev` (añadido en 0.11.1
+  para que los *tests* no fallaran). La imagen Docker instala con
+  `pip install .` (sin grupos `dev`), así que `Pillow` **no** está presente
+  en runtime — pero `hybrid_ocr.py` sí lo importa en producción para el
+  fallback de OCR por región. Fuera de Docker esto queda enmascarado porque
+  `uv sync` (entorno de desarrollo) instala el grupo `dev` por defecto.
+- **Impacto**: `pdfsum run` / `pdfsum transcribe` sobre PDFs escaneados que
+  activan el fallback por región (típicamente cuando el VLM
+  `qwen3-vl:8b-instruct` no está disponible) fallan con traceback dentro del
+  contenedor. No afecta PDFs con texto nativo ni todos los escaneados (1 de
+  los 2 PDFs de muestra funcionó sin problema).
+- **Recomendación**: seguir el flujo EDD (spec antes de código) para abrir
+  `fix/OS-NNN` que mueva `pillow` de `dev` a `dependencies` en
+  `pyproject.toml` — es una dependencia de runtime real, no solo de tests.
+- **Alternativa de infraestructura sin fix de código**: si el host no tiene
+  `nvidia-container-toolkit` (caso de esta verificación), el servicio
+  `ollama` de `compose.yml` (`gpus: all`) no arrancará; usar en su lugar un
+  Ollama nativo del host y apuntar el contenedor `pdfsum` vía
+  `OLLAMA_HOST=http://host.docker.internal:11434` (ver `INSTALL.md` §10).
+
 ## [0.12.0] — 2026-08-25 — Distribución moderna: hatchling + uv build + PyPI
 ### Añadido
 - Backend de build moderno: `setuptools` → `hatchling` en `pyproject.toml`.

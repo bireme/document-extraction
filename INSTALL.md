@@ -37,10 +37,11 @@ aplicación, la ejecute y **verifique que obtiene resultados similares**.
 - Con GPU superior, más rápido aún
 
 **OPCIÓN B: Sin GPU local (o GPU < 8 GB)**
-- Configura acceso a servicios de modelos remotos (OpenAI API, Anthropic, etc.)
-- Requiere API key de proveedor externo + plan pagado
-- Ver Sección 5 (Configuración de Modelos Remotos)
-- Ideal si no tienes GPU o quieres máxima privacidad sin inversión local
+- Configura acceso a un backend cloud (OpenAI, OpenRouter o Anthropic)
+- Requiere API key de proveedor externo (env var) + plan pagado
+- Ver Sección 2 (Configuración de Modelos — Opción B: Backends Cloud)
+- Ideal si no tienes GPU; OpenRouter permite usar los mismos pesos abiertos
+  (Qwen) que el modo local, solo que hosteados en la nube
 
 ### Software de sistema
 - **Python ≥ 3.10**
@@ -106,58 +107,72 @@ ollama serve
 - ❌ Requiere GPU ≥ 8 GB (inversión inicial)
 - ❌ Modelos ocupan 6-9 GB en disco
 
-#### ⚠️ Opción B: Modelos Remotos (OpenAI, Anthropic, etc.)
+#### ✅ Opción B: Backends Cloud (OpenAI, OpenRouter, Anthropic) — FASE14
+
+Implementado de verdad (`adapters/cloud_summarizer.py`,
+`adapters/anthropic_summarizer.py`, `adapters/summarizer_factory.py`) —
+cualquier proveedor de inferencia con API HTTP: OpenAI, OpenRouter (mismos
+pesos abiertos que usamos local, p. ej. Qwen, pero hosteados) o Anthropic.
+Sin SDKs adicionales (solo `urllib`, igual que el adaptador Ollama).
 
 **Requiere:**
-- API key de proveedor (OpenAI, Anthropic, HuggingFace, etc.)
-- Conexión a internet constante
-- Plan pagado en el proveedor
-- Sin inversión en GPU local
+- API key del proveedor elegido, en **variable de entorno** (nunca en
+  `.pdfsum-config.json` — evita comitear secretos):
+  `OPENAI_API_KEY` / `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY`.
+- Conexión a internet. Sin GPU local necesaria para resumir (el fallback
+  VLM de OCR de escaneos difíciles sigue siendo exclusivamente Ollama,
+  independiente de este backend — si no hay Ollama, degrada a Tesseract).
 
-**Configuración:**
+**Configuración (elige backend + modelo, la key va SOLO en env):**
 ```bash
-# Crear archivo .pdfsum-config.json en casa
-cat > ~/.pdfsum-config.json << 'EOF'
-{
-  "summarizer_backend": "openai",
-  "openai_api_key": "sk-...",
-  "openai_model": "gpt-4-turbo",
-  "transcriber_backend": "openai"
-}
-EOF
+# Backend + modelo: env var (prevalece) o .pdfsum-config.json
+export PDFSUM_SUMMARIZER_BACKEND="openrouter"   # openai | openrouter | anthropic
+export OPENROUTER_API_KEY="sk-or-..."
 
-# O variables de entorno
-export OPENAI_API_KEY="sk-..."
-export PDFSUM_SUMMARIZER_BACKEND="openai"
+pdfsum doctor      # confirma que la API key está configurada (sin llamar a la red)
+pdfsum run --in ./pdfs --workspace ./data --lang por
+# --backend/--model como flags CLI también sobreescriben (prevalecen sobre env/config)
+pdfsum run --in ./pdfs --workspace ./data --backend anthropic --model claude-haiku-4-5
 ```
 
-**Ventajas:**
-- ✅ No requiere GPU
-- ✅ Modelos de última generación (GPT-4, Claude 3, etc.)
-- ✅ Escalable sin límite local
+O en `.pdfsum-config.json` (sin secretos, solo backend/modelo por defecto):
+```json
+{
+  "summarizer_backend": "openrouter",
+  "cloud_model": "qwen/qwen-2.5-7b-instruct"
+}
+```
 
-**Desventajas:**
-- ❌ Costo por uso (caro si procesas muchos documentos)
-- ❌ Datos salen a servidores externos
-- ❌ Dependencia de internet
-- ❌ Latencia de red
+**"Los mismos modelos que tenemos, corriendo en la nube"**: solo
+**OpenRouter** hostea de verdad el peso abierto que usamos local
+(`qwen/qwen-2.5-7b-instruct` = mismo Qwen que `qwen2.5:7b` en Ollama, en su
+nube). OpenAI/Anthropic no hostean Qwen — sus defaults son un modelo propio
+razonable del proveedor. **Configurar cualquier otro LLM**: cambia
+`cloud_model` (o `--model`) por cualquier id soportado por ese proveedor,
+sin tocar código.
 
-**Proveedores recomendados:**
-- OpenAI (gpt-4-turbo, gpt-4o)
-- Anthropic (claude-3-opus)
-- HuggingFace (modelos open source)
-- Replicate (modelos open source hosted)
+| Backend | Env var de API key | Modelo por defecto | Nota |
+|---|---|---|---|
+| `openrouter` | `OPENROUTER_API_KEY` | `qwen/qwen-2.5-7b-instruct` | mismo peso abierto que Ollama local, en la nube |
+| `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` | API Chat Completions estándar |
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-4-5` | API Messages nativa (no Chat Completions) |
+
+**Ventajas:** sin GPU requerida; escalable; acceso a modelos de última
+generación. **Desventajas:** costo por uso; datos salen a servidores
+externos; dependencia de internet/latencia de red.
 
 #### 🤔 ¿Cuál elegir?
 
 | Escenario | Recomendación |
 |---|---|
 | Tengo GPU ≥ 8 GB | **Ollama local** (mejor relación costo/beneficio) |
-| No tengo GPU | **Servicios remotos** (OpenAI, Anthropic, etc.) |
-| Procesamiento ocasional | **Servicios remotos** (costo bajo) |
+| No tengo GPU, quiero los mismos pesos abiertos | **OpenRouter** (Qwen hosteado) |
+| Procesamiento ocasional / máxima calidad | **OpenAI/Anthropic** (modelos propietarios) |
 | Procesamiento masivo | **Ollama local** (sin costos recurrentes) |
 | Privacidad crítica | **Ollama local** (datos en casa) |
-| Máxima calidad | **OpenAI/Anthropic** (GPT-4, Claude 3) |
+
+Detalle técnico completo y criterios:
+`evals/eval-spec-fase14-backends-cloud.yaml`.
 
 ---
 
@@ -251,7 +266,7 @@ Verificación de entorno pdfsum:
 - `XX [duro]`: ERROR CRÍTICO. Debes configurar esto antes de continuar.
 
 **Caso especial: Ollama**
-- Si ves `XX ollama: no encontrado` → configura modelos remotos (Sección 2, Opción B)
+- Si ves `XX ollama: no encontrado` → configura un backend cloud (Sección 2, Opción B) o instala/arranca Ollama
 - Si ves `OK ollama: corriendo` pero `XX model:qwen2.5:7b` → descargar: `ollama pull qwen2.5:7b`
 
 ---
@@ -376,7 +391,120 @@ En ambos casos, el receptor sigue §2–§4 para instalar y verificar.
 
 ---
 
-## 9. Reproducibilidad: qué está fijado y qué no
+## 10. Ejecutar con Docker / Docker Compose
+
+Alternativa a instalar `poppler`/`tesseract`/Python en el host: el repo
+incluye `Dockerfile` + `compose.yml` (PR #1, `bireme/master`, mergeado
+2026-08-26; runtime completado en FASE13-DOCKER-OLLAMA-RUNTIME). La imagen
+empaqueta `poppler-utils` + `tesseract-ocr` (`por`+`eng`+`spa`) + el paquete
+`pdfsum` (con **Pillow incluido**, dependencia real de runtime) instalado
+con `pip install .`.
+
+### Solo el contenedor `pdfsum` (build + run)
+
+```bash
+docker build -t pdfsum .
+docker run --rm pdfsum                # equivale a: pdfsum --help
+docker run --rm pdfsum pdfsum doctor  # diagnóstico de entorno dentro del contenedor
+```
+
+Para procesar tus PDFs, monta `input` (solo lectura) y `output`/`logs`:
+
+```bash
+docker run --rm \
+  -v "$PWD/input:/input:ro" \
+  -v "$PWD/output:/output" \
+  -v "$PWD/logs:/logs" \
+  pdfsum pdfsum run --in /input --workspace /output --lang por
+```
+
+### Con `docker compose`: dos modos, ambos configurables por `.env`
+
+```bash
+cp .env.example .env     # elige/ajusta OLLAMA_HOST (ver comentarios dentro)
+```
+
+`compose.yml` define dos servicios: `pdfsum` (siempre) y `ollama` (opt-in,
+solo con `--profile gpu`). Ninguno depende forzosamente del otro para
+arrancar: el modo se elige con la variable `OLLAMA_HOST` (via `.env` o env
+del shell) y, si quieres el Ollama embebido, con `--profile gpu`.
+
+#### Modo A (default) — Ollama del HOST, sin GPU passthrough
+
+Es el default de `compose.yml` (`OLLAMA_HOST` cae a
+`http://host.docker.internal:11434` si no se sobreescribe). Requiere tener
+un Ollama corriendo en la máquina host (fuera de Docker):
+
+```bash
+ollama serve                       # en el host, en otra terminal
+ollama pull qwen2.5:7b             # una vez
+docker compose up --build          # solo levanta el servicio pdfsum
+```
+
+Funciona sin GPU pasada al contenedor ni NVIDIA Container Toolkit — la GPU
+(si la usas) la consume el Ollama nativo del host, no Docker.
+
+#### Modo B (bundled) — Ollama en su propio contenedor, con GPU
+
+```bash
+echo 'OLLAMA_HOST=http://ollama:11434' > .env
+docker compose --profile gpu up --build
+```
+
+Levanta también el servicio `ollama` (imagen `ollama/ollama:0.33.0`,
+volumen nombrado `ollama_models` para persistir modelos descargados,
+`gpus: all`).
+
+> ⚠️ **El servicio `ollama` (perfil `gpu`) requiere GPU pasada al
+> contenedor** (`gpus: all`), lo que exige el **NVIDIA Container Toolkit**
+> instalado y configurado en el host (`nvidia-ctk`), además del driver
+> NVIDIA. Verifica con `docker info | grep -i runtime` (debe listar
+> `nvidia`) antes de `docker compose --profile gpu up`. Sin el toolkit, usa
+> el Modo A (default) en su lugar — caso verificado en esta máquina: GPU
+> física presente, toolkit ausente, Modo A funcional.
+
+(En Linux, `host.docker.internal` se resuelve gracias al `extra_hosts:
+host-gateway` ya incluido en `compose.yml`; con `docker run` suelto en vez
+de compose, añade `--add-host=host.docker.internal:host-gateway`.)
+
+#### Modo C (cloud puro) — sin Ollama en absoluto, backend en la nube
+
+Ni el servicio `ollama` ni un Ollama nativo del host son necesarios para
+resumir (sí siguen haciendo falta si quieres el fallback VLM de OCR de
+escaneos difíciles — si no hay Ollama alcanzable, degrada a Tesseract):
+
+```bash
+echo 'PDFSUM_SUMMARIZER_BACKEND=openrouter' >> .env
+echo 'OPENROUTER_API_KEY=sk-or-...' >> .env
+docker compose up --build
+```
+
+`compose.yml` pasa `PDFSUM_SUMMARIZER_BACKEND`, `OPENAI_API_KEY`,
+`OPENROUTER_API_KEY` y `ANTHROPIC_API_KEY` al contenedor `pdfsum` desde el
+entorno/`.env` del host (vacías si no las defines) — nunca hardcodeadas en
+`compose.yml`. Detalle de backends: Sección 2 (Opción B).
+
+### Verificado (2026-08-26) — qué funciona
+
+| Comando | Resultado |
+|---|---|
+| `docker build -t pdfsum .` | ✅ OK (incluye Pillow) |
+| `docker run --rm pdfsum` / `pdfsum --help` | ✅ OK |
+| `docker run --rm pdfsum pdfsum doctor` | ✅ OK |
+| `docker compose config` / `--profile gpu config` | ✅ ambos manifiestos válidos |
+| `pdfsum transcribe` sobre PDF nativo/escaneado simple | ✅ OK |
+| `pdfsum transcribe` sobre escaneado con fallback OCR por región (antes fallaba con `ModuleNotFoundError: No module named 'PIL'`) | ✅ OK tras mover `pillow` a `dependencies` en `pyproject.toml` |
+| `docker compose --profile gpu up` (Ollama embebido, GPU real) | ⚠️ no verificado end-to-end en esta máquina (sin `nvidia-container-toolkit`); `docker compose --profile gpu config` sí valida |
+| `docker run -e PDFSUM_SUMMARIZER_BACKEND=openrouter -e OPENROUTER_API_KEY=... pdfsum pdfsum doctor` (Modo C, cloud puro) | ✅ OK — detecta el backend, confirma la API key, resume sin Ollama |
+
+Detalle técnico del fix y criterios ejecutables:
+`evals/eval-spec-fase13-docker-ollama-runtime.yaml` (Pillow/Ollama
+configurable) y `evals/eval-spec-fase14-backends-cloud.yaml` (Modo C,
+backends cloud).
+
+---
+
+## 11. Reproducibilidad: qué está fijado y qué no
 
 | Fijado (determinista) | No fijado (varía) |
 |---|---|

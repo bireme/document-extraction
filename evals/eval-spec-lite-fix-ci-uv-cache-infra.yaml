@@ -1,0 +1,113 @@
+---
+id: FIX-CI-UV-CACHE-INFRA
+titulo: >-
+  CI roto por cache:uv, ruff no declarado y tomllib en 3.10
+  (infra, no código)
+descripcion: >
+  `gh run list --branch master` muestra CI en rojo desde antes de esta
+  sesión (Fase 11 "fix/dev-deps-pillow-uv", Fase 12, el merge del PR #1 de
+  Docker...). Investigando el PR #2 (fix docker/pillow) se encontraron DOS
+  bugs de infra encadenados, ninguno relacionado con el código de ningún
+  PR:
+
+  1. `##[error]Caching for 'uv' is not supported` en el step "Set up
+     Python": `astral-sh/setup-uv@v2` (paso anterior) ya trae su propio
+     caché (`UV_CACHE_DIR`); el `cache: "uv"` adicional en
+     `actions/setup-python@v5` es redundante y no soportado en este
+     runner.
+  2. Una vez resuelto (1), aparece `error: Failed to spawn: ruff` /
+     `No such file or directory`: `ruff` NUNCA estuvo declarado como
+     dependencia (solo configurado en `[tool.ruff]`). Funcionaba en
+     desarrollo local por accidente (`ruff` instalado global en la
+     máquina; `uv run` cae a PATH si el venv no lo tiene) pero nunca pudo
+     funcionar en un runner de CI limpio.
+
+  Como consecuencia colateral de (2), al correr por primera vez
+  `ruff format --check` (nunca ejecutable en CI hasta ahora, y nunca
+  parte de `make check` localmente) aparecieron 5 archivos con formato
+  desactualizado de las Fases 13/14 de esta misma sesión — corregidos
+  aquí también (cambios puramente cosméticos, `ruff format`).
+
+  3. Con (1) y (2) resueltos, el job `test (3.10)` seguía fallando (3.11
+     y 3.12 ok): `tests/test_packaging.py` hace `import tomllib`, que es
+     stdlib **solo desde Python 3.11** (`tomllib` no existe en 3.10).
+     `pyproject.toml` declara `requires-python = ">=3.10"` y el propio
+     `ci.yml` testea 3.10 en la matriz — bug real de portabilidad, no
+     detectado antes porque nadie corrió la suite en 3.10 real.
+
+estado: COMPLETADA
+fecha: 2026-08-27
+resultado: |
+  5/5 criterios cumplidos. Tres fixes de infra encadenados, cada uno
+  destapado al resolver el anterior (CI nunca había llegado tan lejos):
+  1. Retirado `cache: "uv"` redundante de los 3 steps
+     `actions/setup-python@v5` (jobs test/build/docs) -- confirmado en
+     PR real: "Set up Python" pasa (antes fallaba en el mismo step).
+  2. `ruff` agregado a `[dependency-groups].dev` (nunca declarado) --
+     sin esto, "Lint with ruff" fallaba con "Failed to spawn: ruff".
+  3. `tomli` (marcador `python_version < '3.11'`) + import compat en
+     `test_packaging.py` -- `tomllib` no existe en Python 3.10 (stdlib
+     desde 3.11), rompía el job `test (3.10)` de la matriz pese a que
+     `requires-python = ">=3.10"`. Verificado con Python 3.10 real via
+     `uv python install 3.10` (no solo inferido).
+  Colateral de (2): `ruff format --check` (ejecutable en CI por primera
+  vez) encontró 5 archivos con formato desactualizado de FASE13/14 de
+  esta sesión -- corregidos con `ruff format` (cosmético). make check +
+  ruff format --check + suite en 3.10 real: limpios.
+
+criterios:
+  - id: C1-sin-cache-uv-redundante
+    tipo: unit
+    descripcion: >
+      Ninguno de los 3 steps `actions/setup-python@v5` en ci.yml declara
+      `cache: "uv"`.
+    verificacion: "! grep -q 'cache: \"uv\"' .github/workflows/ci.yml"
+
+  - id: C2-ci-corre-sin-el-error-de-cache
+    tipo: integration
+    descripcion: >
+      El job `test` (matriz 3.10/3.11/3.12) pasa del step "Set up Python"
+      sin el error `Caching for 'uv' is not supported`, y llega a
+      ejecutar `uv sync`/tests reales (aunque fallen o pasen por otra
+      razón, ya no por este bug de infra).
+    verificacion: "gh pr checks <PR> (o gh run view <run-id>)"
+
+  - id: C3-ruff-declarado-como-dep-dev
+    tipo: unit
+    descripcion: >
+      `ruff` declarado en `[dependency-groups].dev` de `pyproject.toml`;
+      `uv sync` lo instala en `.venv/bin/ruff` del proyecto (verificable
+      sin depender de un `ruff` global de la máquina).
+    verificacion: "uv sync && test -x .venv/bin/ruff"
+
+  - id: C4-lint-y-format-limpios
+    tipo: metrics
+    descripcion: >
+      `uv run ruff check src/ tests/` y `uv run ruff format --check src/
+      tests/` pasan limpios (el segundo nunca había podido ejecutarse en
+      CI). Sin cambio de comportamiento del código (solo formato).
+    verificacion: >
+      uv run ruff check src/ tests/ && uv run ruff format --check
+      src/ tests/
+
+  - id: C5-tests-pasan-en-python-3-10-real
+    tipo: integration
+    descripcion: >
+      `test_packaging.py` usa `tomllib` si existe (3.11+) o `tomli`
+      (añadido a `[dependency-groups].dev`, marcador
+      `python_version < '3.11'`) en 3.10. Suite completa 133/133 en
+      Python 3.10 real (`uv run --python 3.10`), no solo en la versión
+      por defecto de la máquina de desarrollo.
+    verificacion: >
+      uv sync --python 3.10 && uv run --python 3.10 python -m unittest
+      discover -s tests -p 'test_*.py'
+
+invariantes:
+  - >-
+    Ningún cambio de comportamiento del código del paquete pdfsum
+    (solo ci.yml).
+
+no_objetivos:
+  - >-
+    Arreglar cualquier otro fallo de CI no relacionado con este
+    error de caching.

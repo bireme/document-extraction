@@ -12,9 +12,15 @@ Formato esperado:
   {
     "long_strategy": "excerpt" | "blocks" | "hierarchical",
     "model": "qwen2.5:7b",
+    "summarizer_backend": "ollama" | "openai" | "openrouter" | "anthropic",
+    "cloud_model": "qwen/qwen-2.5-7b-instruct",
     "lang": "por+eng+spa",
     "max_chars": 40000
   }
+
+NOTA: las API keys de backends cloud NUNCA se leen de este archivo (evita
+comitear secretos) -- solo de variables de entorno (OPENAI_API_KEY,
+OPENROUTER_API_KEY, ANTHROPIC_API_KEY). Ver adapters/summarizer_factory.py.
 """
 
 from __future__ import annotations
