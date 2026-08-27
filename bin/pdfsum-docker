@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Wrapper para correr pdfsum via Docker contra el Ollama nativo del host,
+# sin tener que recordar el docker run largo con --network host + 3
+# volúmenes. Ver INSTALL.md §10 para el porqué de --network host: el
+# Ollama de systemd suele escuchar solo en 127.0.0.1, así que
+# host.docker.internal (usado por defecto en compose.yml, Modo A) no lo
+# alcanza -- --network host sí, porque comparte la red del host.
+#
+# Uso:
+#   bin/pdfsum-docker doctor
+#   bin/pdfsum-docker run --in ./mis_pdfs --workspace ./data --lang por
+#   bin/pdfsum-docker --build run --in ./mis_pdfs --workspace ./data
+#   (--build fuerza reconstruir la imagen antes de ejecutar)
+#
+# Las rutas relativas en --in/--workspace se resuelven contra el
+# directorio DESDE DONDE INVOCAS el script (tu $PWD), no contra la
+# ubicación del script. Los volúmenes montados (input/output/logs del
+# repo) sí se resuelven siempre contra la raíz del repo, sin importar tu
+# $PWD -- por eso el script funciona igual invocado desde cualquier lado.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+IMAGE="pdf-summarizer-pdfsum"
+
+force_build=0
+if [[ "${1:-}" == "--build" ]]; then
+    force_build=1
+    shift
+fi
+
+if [[ "$force_build" -eq 1 ]] || ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    echo "==> construyendo imagen ($IMAGE)..." >&2
+    docker build -t "$IMAGE" "$REPO_ROOT"
+fi
+
+mkdir -p "$REPO_ROOT/input" "$REPO_ROOT/output" "$REPO_ROOT/logs"
+
+exec docker run --rm --network host \
+    -v "$REPO_ROOT/input:/input:ro" \
+    -v "$REPO_ROOT/output:/output" \
+    -v "$REPO_ROOT/logs:/logs" \
+    -w /work \
+    -v "$PWD:/work" \
+    "$IMAGE" \
+    pdfsum "$@"

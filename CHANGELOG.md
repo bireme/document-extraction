@@ -4,6 +4,24 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [Unreleased] — bin/pdfsum-docker: wrapper CLI para Docker
+### Añadido
+- `bin/pdfsum-docker`: wrapper bash que arma el `docker run --network
+  host` largo (3 volúmenes fijos del repo + `-w /work` para rutas
+  relativas a tu `$PWD` de invocación) y reenvía argumentos a `pdfsum`.
+  Funciona desde cualquier directorio; construye la imagen si falta
+  (`--build` fuerza rebuild). Documentado en `.gitignore`
+  (`_docker_smoke/`), `README.md` y `INSTALL.md` §10 como vía
+  recomendada, junto con una nota sobre por qué `--network host` hace
+  falta (Ollama suele escuchar solo en `127.0.0.1`, no en
+  `host.docker.internal`).
+### Verificado
+- `bin/pdfsum-docker doctor` invocado desde `/tmp` (cwd distinto al
+  repo): reporta resumen y OCR VLM listos con el Ollama nativo del host.
+- `bin/pdfsum-docker run --in ./samples/pdfs --workspace
+  ./_docker_smoke --lang por`: 2/2 PDFs OK, resumen real (no fake).
+- Spec: `evals/eval-spec-lite-docker-cli-wrapper.yaml`.
+
 ## [Unreleased] — Backends de inferencia en la nube configurables (FASE14)
 ### Añadido
 - **Backends cloud reales para el Summarizer** (antes solo prometidos en

@@ -400,7 +400,26 @@ empaqueta `poppler-utils` + `tesseract-ocr` (`por`+`eng`+`spa`) + el paquete
 `pdfsum` (con **Pillow incluido**, dependencia real de runtime) instalado
 con `pip install .`.
 
-### Solo el contenedor `pdfsum` (build + run)
+### Vía rápida (recomendada): `bin/pdfsum-docker`
+
+El comando `docker run` completo (imágenes, 3 volúmenes, red) es largo de
+recordar. El repo trae un wrapper que lo arma por ti:
+
+```bash
+bin/pdfsum-docker doctor
+bin/pdfsum-docker run --in ./mis_pdfs --workspace ./data --lang por
+bin/pdfsum-docker --build run --in ./mis_pdfs --workspace ./data  # fuerza rebuild
+```
+
+Funciona desde cualquier directorio (resuelve la raíz del repo solo, no
+depende de tu `$PWD` para los volúmenes fijos `input/output/logs`); las
+rutas que le pases en `--in`/`--workspace` sí se resuelven contra tu
+`$PWD` de invocación (monta tu directorio actual como `/work` dentro del
+contenedor). Usa `--network host` internamente — ver el porqué abajo.
+
+### Solo el contenedor `pdfsum` (build + run, manual)
+
+Si prefieres los comandos `docker` sin el wrapper:
 
 ```bash
 docker build -t pdfsum .
@@ -417,6 +436,14 @@ docker run --rm \
   -v "$PWD/logs:/logs" \
   pdfsum pdfsum run --in /input --workspace /output --lang por
 ```
+
+> ⚠️ **`host.docker.internal` requiere que Ollama escuche en todas las
+> interfaces, no solo en `127.0.0.1`** (el default de `ollama serve` /
+> systemd en muchas instalaciones). Si `pdfsum doctor` dentro del
+> contenedor dice "ollama: no responde" pese a tener Ollama corriendo en
+> el host, agrega `--network host` al `docker run` (así hace
+> `bin/pdfsum-docker`) o reconfigura Ollama con
+> `OLLAMA_HOST=0.0.0.0:11434` (`systemctl edit ollama`, requiere sudo).
 
 ### Con `docker compose`: dos modos, ambos configurables por `.env`
 

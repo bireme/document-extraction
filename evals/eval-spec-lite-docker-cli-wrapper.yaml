@@ -1,0 +1,65 @@
+---
+id: FEAT-DOCKER-CLI-WRAPPER
+titulo: "Wrapper bin/pdfsum-docker: comando corto para usar pdfsum via Docker"
+descripcion: >
+  El comando real para correr pdfsum en Docker contra el Ollama nativo del
+  host (verificado en la sesión anterior: `docker compose up` normal no
+  alcanza Ollama porque el systemd solo escucha en 127.0.0.1, hace falta
+  `--network host`) es largo e impráctico de recordar:
+
+    docker run --rm --network host \
+      -v "$PWD/input:/input:ro" -v "$PWD/output:/output" \
+      -v "$PWD/logs:/logs" pdf-summarizer-pdfsum \
+      pdfsum run --in /input --workspace /output --lang por
+
+  Esta fase añade `bin/pdfsum-docker`, un wrapper ejecutable que ensambla
+  ese comando (build de imagen si falta + volúmenes con rutas absolutas
+  resueltas desde la ubicación del propio script, no de $PWD + --network
+  host) y reenvía cualquier argumento extra a `pdfsum` dentro del
+  contenedor. Uso: `bin/pdfsum-docker run --in /input --workspace /output
+  --lang por` o simplemente `bin/pdfsum-docker doctor`.
+
+estado: COMPLETADA
+fecha: 2026-08-27
+resultado: |
+  2/2 criterios cumplidos. bin/pdfsum-docker (bash, sin dependencias
+  nuevas) resuelve su propio directorio via $(cd "$(dirname
+  "${BASH_SOURCE[0]}")/.." && pwd) -- funciona sin importar el cwd desde
+  donde se invoque. Build automático si la imagen no existe o si se pasa
+  --build. Verificado real: `bin/pdfsum-docker doctor` (resumen: SÍ, OCR
+  VLM: SÍ) y `bin/pdfsum-docker run --in ... --lang por` end-to-end sobre
+  la muestra incluida (2/2 OK), invocado desde un cwd distinto al repo.
+
+criterios:
+  - id: C1-funciona-desde-cualquier-cwd
+    tipo: integration
+    descripcion: >
+      `bin/pdfsum-docker doctor` invocado desde un directorio distinto al
+      repo (p. ej. `cd /tmp && /ruta/al/repo/bin/pdfsum-docker doctor`)
+      monta los volúmenes del REPO (no del cwd) y reporta
+      "Generar resúmenes ... SÍ" con el Ollama nativo del host.
+    verificacion: >
+      cd /tmp && <repo>/bin/pdfsum-docker doctor | grep -q 'SÍ.*resúmenes'
+
+  - id: C2-run-end-to-end-sobre-muestra
+    tipo: integration
+    descripcion: >
+      `bin/pdfsum-docker run --in samples/pdfs --workspace /tmp/x --lang
+      por` (rutas relativas al repo, resueltas por el script) procesa los
+      2 PDFs de muestra sin error, generando summaries/*.json reales
+      (no fake), usando el Ollama nativo del host.
+    verificacion: >
+      bin/pdfsum-docker run --in ./samples/pdfs --workspace ./_docker_smoke
+      --lang por  # -> "ok=2 fallos=0"
+
+invariantes:
+  - "No introduce dependencias nuevas (bash + docker, ya requeridos)."
+  - "No cambia compose.yml/Dockerfile; solo agrega el wrapper y docs."
+
+no_objetivos:
+  - >-
+    Soporte multiplataforma (macOS/Windows) del wrapper -- foco Linux,
+    la máquina real de despliegue.
+  - >-
+    Reemplazar docker compose (sigue disponible para el modo
+    GPU/--profile gpu).
