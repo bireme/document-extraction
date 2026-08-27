@@ -5,6 +5,7 @@ samples/*.txt
 /tmp/
 _resumenes/
 _verify/
+_docker_smoke/
 .venv/
 *.bundle
 

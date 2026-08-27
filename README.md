@@ -123,6 +123,13 @@ pdfsum verify
 
 ### Opción D — Docker / Docker Compose (sin instalar Python/poppler/tesseract en el host)
 
+**Más rápido** — wrapper que arma el `docker run` largo por ti:
+```bash
+bin/pdfsum-docker doctor
+bin/pdfsum-docker run --in ./mis_pdfs --workspace ./data --lang por
+```
+
+O manual:
 ```bash
 docker build -t pdfsum .
 docker run --rm pdfsum pdfsum doctor
