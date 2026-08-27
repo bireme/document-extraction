@@ -104,6 +104,60 @@ def cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bibframe(args: argparse.Namespace) -> int:
+    """Registros bibliográficos BIBFRAME (JSON-LD), uno por documento/PDF."""
+    import json
+
+    from .bibframe import has_minimum_data, merge_bib_sources, to_bibframe
+
+    base = Path(args.in_dir)
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pdfs_dir = Path(args.pdfs_dir) if args.pdfs_dir else None
+
+    generated: list[str] = []
+    skipped: list[dict] = []
+    for f in sorted(base.glob("*.json")):
+        if f.name in ("report.json", "_jobs.json"):
+            continue
+        d = json.loads(f.read_text(encoding="utf-8"))
+        d.pop("_qa", None)
+        summary = SummaryResult.from_dict(d)
+
+        pdf_meta = None
+        if pdfs_dir is not None:
+            pdf_path = pdfs_dir / f"{summary.doc_id}.pdf"
+            if pdf_path.exists():
+                from .adapters.pdf_metadata import read_pdf_info
+
+                pdf_meta = read_pdf_info(str(pdf_path))
+
+        bib = merge_bib_sources(pdf_meta, summary)
+        if not has_minimum_data(bib):
+            skipped.append(
+                {"doc_id": summary.doc_id, "motivo": "sin título (dato mínimo)"}
+            )
+            continue
+        record = to_bibframe(bib)
+        out_file = out_dir / f"{summary.doc_id}.bibframe.json"
+        out_file.write_text(
+            json.dumps(record, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        generated.append(summary.doc_id)
+
+    report = {"generados": len(generated), "omitidos": skipped}
+    (out_dir / "bibframe_report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(
+        f"bibframe (borrador): generados={len(generated)} "
+        f"omitidos={len(skipped)} -> {out_dir}"
+    )
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     from .adapters.api_server import serve
 
@@ -325,6 +379,25 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--in", dest="in_dir", required=True, help="dir del lote")
     e.add_argument("--out", required=True, help="archivo .json de salida")
     e.set_defaults(func=cmd_export)
+
+    bf = sub.add_parser(
+        "bibframe",
+        help="registros bibliográficos BIBFRAME JSON-LD, uno por documento",
+    )
+    bf.add_argument(
+        "--in", dest="in_dir", required=True, help="dir de summaries del lote"
+    )
+    bf.add_argument(
+        "--pdfs",
+        dest="pdfs_dir",
+        default=None,
+        help="dir con los PDFs originales (opcional: añade metadata embebida "
+        "del PDF con precedencia sobre el resumen)",
+    )
+    bf.add_argument(
+        "--out", required=True, help="dir de salida (<doc_id>.bibframe.json)"
+    )
+    bf.set_defaults(func=cmd_bibframe)
 
     sv = sub.add_parser("serve", help="API de consulta de solo lectura del lote")
     sv.add_argument("--batch-dir", dest="batch_dir", required=True)

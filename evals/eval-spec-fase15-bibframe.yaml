@@ -1,0 +1,159 @@
+---
+id: FASE15-BIBFRAME
+titulo: >-
+  Extracción de datos bibliográficos + registro BIBFRAME (JSON-LD)
+  por cada PDF procesado
+descripcion: >
+  Pedido del PO (2026-08-27): "extracción de datos bibliográficos de los
+  documentos procesados si están disponibles. Generar JSON BIBFRAME en
+  caso que se tengan los datos básicos para generarlos. Se asocia un
+  registro bibliográfico por cada PDF."
+
+  Fuentes de datos bibliográficos (verificadas sobre la colección ECIMED):
+  1. Metadata embebida del PDF (via `pdfinfo`): Title (título del libro),
+     Subject (capítulo), Author, Keywords, CreationDate, Pages. Presente
+     en los PDFs de muestra reales de la colección.
+  2. El resumen ya generado (summaries/<doc_id>.json): secciones.titulo,
+     entidad, autores (plantilla A), terminos (candidatos a materias),
+     idioma_principal, meta.pages.
+
+  Política "si están disponibles": la metadata del PDF tiene precedencia
+  (es explícita, no generada); el resumen complementa lo que falte. El
+  dato MÍNIMO para emitir un registro es el TÍTULO (de cualquiera de las
+  dos fuentes); sin título no se genera registro y se reporta el motivo.
+
+  Salida: BIBFRAME 2.x en JSON-LD (vocabulario id.loc.gov/ontologies/
+  bibframe) con el par Work + Instance enlazados por bf:instanceOf, un
+  archivo `<doc_id>.bibframe.json` por PDF/documento procesado, más un
+  `bibframe_report.json` con generados/omitidos. Registro marcado como
+  BORRADOR con trazabilidad de qué fuente aportó cada campo (patrón ya
+  usado por el export LILACS: draft para revisión humana).
+
+estado: COMPLETADA
+fecha: 2026-08-27
+resultado: |
+  7/7 criterios cumplidos.
+  - C1: bibframe.py en DOMAIN_MODULES, test de arquitectura AST verde
+    (sin imports de adaptadores/subprocess/red en el dominio).
+  - C2: adapters/pdf_metadata.py con 6 tests (subprocess mockeado):
+    parseo normalizado, campos vacíos omitidos, binario ausente/PDF
+    corrupto/timeout -> {} sin lanzar.
+  - C3: merge con precedencia pdf_metadata > summary campo a campo,
+    sources por campo, dato mínimo = título; "No se especifica..." del
+    resumidor no cuenta como entidad.
+  - C4: JSON-LD con @context id.loc.gov, Work+Instance enlazados,
+    idioma LOC, contribution/subject/extent/provisionActivity solo si
+    hay dato; bloque _pdfsum draft con sources y nota.
+  - C5: subcomando `pdfsum bibframe` con 3 tests de integración (un
+    registro por doc, omitidos con motivo en bibframe_report.json,
+    --pdfs opcional/inexistente no rompe).
+  - C6: E2E real sobre los 15 resúmenes ECIMED + los 15 PDFs originales
+    (recuperados del disco externo): generados=15 omitidos=0. Muestra
+    inspeccionada (5_urologia_cap10): título "Urología" + autor "René
+    Salas Cabrera" + año 2012 + capítulo (todo de metadata PDF real),
+    materias e idioma del resumen, procedencia completa por campo.
+  - C7: make check 154/154 (133 + 21 nuevos), ruff check y format
+    limpios, README/GUIA-USO/CHANGELOG actualizados, Workspace con
+    bibframe_dir.
+
+criterios:
+  - id: C1-dominio-puro-bibframe
+    tipo: architecture
+    descripcion: >
+      Nuevo módulo de DOMINIO `src/pdfsum/bibframe.py`: merge de fuentes
+      (dict de metadata PDF + SummaryResult) -> BibData, política de dato
+      mínimo, y mapeo a JSON-LD BIBFRAME. Puro: sin subprocess/IO/red.
+      Se añade a DOMAIN_MODULES de test_architecture.py y el test de
+      arquitectura pasa.
+    verificacion: >
+      grep -q '"bibframe.py"' tests/test_architecture.py &&
+      uv run python tests/test_architecture.py
+
+  - id: C2-adapter-pdfinfo
+    tipo: unit
+    descripcion: >
+      Nuevo adaptador `adapters/pdf_metadata.py`: `read_pdf_info(path)`
+      parsea la salida de `pdfinfo` (Title, Subject, Author, Keywords,
+      CreationDate, Pages) a un dict normalizado. Tolerante a fallos:
+      binario ausente, PDF corrupto o campos vacíos -> dict vacío o
+      parcial, nunca lanza. Tests con subprocess mockeado (sin depender
+      de pdfinfo real en CI).
+    verificacion: "uv run python -m unittest tests.test_pdf_metadata -v"
+
+  - id: C3-merge-con-precedencia-y-dato-minimo
+    tipo: unit
+    descripcion: >
+      `merge_bib_sources(pdf_meta, summary)`: metadata del PDF tiene
+      precedencia sobre el resumen campo a campo; cada campo registra su
+      fuente ('pdf_metadata' | 'summary'). `has_minimum_data(bib)` es
+      True solo con título no vacío. Sin título (ni en PDF ni en
+      resumen) -> no se emite registro.
+    verificacion: "uv run python -m unittest tests.test_bibframe -v"
+
+  - id: C4-jsonld-bibframe-valido
+    tipo: unit
+    descripcion: >
+      `to_bibframe(bib)` produce JSON-LD con: @context con el namespace
+      bibframe de id.loc.gov; @graph con exactamente un bf:Work y un
+      bf:Instance enlazado via bf:instanceOf al @id del Work; título en
+      bf:title/bf:mainTitle; idioma mapeado a código LOC
+      (es->spa, pt->por, en->eng); autores como bf:contribution con
+      bf:agent; materias candidatas como bf:subject; extent/fecha/
+      entidad en el Instance cuando existan. Bloque `_pdfsum` con
+      status draft + fuente de cada campo + nota de revisión humana.
+    verificacion: "uv run python -m unittest tests.test_bibframe -v"
+
+  - id: C5-cli-bibframe-un-registro-por-pdf
+    tipo: integration
+    descripcion: >
+      Nuevo subcomando `pdfsum bibframe --in <summaries_dir> [--pdfs
+      <dir>] --out <dir>`: por cada resumen (excluye report.json) genera
+      `<doc_id>.bibframe.json` (un registro por documento/PDF) si hay
+      dato mínimo; si `--pdfs` se pasa y existe `<doc_id>.pdf`, incorpora
+      su metadata con precedencia. Escribe `bibframe_report.json` con
+      {generados, omitidos: [{doc_id, motivo}]} e imprime resumen.
+      Sin `--pdfs` funciona solo con los resúmenes ("si están
+      disponibles").
+    verificacion: "uv run python -m unittest tests.test_cli_bibframe -v"
+
+  - id: C6-e2e-coleccion-real
+    tipo: integration
+    descripcion: >
+      Sobre el lote real ya procesado (15 resúmenes ECIMED en
+      output/summaries): `pdfsum bibframe` genera 15/15 registros (todos
+      tienen título) con JSON-LD parseable. Verificación manual
+      documentada en `resultado`.
+    verificacion: >
+      bin/pdfsum-docker bibframe --in ./output/summaries
+      --out ./output/bibframe  # -> "generados=15 omitidos=0"
+
+  - id: C7-sin-regresion-docs
+    tipo: metrics
+    descripcion: >
+      `make check` + `ruff format --check` verdes (suite completa, sin
+      regresión). README.md/GUIA-USO.md documentan el subcomando;
+      CHANGELOG con entrada de la fase; Workspace expone bibframe_dir.
+    verificacion: >
+      uv sync && make check && uv run ruff format --check src/ tests/ &&
+      grep -q 'bibframe' README.md GUIA-USO.md
+
+invariantes:
+  - "El dominio no importa adaptadores (bibframe.py puro, AST-verificado)."
+  - "Un registro bibliográfico por PDF/documento procesado, doc_id trazable."
+  - >-
+    Registros marcados draft para revisión humana (mismo criterio que el
+    export LILACS): pdfsum no inventa datos bibliográficos, solo mapea
+    los disponibles y deja constancia de la fuente.
+  - "Contrato JSON de summaries NO cambia (solo se lee)."
+
+no_objetivos:
+  - >-
+    Validar contra el esquema RDF/OWL oficial de BIBFRAME o publicar a un
+    triplestore -- se emite JSON-LD bien formado con el vocabulario
+    correcto, la validación semántica formal es de la plataforma destino.
+  - >-
+    Enriquecer con fuentes externas (ISBN lookup, VIAF, DeCS) -- solo
+    datos presentes en el PDF o el resumen.
+  - >-
+    OCR de portadas para extraer datos bibliográficos no embebidos --
+    fase futura si hiciera falta.

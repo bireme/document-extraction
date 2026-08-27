@@ -53,6 +53,10 @@ cat ./demo/summaries/58739_deixar_fumar.json | python3 -m json.tool | head -30
 # 3) Exportar el lote a registros de catalogación LILACS (borrador)
 pdfsum export --in ./demo/summaries --out ./demo/lilacs.json
 
+# 3b) Registros bibliográficos BIBFRAME (JSON-LD), uno por documento
+#     (--pdfs opcional: usa la metadata embebida del PDF con precedencia)
+pdfsum bibframe --in ./demo/summaries --pdfs samples/pdfs --out ./demo/bibframe
+
 # 4) Consultar por API local
 pdfsum serve --batch-dir ./demo/summaries --port 8765 &
 curl http://127.0.0.1:8765/api/summaries
@@ -73,6 +77,7 @@ curl http://127.0.0.1:8765/api/report
 | Resumir un texto ya transcrito | `pdfsum summarize --text doc.txt --pages 4 --out r.json` |
 | Re-resumir lote de .txt | `pdfsum batch --in ./textos --out ./resumenes` |
 | Export LILACS (borrador) | `pdfsum export --in ./data/summaries --out lilacs.json` |
+| Registros BIBFRAME JSON-LD (borrador) | `pdfsum bibframe --in ./data/summaries --pdfs ./pdfs --out ./data/bibframe` |
 | API de consulta local | `pdfsum serve --batch-dir ./data/summaries --port 8765` |
 | Diagnóstico de entorno | `pdfsum doctor` |
 | Verificar instalación | `pdfsum verify --workspace ./_v` |
