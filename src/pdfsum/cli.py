@@ -22,20 +22,28 @@ from .contract import SummaryResult
 from .pipeline import summarize_document
 
 
-def _build_summarizer(dry_run: bool, model: str):
-    if dry_run:
-        from .adapters.fake_summarizer import FakeSummarizer
+def _resolve_backend_model(
+    backend_arg: str | None, model_arg: str | None
+) -> tuple[str, str]:
+    """Resuelve (backend, modelo) vía la fábrica: flag > env/config > default."""
+    from .adapters.summarizer_factory import resolve_backend, resolve_model
 
-        return FakeSummarizer()
-    from .adapters.ollama_summarizer import OllamaSummarizer
+    backend = resolve_backend(backend_arg)
+    model = resolve_model(backend, model_arg)
+    return backend, model
 
-    return OllamaSummarizer(model=model)
+
+def _build_summarizer(dry_run: bool, backend: str, model: str):
+    from .adapters.summarizer_factory import build_summarizer
+
+    return build_summarizer(backend, model, dry_run=dry_run)
 
 
 def cmd_summarize(args: argparse.Namespace) -> int:
     text = Path(args.text).read_text(encoding="utf-8", errors="replace")
     doc_id = args.doc_id or Path(args.text).stem
-    summarizer = _build_summarizer(args.dry_run, args.model)
+    backend, model = _resolve_backend_model(args.backend, args.model)
+    summarizer = _build_summarizer(args.dry_run, backend, model)
     result = summarize_document(
         doc_id=doc_id,
         text=text,
@@ -54,11 +62,12 @@ def cmd_summarize(args: argparse.Namespace) -> int:
 def cmd_batch(args: argparse.Namespace) -> int:
     from .adapters.batch_runner import run_batch
 
+    backend, model = _resolve_backend_model(args.backend, args.model)
     if not args.dry_run:
-        err = _preflight_resumen(args.model)
+        err = _preflight_resumen(model, backend)
         if err is not None:
             return err
-    summarizer = _build_summarizer(args.dry_run, args.model)
+    summarizer = _build_summarizer(args.dry_run, backend, model)
     report = run_batch(
         in_dir=args.in_dir,
         out_dir=args.out_dir,
@@ -139,13 +148,14 @@ def cmd_run(args: argparse.Namespace) -> int:
     from .adapters.pdf_batch import run_batch_pdfs
     from .workspace import Workspace
 
+    backend, model = _resolve_backend_model(args.backend, args.model)
     if not (args.fake or args.dry_run):
-        err = _preflight_resumen(args.model)
+        err = _preflight_resumen(model, backend)
         if err is not None:
             return err
     ws = Workspace(args.workspace)
     transcriber = _build_transcriber(args.fake, args.lang)
-    summarizer = _build_summarizer(args.fake or args.dry_run, args.model)
+    summarizer = _build_summarizer(args.fake or args.dry_run, backend, model)
     report = run_batch_pdfs(
         args.in_dir,
         ws,
@@ -185,8 +195,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         format_report,
     )
 
-    checks = check_environment()
-    print("Verificación de entorno pdfsum:")
+    backend, model = _resolve_backend_model(args.backend, args.model)
+    checks = check_environment(text_model=model, backend=backend)
+    print(f"Verificación de entorno pdfsum (backend de resumen: {backend}):")
     print(format_report(checks))
     print("\nCapacidades disponibles:")
     caps = capabilities(checks)
@@ -195,17 +206,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     print(f"\nExtraer PDFs nativos: {'OK' if ok else 'INCOMPLETO'}")
     if not caps["resumen"]:
         print(
-            "AVISO: sin Ollama + modelo de texto NO se pueden generar "
-            "resúmenes (núcleo). Ver INSTALL.md §1."
+            "AVISO: sin backend de resumen listo (Ollama+modelo, o API key "
+            "cloud) NO se pueden generar resúmenes (núcleo). Ver INSTALL.md §2."
         )
     return 0 if ok else 1
 
 
-def _preflight_resumen(model: str) -> int | None:
+def _preflight_resumen(model: str, backend: str = "ollama") -> int | None:
     """Comprueba precondiciones de resumen; devuelve código de error o None."""
     from .adapters.doctor import summarization_ready
 
-    ok, msg = summarization_ready(model)
+    ok, msg = summarization_ready(model, backend=backend)
     if not ok:
         print("Precondición no cumplida para resumir:\n" + msg)
         return 2
@@ -225,7 +236,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
     control = args.control or str(here / "samples" / "control_set.json")
     ws = Workspace(args.workspace)
     transcriber = _build_transcriber(args.fake, args.lang)
-    summarizer = _build_summarizer(args.fake or args.dry_run, args.model)
+    backend, model = _resolve_backend_model(args.backend, args.model)
+    summarizer = _build_summarizer(args.fake or args.dry_run, backend, model)
     run_batch_pdfs(pdfs, ws, transcriber, summarizer, long_strategy=args.long_strategy)
     # cargar resultados y evaluar contra el set de control
     results = {}
@@ -268,12 +280,31 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    def _add_backend_model(sp: argparse.ArgumentParser) -> None:
+        """--backend/--model comunes: resueltos por summarizer_factory (flag >
+        env PDFSUM_SUMMARIZER_BACKEND / config > default 'ollama')"""
+        from .adapters.summarizer_factory import BACKENDS
+
+        sp.add_argument(
+            "--backend",
+            choices=BACKENDS,
+            default=None,
+            help="backend del resumidor (def: env PDFSUM_SUMMARIZER_BACKEND "
+            "o .pdfsum-config.json, si no 'ollama')",
+        )
+        sp.add_argument(
+            "--model",
+            default=None,
+            help="modelo a usar (def: config 'model'/'cloud_model', si no "
+            "el default del backend)",
+        )
+
     s = sub.add_parser("summarize", help="resumir un texto ya transcrito")
     s.add_argument("--text", required=True, help="ruta a .txt (transcripción)")
     s.add_argument("--doc-id", dest="doc_id", default=None)
     s.add_argument("--lang", default=None, help="forzar idioma (pt/es/en/...)")
     s.add_argument("--pages", type=int, default=1)
-    s.add_argument("--model", default="qwen2.5:7b")
+    _add_backend_model(s)
     s.add_argument(
         "--dry-run", action="store_true", help="usar resumidor fake (sin modelo)"
     )
@@ -283,7 +314,7 @@ def build_parser() -> argparse.ArgumentParser:
     b = sub.add_parser("batch", help="procesar un lote de .txt (cola + QA)")
     b.add_argument("--in", dest="in_dir", required=True, help="directorio con .txt")
     b.add_argument("--out", dest="out_dir", required=True, help="directorio salida")
-    b.add_argument("--model", default="qwen2.5:7b")
+    _add_backend_model(b)
     b.add_argument("--max-retries", dest="max_retries", type=int, default=2)
     b.add_argument(
         "--dry-run", action="store_true", help="usar resumidor fake (sin modelo)"
@@ -313,7 +344,7 @@ def build_parser() -> argparse.ArgumentParser:
         "(default: por+eng+spa; ej. anadir frances: "
         "por+eng+spa+fra)",
     )
-    r.add_argument("--model", default=get_config_value("model", "qwen2.5:7b"))
+    _add_backend_model(r)
     r.add_argument(
         "--long-strategy",
         dest="long_strategy",
@@ -336,6 +367,7 @@ def build_parser() -> argparse.ArgumentParser:
     t.set_defaults(func=cmd_transcribe)
 
     d = sub.add_parser("doctor", help="verificar dependencias de sistema/modelos")
+    _add_backend_model(d)
     d.set_defaults(func=cmd_doctor)
 
     v = sub.add_parser("verify", help="verificar resultados sobre la muestra incluida")
@@ -345,7 +377,7 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--pdfs", default=None, help="dir de PDFs (def: muestra)")
     v.add_argument("--control", default=None, help="set de control (def: incluido)")
     v.add_argument("--lang", default="por+eng+spa")
-    v.add_argument("--model", default="qwen2.5:7b")
+    _add_backend_model(v)
     v.add_argument(
         "--long-strategy",
         dest="long_strategy",
