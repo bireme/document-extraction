@@ -1,0 +1,230 @@
+---
+id: FASE14-BACKENDS-CLOUD
+titulo: >-
+  Backends de inferencia en la nube
+  (OpenAI/OpenRouter/Anthropic) configurables
+descripcion: >
+  Hoy README.md/INSTALL.md prometen una "Opción B: Modelos Remotos"
+  (`summarizer_backend: openai` en .pdfsum-config.json) que NUNCA se
+  implementó: `cli.py::_build_summarizer` solo construye `OllamaSummarizer`
+  o `FakeSummarizer`. Esta fase construye el soporte real, pedido por el PO:
+
+  "El sistema debe permitir que si tenemos acceso a openrouter, openai, o
+  anthropic o cualquier proveedor de inferencia podemos usarlo. Por defecto
+  usaría los modelos que tenemos con la diferencia que correrían en la
+  nube. Además podríamos configurar nuevos LLMs para las funciones que hoy
+  hacemos con modelos abiertos predeterminados."
+
+  Alcance confirmado con el PO (2026-08-26):
+  1. Solo el puerto Summarizer (resúmenes de texto, el núcleo). El puerto
+     PageOCR (VLM para OCR de escaneos difíciles, hoy solo Ollama vía
+     `ollama run` subprocess) queda para una fase futura — no_objetivos.
+  2. Defaults de modelo por proveedor: OpenRouter usa el mismo peso abierto
+     que ya usamos local (`qwen/qwen-2.5-7b-instruct`, equivalente cloud
+     real de `qwen2.5:7b`); OpenAI/Anthropic no hostean Qwen, así que su
+     default es un modelo propio razonable (`gpt-4o-mini` /
+     `claude-haiku-4-5`). Todo overrideable (--model / cloud_model en
+     config) — "configurar nuevos LLMs" para cualquier función existente.
+
+  Diseño (hexagonal, sin tocar el dominio): nuevos adaptadores
+  `CloudSummarizer` (API Chat Completions estilo OpenAI — sirve para
+  OpenAI, OpenRouter y cualquier gateway compatible) y
+  `AnthropicSummarizer` (API Messages nativa de Anthropic), ambos
+  implementando el Protocol `Summarizer` ya existente en `contract.py`
+  (su docstring ya decía "adaptadores (Ollama, cloud, fake)" desde antes).
+  Sin SDKs nuevos: `urllib` (mismo patrón que `ollama_summarizer.py`),
+  para mantener el núcleo con dependencias mínimas (solo `pillow` hoy).
+
+estado: COMPLETADA
+fecha: 2026-08-26
+resultado: |
+  10/10 criterios cumplidos.
+  - C1: nuevos adaptadores en adapters/, Summarizer Protocol sin tocar;
+    test_architecture.py (4/4) sin cambios de alcance.
+  - C2: adapters/llm_prompt.py extraído (build_prompt/parse_sections/
+    strip_think), reusado por ollama/cloud/anthropic summarizers.
+  - C3: CloudSummarizer (OpenAI-compatible: openai/openrouter/custom) +
+    AnthropicSummarizer (API Messages nativa), 9 tests con urlopen
+    mockeado (headers/body/parseo/errores accionables).
+  - C4: summarizer_factory.py con resolve_backend/resolve_model/
+    build_summarizer, 11 tests.
+  - C5: --backend en summarize/batch/run/verify/doctor; --model
+    resuelto vía fábrica; default sin flags/env/config verificado
+    idéntico a pre-fase14 (ollama + qwen2.5:7b).
+  - C6: doctor.py backend-aware (check_environment/summarization_ready/
+    capabilities); verificado real en Docker (backend openai con key
+    -> 'resumen: SÍ' sin Ollama).
+  - C7: sin secretos en .pdfsum-config.example.json (grep negativo);
+    test dedicado confirma que el mensaje de error no filtra la key.
+  - C8: compose.yml pasa las 4 env vars via ${VAR:-}; verificado con
+    docker build + docker run -e PDFSUM_SUMMARIZER_BACKEND=openai -e
+    OPENAI_API_KEY=test pdfsum doctor -> backend detectado, key OK.
+  - C9: README.md/INSTALL.md §2 reescritos (la 'Opción B: Modelos
+    Remotos' anterior era aspiracional/no implementada); referencias
+    cruzadas rotas preexistentes corregidas de paso (INSTALL.md §1).
+  - C10: make check 133/133 tests (97 previos + 36 nuevos), lint
+    limpio, 0 llamadas de red reales (todo urlopen mockeado).
+
+criterios:
+  - id: C1-arquitectura-hexagonal-intacta
+    tipo: architecture
+    descripcion: >
+      `CloudSummarizer` y `AnthropicSummarizer` viven en `adapters/`,
+      implementan el Protocol `Summarizer` de `contract.py` sin
+      modificarlo. `test_architecture.py` (dominio no importa adaptadores)
+      sigue pasando sin cambios de alcance — los módulos de dominio
+      (`pipeline.py`, `contract.py`, etc.) no importan estos adaptadores.
+    verificacion: "uv run python tests/test_architecture.py"
+
+  - id: C2-prompt-parseo-compartido-sin-duplicacion
+    tipo: unit
+    descripcion: >
+      La construcción de prompt e instrucciones por idioma y el parseo de
+      secciones Markdown '##' (hoy privados en `ollama_summarizer.py`) se
+      extraen a `adapters/llm_prompt.py`, agnóstico de transporte. Los
+      tres adaptadores (Ollama, Cloud, Anthropic) lo reutilizan — sin
+      copiar/pegar el diccionario de instrucciones ni el parser. Test
+      directo de `build_prompt`/`parse_sections`/`strip_think`.
+    verificacion: "uv run python -m unittest tests.test_llm_prompt -v"
+
+  - id: C3-nuevos-adaptadores-http-mockeados
+    tipo: unit
+    descripcion: >
+      `CloudSummarizer` (provider=openai|openrouter|custom, via
+      `base_url`) y `AnthropicSummarizer` implementan `.summarize(req) ->
+      dict[str,str]`. Tests con `unittest.mock.patch` sobre
+      `urllib.request.urlopen` (sin red real): construyen el body/headers
+      correctos por proveedor (Bearer vs x-api-key/anthropic-version),
+      parsean la respuesta simulada a secciones, y lanzan `RuntimeError`
+      accionable si falta la API key.
+    verificacion: >
+      uv run python -m unittest tests.test_cloud_summarizer
+      tests.test_anthropic_summarizer -v
+
+  - id: C4-factory-resuelve-backend-y-modelo
+    tipo: unit
+    descripcion: >
+      `adapters/summarizer_factory.py`: `resolve_backend(cli_flag)` con
+      orden flag > env `PDFSUM_SUMMARIZER_BACKEND` > config
+      `summarizer_backend` > default `ollama`; `resolve_model(backend,
+      cli_flag)` con orden flag > config (`model` si ollama, `cloud_model`
+      si no) > default por backend
+      (`DEFAULT_MODEL_BY_BACKEND`). `build_summarizer(backend, model,
+      dry_run)` instancia el adaptador correcto (o `FakeSummarizer` si
+      `dry_run`). Backend desconocido -> `ValueError` con los válidos
+      listados.
+    verificacion: "uv run python -m unittest tests.test_summarizer_factory -v"
+
+  - id: C5-cli-backend-flag
+    tipo: integration
+    descripcion: >
+      Nuevo flag `--backend {ollama,openai,openrouter,anthropic}` en
+      `summarize`, `batch`, `run`, `verify`, `doctor`. `--model` ya no
+      hardcodea `qwen2.5:7b` como default de argparse: se resuelve vía la
+      fábrica (permite el default correcto por backend). Comportamiento
+      por defecto (sin flags, sin env, sin config) sigue siendo idéntico
+      a hoy: backend `ollama`, modelo `qwen2.5:7b` — cero regresión para
+      quien no usa la funcionalidad nueva.
+    verificacion: "uv run python -m unittest tests.test_cli_backend -v"
+
+  - id: C6-doctor-backend-aware
+    tipo: unit
+    descripcion: >
+      `pdfsum doctor` (y `summarization_ready`) reportan el backend activo
+      resuelto. Si es un backend cloud: chequea presencia de la env var de
+      API key correspondiente (sin llamada de red) y da instrucción
+      accionable (`export OPENAI_API_KEY=...`) si falta; Ollama se sigue
+      reportando aparte, informativo, solo para el fallback VLM de OCR
+      (independiente del backend de resumen). `capabilities()['resumen']`
+      es `True` con backend cloud + key presente, sin depender de Ollama.
+    verificacion: >
+      uv run python -m unittest tests.test_doctor tests.test_preconditions
+      -v
+
+  - id: C7-sin-secretos-en-config-ni-logs
+    tipo: architecture
+    descripcion: >
+      Ninguna API key se lee de `.pdfsum-config.json` ni de
+      `.pdfsum-config.example.json` (grep negativo de
+      `api_key`/`sk-`/`OPENAI_API_KEY` como VALOR literal en esos
+      archivos). Las claves de proveedor viven solo en variables de
+      entorno. `CloudSummarizer`/`AnthropicSummarizer` no imprimen ni
+      loguean el valor de la API key en ningún mensaje de error.
+    verificacion: >
+      ! grep -qE '"api_key"\s*:\s*"[^"]+"' .pdfsum-config.example.json &&
+      uv run python -m unittest tests.test_cloud_summarizer -k no_leak -v
+
+  - id: C8-docker-compose-passthrough-env
+    tipo: integration
+    descripcion: >
+      `compose.yml` pasa `OPENAI_API_KEY`, `OPENROUTER_API_KEY`,
+      `ANTHROPIC_API_KEY` y `PDFSUM_SUMMARIZER_BACKEND` al contenedor
+      `pdfsum` vía `${VAR}` (sin valores hardcodeados; vacías si no están
+      definidas en el entorno/`.env` del host). `.env.example` las
+      documenta con comentarios (Modo C: backend cloud, sin Ollama en
+      absoluto). `docker build` + `docker run` con
+      `-e PDFSUM_SUMMARIZER_BACKEND=openrouter -e OPENROUTER_API_KEY=test`
+      + un `urlopen` mockeado a nivel de import (`python -c` dentro del
+      contenedor) confirma que la fábrica selecciona `CloudSummarizer` sin
+      tocar Ollama.
+    verificacion: >
+      docker build -t pdfsum-test . && docker run --rm
+      -e PDFSUM_SUMMARIZER_BACKEND=openrouter -e OPENROUTER_API_KEY=test
+      pdfsum-test python3 -c
+      "from pdfsum.adapters.summarizer_factory import resolve_backend;
+      assert resolve_backend(None) == 'openrouter'"
+
+  - id: C9-docs-corrigen-promesa-modelos-remotos
+    tipo: documentation
+    descripcion: >
+      README.md e INSTALL.md §2 ("Modelos Remotos") se reescriben para
+      reflejar el mecanismo REAL implementado (backends soportados,
+      variables de entorno exactas, ejemplo de `.pdfsum-config.json` con
+      `summarizer_backend`/`cloud_model`, default por proveedor, y nota
+      explícita de que PageOCR/VLM sigue siendo solo Ollama). Se retira
+      cualquier ejemplo con claves inventadas que no correspondan al
+      esquema real.
+    verificacion: >
+      grep -q 'PDFSUM_SUMMARIZER_BACKEND' README.md INSTALL.md &&
+      grep -q 'OPENROUTER_API_KEY' INSTALL.md
+
+  - id: C10-sin-regresion-sin-red-real
+    tipo: metrics
+    descripcion: >
+      `make check` (ruff + unittest) pasa completo. Ningún test nuevo
+      hace una llamada de red real (todo `urllib.request.urlopen`
+      mockeado) — la suite debe seguir corriendo en <5s como hoy, sin
+      flakiness de red ni dependencia de credenciales reales en CI.
+    verificacion: "uv sync && make check"
+
+invariantes:
+  - >-
+    El dominio (pipeline.py, contract.py, templates.py, ...) no importa
+    ningún adaptador nuevo; solo conoce el Protocol Summarizer.
+  - >-
+    Comportamiento default (sin --backend/env/config) idéntico al actual:
+    OllamaSummarizer con qwen2.5:7b.
+  - >-
+    Ninguna API key se persiste en disco (config JSON) ni se imprime en
+    mensajes de error/logs.
+  - "PageOCR (VLM) sigue siendo exclusivamente Ollama — fuera de alcance aquí."
+  - "Ningún criterio de fases anteriores (FASE0-FASE13) se rompe."
+
+no_objetivos:
+  - >-
+    Backend cloud para PageOCR/VLM (OCR de escaneos difíciles) — fase
+    futura, mismo patrón pero requiere subir imágenes (vision API).
+  - >-
+    SDKs oficiales de los proveedores (openai-python, anthropic-python) —
+    se mantiene urllib/stdlib puro, consistente con el resto del núcleo.
+  - >-
+    Streaming de respuesta, function calling, o cualquier feature de API
+    más allá de "generar texto y parsear secciones".
+  - >-
+    Verificación de conectividad real (llamada HTTP de verdad) contra los
+    proveedores en `pdfsum doctor` o en CI — solo se verifica presencia de
+    la env var, no que la key sea válida (evita gastar cuota en cada
+    `doctor`/CI run).
+  - >-
+    Rotación/gestión de secretos (vault, KMS, etc.) — responsabilidad
+    del entorno de despliegue, no de pdfsum.

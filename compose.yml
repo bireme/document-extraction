@@ -22,6 +22,15 @@ services:
       # un .env (copia .env.example) o `OLLAMA_HOST=... docker compose up`.
       # Con `--profile gpu`, cambia esto a http://ollama:11434.
       OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+      # Backend de resumen (FASE14): 'ollama' (default) usa lo de arriba;
+      # con 'openai'/'openrouter'/'anthropic' Ollama deja de ser necesario
+      # para resumir (sigue usandose solo para el fallback VLM de OCR).
+      # Las API keys NUNCA se hardcodean aqui: pasan del entorno del host
+      # (o de tu .env, ver .env.example) tal cual, vacias si no las defines.
+      PDFSUM_SUMMARIZER_BACKEND: ${PDFSUM_SUMMARIZER_BACKEND:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     extra_hosts:
       # Permite que host.docker.internal resuelva también en Linux
       # (en Docker Desktop/macOS/Windows ya funciona sin esto).

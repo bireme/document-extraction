@@ -4,6 +4,55 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [Unreleased] — Backends de inferencia en la nube configurables (FASE14)
+### Añadido
+- **Backends cloud reales para el Summarizer** (antes solo prometidos en
+  docs, nunca implementados): `adapters/cloud_summarizer.py`
+  (`CloudSummarizer`, API Chat Completions estilo OpenAI — sirve para
+  `openai`, `openrouter` y cualquier gateway compatible vía `base_url`) y
+  `adapters/anthropic_summarizer.py` (`AnthropicSummarizer`, API Messages
+  nativa de Anthropic). Sin SDKs nuevos: `urllib`, mismo patrón que
+  `ollama_summarizer.py`.
+- `adapters/llm_prompt.py`: instrucciones por idioma + parseo de secciones
+  Markdown extraídos de `ollama_summarizer.py` a un módulo agnóstico de
+  transporte, reusado por los 3 adaptadores (sin duplicación).
+- `adapters/summarizer_factory.py`: resuelve backend (flag CLI > env
+  `PDFSUM_SUMMARIZER_BACKEND` > `.pdfsum-config.json` `summarizer_backend`
+  > default `ollama`) y modelo (flag > config `model`/`cloud_model` >
+  default por backend). Default real "mismos modelos en la nube": el
+  backend `openrouter` usa `qwen/qwen-2.5-7b-instruct` (mismo peso abierto
+  que `qwen2.5:7b` local, hosteado). `openai`/`anthropic` no hostean Qwen
+  → default propio del proveedor (`gpt-4o-mini` / `claude-haiku-4-5`).
+  Cualquier modelo es configurable (`--model`/`cloud_model`).
+- CLI: flag `--backend {ollama,openai,openrouter,anthropic}` en
+  `summarize`, `batch`, `run`, `verify`, `doctor`.
+- `doctor.py` backend-aware: si el backend es cloud, chequea presencia de
+  la API key (env var) en vez de Ollama+modelo, sin llamada de red; Ollama
+  se sigue reportando aparte (informativo, solo para el fallback VLM de
+  OCR de escaneos difíciles, independiente del backend de resumen).
+- `compose.yml`: pasa `PDFSUM_SUMMARIZER_BACKEND`, `OPENAI_API_KEY`,
+  `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` al contenedor `pdfsum` vía
+  `${VAR:-}` (nunca hardcodeadas); nuevo "Modo C" (cloud puro, sin Ollama)
+  documentado en `.env.example`/`INSTALL.md` §10.
+### Corregido
+- README.md/INSTALL.md §2 ("Opción B: Modelos Remotos"): la versión
+  anterior rometía `summarizer_backend`/`openai_api_key` en
+  `.pdfsum-config.json` que el código **nunca implementó** (`cli.py` solo
+  construía `OllamaSummarizer`/`FakeSummarizer`). Reescrita para reflejar
+  el mecanismo real (esta fase) y corregidas dos referencias cruzadas a
+  secciones incorrectas, preexistentes.
+### Seguridad
+- Ninguna API key se lee de `.pdfsum-config.json` ni se imprime en
+  mensajes de error — solo variables de entorno (`OPENAI_API_KEY` /
+  `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY`), verificado con test dedicado.
+### Verificado
+- `make check`: 133/133 tests (97 previos + 36 nuevos), lint limpio; 0
+  llamadas de red reales en tests (urlopen mockeado).
+- Docker real: `docker run -e PDFSUM_SUMMARIZER_BACKEND=openai -e
+  OPENAI_API_KEY=test pdfsum pdfsum doctor` → backend detectado, key
+  confirmada, capacidad "resumen" en SÍ sin Ollama.
+- Detalle completo: `evals/eval-spec-fase14-backends-cloud.yaml`.
+
 ## [Unreleased] — Fix runtime Pillow + Ollama configurable en Docker (FASE13)
 ### Corregido
 - **Pillow ahora dependencia real de runtime** (`pyproject.toml`:

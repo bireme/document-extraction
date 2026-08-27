@@ -6,8 +6,16 @@
   "_long_strategy_help": "excerpt (rápido, ~1-2% cobertura) | blocks (mediano, 100% cobertura) | hierarchical (lento, 100% cobertura con mejor coherencia por capítulos)",
   
   "model": "qwen2.5:7b",
-  "_model_help": "Modelo local Ollama o remoto",
-  
+  "_model_help": "Modelo Ollama local, usado solo si summarizer_backend=ollama",
+
+  "summarizer_backend": "ollama",
+  "_summarizer_backend_help": "ollama (local, default) | openai | openrouter | anthropic. También via env PDFSUM_SUMMARIZER_BACKEND (prevalece sobre este archivo).",
+
+  "cloud_model": "qwen/qwen-2.5-7b-instruct",
+  "_cloud_model_help": "Modelo a usar si summarizer_backend != ollama. Default por proveedor si se omite: openrouter=qwen/qwen-2.5-7b-instruct (mismo Qwen que local, en la nube), openai=gpt-4o-mini, anthropic=claude-haiku-4-5.",
+
+  "_api_keys_help": "Las API keys NUNCA van aquí (evita comitear secretos): export OPENAI_API_KEY / OPENROUTER_API_KEY / ANTHROPIC_API_KEY segun el backend. Ver INSTALL.md §2.",
+
   "lang": "por+eng+spa",
   "_lang_help": "Idiomas OCR (Tesseract), combinables con +. Ej: por+eng+spa+fra",
   
