@@ -31,7 +31,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: "uv"
+          # sin cache:uv -- astral-sh/setup-uv@v2 (paso anterior) ya cachea
+          # (UV_CACHE_DIR); redundante aqui rompe con "Caching for 'uv' is
+          # not supported" en este runner.
 
       - name: Install dependencies (uv sync)
         run: uv sync
@@ -63,7 +65,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "uv"
+          # ver nota arriba (job test): sin cache:uv redundante
 
       - name: Build wheel + sdist (uv build)
         run: |
@@ -123,7 +125,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "uv"
+          # ver nota arriba (job test): sin cache:uv redundante
 
       - name: Check INSTALL.md and README.md exist
         run: |

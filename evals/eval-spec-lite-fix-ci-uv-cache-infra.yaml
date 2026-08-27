@@ -1,0 +1,52 @@
+---
+id: FIX-CI-UV-CACHE-INFRA
+titulo: >-
+  CI roto por cache:uv redundante en actions/setup-python
+  (infra, no código)
+descripcion: >
+  `gh run list --branch master` muestra CI en rojo desde antes de esta
+  sesión (Fase 11 "fix/dev-deps-pillow-uv", Fase 12, el merge del PR #1 de
+  Docker...), siempre con el mismo error en el step "Set up Python":
+  `##[error]Caching for 'uv' is not supported`. Bloquea la señal de CI de
+  cualquier PR (incluidos los de FASE13/FASE14 de esta sesión), sin
+  relación con el código de esos cambios.
+
+  Causa: `.github/workflows/ci.yml` ya usa `astral-sh/setup-uv@v2` (que
+  trae su propio caché, visible en el log como `UV_CACHE_DIR`) y ADEMÁS
+  pide `cache: "uv"` en `actions/setup-python@v5` — redundante y no
+  soportado por esa combinación de acciones en este runner.
+
+estado: COMPLETADA
+fecha: 2026-08-27
+resultado: |
+  Fix mecánico de una línea x3 (retirar `cache: "uv"` de los 3 steps
+  `actions/setup-python@v5` en ci.yml: jobs test/build/docs). Sin cambio
+  de comportamiento esperado (astral-sh/setup-uv ya cachea). Verificado
+  con yamllint + `gh pr checks` en el PR real (ver PR).
+
+criterios:
+  - id: C1-sin-cache-uv-redundante
+    tipo: unit
+    descripcion: >
+      Ninguno de los 3 steps `actions/setup-python@v5` en ci.yml declara
+      `cache: "uv"`.
+    verificacion: "! grep -q 'cache: \"uv\"' .github/workflows/ci.yml"
+
+  - id: C2-ci-corre-sin-el-error-de-cache
+    tipo: integration
+    descripcion: >
+      El job `test` (matriz 3.10/3.11/3.12) pasa del step "Set up Python"
+      sin el error `Caching for 'uv' is not supported`, y llega a
+      ejecutar `uv sync`/tests reales (aunque fallen o pasen por otra
+      razón, ya no por este bug de infra).
+    verificacion: "gh pr checks <PR> (o gh run view <run-id>)"
+
+invariantes:
+  - >-
+    Ningún cambio de comportamiento del código del paquete pdfsum
+    (solo ci.yml).
+
+no_objetivos:
+  - >-
+    Arreglar cualquier otro fallo de CI no relacionado con este
+    error de caching.
