@@ -197,6 +197,15 @@ uv run pdfsum serve --batch-dir ./_resumenes --port 8765
 Salida: JSON con `doc_id`, `idioma_principal`, `tipo_documento`, `plantilla`,
 `secciones`, `idiomas_resumo_origem`, `abstracts_origem`, `meta`.
 
+El `report.json` incluye `report_version`, fecha UTC de generación y unidad de
+duración. Cada entrada de `documents` informa `tiempo_total` y
+`tiempos_por_fase`; en `metrics`, `tiempo_total_por_fase` y
+`tiempo_medio_por_fase` permiten comparar los cuellos de botella del lote. El
+flujo PDF mide `transcripcion`, `lectura_ocr`, `resumen`, `qa` y
+`escritura_resultado`, e indica con `transcription_cached` si reutilizó OCR. El
+lote de textos mide `lectura_texto`, `cola`, `resumen`, `qa` y
+`escritura_resultado`, e indica con `cache_hit` si reutilizó el resultado.
+
 ## Versionado
 
 Semantic Versioning (`MAJOR.MINOR.PATCH`):

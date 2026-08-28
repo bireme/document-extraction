@@ -35,9 +35,9 @@ class TestMetrics(unittest.TestCase):
         r3.secciones["resumen_ejecutivo"] = ""  # provoca fallo schema
 
         items = [
-            BatchItem(r1, check_result(r1), 1.0),
-            BatchItem(r2, check_result(r2), 2.0),
-            BatchItem(r3, check_result(r3), 3.0),
+            BatchItem(r1, check_result(r1), 1.0, {"resumen": 0.8, "qa": 0.2}),
+            BatchItem(r2, check_result(r2), 2.0, {"resumen": 1.5, "qa": 0.5}),
+            BatchItem(r3, check_result(r3), 3.0, {"resumen": 2.4, "qa": 0.6}),
         ]
         m = batch_metrics(items)
         self.assertEqual(m.total, 3)
@@ -47,6 +47,8 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(m.por_idioma["pt"], 2)
         self.assertEqual(m.tiempo_total, 6.0)
         self.assertEqual(m.tiempo_medio, 2.0)
+        self.assertAlmostEqual(m.tiempo_total_por_fase["resumen"], 4.7)
+        self.assertAlmostEqual(m.tiempo_medio_por_fase["qa"], 1.3 / 3)
         self.assertIn("schema", m.gates_fallados)
 
 

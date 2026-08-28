@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..contract import Summarizer, Transcriber
@@ -35,12 +36,14 @@ def transcribe_pdfs(
     for pdf in sorted(Path(in_dir).glob(pattern)):
         doc_id = pdf.stem
         ocr_file = workspace.ocr_path(doc_id)
+        started = time.perf_counter()
         if ocr_file.exists():
             text = ocr_file.read_text(encoding="utf-8", errors="replace")
             meta[doc_id] = {
                 "pages": text.count("=== pág") or 1,
                 "source_kind": "cached",
                 "cached": True,
+                "transcription_seconds": time.perf_counter() - started,
             }
             continue
         tr = transcriber.transcribe(str(pdf))
@@ -49,6 +52,7 @@ def transcribe_pdfs(
             "pages": tr.pages,
             "source_kind": tr.source_kind.value,
             "cached": False,
+            "transcription_seconds": time.perf_counter() - started,
         }
     return meta
 
@@ -67,9 +71,13 @@ def run_batch_pdfs(
 
     items: list[BatchItem] = []
     origen: dict[str, str] = {}
+    cache: dict[str, bool] = {}
     for doc_id, om in ocr_meta.items():
+        phases = {"transcripcion": om.get("transcription_seconds", 0.0)}
+        t0 = time.perf_counter()
         text = workspace.ocr_path(doc_id).read_text(encoding="utf-8", errors="replace")
-        t0 = time.time()
+        phases["lectura_ocr"] = time.perf_counter() - t0
+        t0 = time.perf_counter()
         res = summarize_document(
             doc_id=doc_id,
             text=text,
@@ -77,19 +85,34 @@ def run_batch_pdfs(
             pages=om.get("pages", 1),
             long_strategy=long_strategy,
         )
-        elapsed = time.time() - t0
+        phases["resumen"] = time.perf_counter() - t0
         res.meta["source_kind"] = om.get("source_kind")
+        t0 = time.perf_counter()
         qa = check_result(res)
+        phases["qa"] = time.perf_counter() - t0
         record = res.to_dict()
         record["_qa"] = qa.to_dict()
+        t0 = time.perf_counter()
         workspace.summary_path(doc_id).write_text(
             json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        items.append(BatchItem(result=res, qa=qa, seconds=elapsed))
+        phases["escritura_resultado"] = time.perf_counter() - t0
+        items.append(
+            BatchItem(
+                result=res,
+                qa=qa,
+                seconds=sum(phases.values()),
+                phase_seconds=phases,
+            )
+        )
         origen[doc_id] = om.get("source_kind", "?")
+        cache[doc_id] = bool(om.get("cached"))
 
     metrics = batch_metrics(items)
     report = {
+        "report_version": "2.0",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "duration_unit": "seconds",
         "metrics": metrics.to_dict(),
         "documents": [
             {
@@ -98,7 +121,13 @@ def run_batch_pdfs(
                 "idioma": it.result.idioma_principal,
                 "qa_ok": it.qa.is_ok,
                 "source_kind": origen.get(it.result.doc_id),
+                "transcription_cached": cache.get(it.result.doc_id, False),
                 "gates": [f.gate for f in it.qa.failures],
+                "tiempo_total": round(it.seconds, 3),
+                "tiempos_por_fase": {
+                    phase: round(seconds, 6)
+                    for phase, seconds in it.phase_seconds.items()
+                },
             }
             for it in items
         ],

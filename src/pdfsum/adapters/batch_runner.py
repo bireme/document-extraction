@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ..contract import Summarizer, SummaryResult
@@ -40,31 +41,58 @@ def run_batch(
     items: list[BatchItem] = []
     for txt in sorted(Path(in_dir).glob(pattern)):
         doc_id = txt.stem
+        phases: dict[str, float] = {}
+        t0 = time.perf_counter()
         payload = txt.read_text(encoding="utf-8", errors="replace")
+        phases["lectura_texto"] = time.perf_counter() - t0
+        summary_seconds = 0.0
+        summary_executed = False
 
         def work(did: str, text: str) -> dict:
+            nonlocal summary_executed, summary_seconds
+            summary_executed = True
+            started = time.perf_counter()
             res = summarize_document(doc_id=did, text=text, summarizer=summarizer)
+            summary_seconds += time.perf_counter() - started
             return res.to_dict()
 
-        t0 = time.time()
+        t0 = time.perf_counter()
         job = queue.submit(doc_id, payload, work)
-        elapsed = time.time() - t0
+        queue_seconds = time.perf_counter() - t0
+        phases["resumen"] = summary_seconds
+        phases["cola"] = max(0.0, queue_seconds - summary_seconds)
 
         if job.result is None:
             continue  # falló todos los reintentos; queda en la cola como failed
         res = SummaryResult.from_dict(job.result)
+        t0 = time.perf_counter()
         qa = check_result(res)
+        phases["qa"] = time.perf_counter() - t0
         # escribir resumen + su QA
         record = res.to_dict()
         record["_qa"] = qa.to_dict()
+        t0 = time.perf_counter()
         (out / f"{doc_id}.json").write_text(
             json.dumps(record, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        items.append(BatchItem(result=res, qa=qa, seconds=elapsed))
+        phases["escritura_resultado"] = time.perf_counter() - t0
+        elapsed = sum(phases.values())
+        items.append(
+            BatchItem(
+                result=res,
+                qa=qa,
+                seconds=elapsed,
+                phase_seconds=phases,
+                cache_hit=not summary_executed,
+            )
+        )
 
     metrics = batch_metrics(items)
     report = {
+        "report_version": "2.0",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "duration_unit": "seconds",
         "metrics": metrics.to_dict(),
         "queue": queue.counts(),
         "documents": [
@@ -74,6 +102,12 @@ def run_batch(
                 "idioma": it.result.idioma_principal,
                 "qa_ok": it.qa.is_ok,
                 "gates": [f.gate for f in it.qa.failures],
+                "cache_hit": it.cache_hit,
+                "tiempo_total": round(it.seconds, 3),
+                "tiempos_por_fase": {
+                    phase: round(seconds, 6)
+                    for phase, seconds in it.phase_seconds.items()
+                },
             }
             for it in items
         ],
