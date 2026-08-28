@@ -214,8 +214,10 @@ directorio del reporte:
 - `events.jsonl`: eventos append-only con `run_id`, documento, fase, error y
   estado. Cada línea se vacía y sincroniza inmediatamente en disco.
 - `infrastructure.jsonl`: muestras periódicas de CPU, RAM, carga, swap, disco,
-  temperatura del host (si el sistema expone sensores) y GPU NVIDIA/VRAM (si
-  `nvidia-smi` está disponible).
+  temperatura del host y aceleradores. Consulta `/api/ps` del Ollama para
+  registrar modelos cargados, contexto y VRAM asignada aunque Ollama esté en
+  otro contenedor; si `nvidia-smi` está disponible, añade por GPU utilización,
+  VRAM, temperatura, potencia, ventilador, clocks y throttling.
 - `report.json`: checkpoint atómico actualizado al comenzar el lote y después
   de cada documento. `progress` muestra descubiertos, concluidos, fallidos y
   pendientes; `infrastructure` resume picos y mínimos de la ejecución.
@@ -227,6 +229,19 @@ siguientes. Ante interrupción normal, el reporte queda con estado
 ningún software puede ejecutar después de una pérdida total de energía, el
 documento que estaba en curso puede aparecer solo como `document_started`;
 todos los que ya emitieron `document_completed` permanecen confirmados.
+
+En Docker, la VRAM de Ollama se observa automáticamente mediante `OLLAMA_HOST`.
+Para permitir también las métricas físicas de NVIDIA dentro de `pdfsum`, usa el
+override opt-in (requiere NVIDIA Container Toolkit):
+
+```bash
+docker compose -f compose.yml -f compose.gpu-observability.yml \
+  --profile gpu up --build
+```
+
+Sin ese override, el reporte indica `nvidia_smi_available: false`, pero conserva
+las métricas del host y la VRAM comunicada por Ollama. La consulta a `/api/ps`
+se puede desactivar con `PDFSUM_OLLAMA_METRICS=0`.
 
 ## Versionado
 

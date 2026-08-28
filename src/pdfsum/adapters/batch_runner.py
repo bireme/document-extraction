@@ -47,7 +47,9 @@ def run_batch(
     run_id = str(uuid4())
     started_at = utc_now()
     events = EventLog(out / "events.jsonl", run_id)
-    monitor = InfrastructureMonitor(out / "infrastructure.jsonl", out)
+    monitor = InfrastructureMonitor(
+        out / "infrastructure.jsonl", out, run_id=run_id
+    )
     items: list[BatchItem] = []
     documents: list[dict] = []
     status = "running"
@@ -90,6 +92,7 @@ def run_batch(
             doc_id = txt.stem
             phases: dict[str, float] = {}
             document_started = time.perf_counter()
+            monitor.set_context(doc_id=doc_id, phase="lectura_texto")
             events.write("document_started", doc_id=doc_id)
             try:
                 t0 = time.perf_counter()
@@ -109,6 +112,7 @@ def run_batch(
                     return res.to_dict()
 
                 t0 = time.perf_counter()
+                monitor.set_context(doc_id=doc_id, phase="resumen")
                 job = queue.submit(doc_id, payload, work)
                 queue_seconds = time.perf_counter() - t0
                 phases["resumen"] = summary_seconds
@@ -136,16 +140,19 @@ def run_batch(
                         attempts=job.attempts,
                         error=job.error[:2000],
                     )
+                    monitor.set_context()
                     checkpoint()
                     continue
 
                 res = SummaryResult.from_dict(job.result)
                 t0 = time.perf_counter()
+                monitor.set_context(doc_id=doc_id, phase="qa")
                 qa = check_result(res)
                 phases["qa"] = time.perf_counter() - t0
                 record = res.to_dict()
                 record["_qa"] = qa.to_dict()
                 t0 = time.perf_counter()
+                monitor.set_context(doc_id=doc_id, phase="escritura_resultado")
                 atomic_write_json(out / f"{doc_id}.json", record)
                 phases["escritura_resultado"] = time.perf_counter() - t0
                 item = BatchItem(
@@ -197,6 +204,7 @@ def run_batch(
                     }
                 )
                 events.write("document_failed", doc_id=doc_id, error=error)
+            monitor.set_context()
             checkpoint()
         status = "completed_with_errors" if any(
             doc["status"] == "failed" for doc in documents

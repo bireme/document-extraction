@@ -14,6 +14,11 @@ tags git locales.
   documento, con `run_id`, estado y progreso. Las fallas quedan asociadas al
   documento y no interrumpen el resto del lote; una interrupción preserva el
   último checkpoint confirmado.
+- Observación de aceleradores ampliada: `/api/ps` registra modelos activos y
+  VRAM asignada por Ollama remoto; `nvidia-smi` añade métricas por GPU de uso,
+  memoria, temperatura, potencia, ventilador, clocks y throttling. El override
+  `compose.gpu-observability.yml` expone esas métricas físicas a `pdfsum` de
+  forma opt-in sin volver obligatoria una GPU NVIDIA.
 
 ## [Unreleased] — Registros bibliográficos BIBFRAME (FASE15)
 ### Añadido

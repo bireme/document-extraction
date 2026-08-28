@@ -81,7 +81,7 @@ def run_batch_pdfs(
     log_dir = workspace.report_path.parent
     events = EventLog(log_dir / "events.jsonl", run_id)
     monitor = InfrastructureMonitor(
-        log_dir / "infrastructure.jsonl", workspace.root
+        log_dir / "infrastructure.jsonl", workspace.root, run_id=run_id
     )
     items: list[BatchItem] = []
     documents: list[dict] = []
@@ -124,6 +124,7 @@ def run_batch_pdfs(
             doc_id = pdf.stem
             phases: dict[str, float] = {}
             document_started = time.perf_counter()
+            monitor.set_context(doc_id=doc_id, phase="transcripcion")
             events.write("document_started", doc_id=doc_id)
             try:
                 started = time.perf_counter()
@@ -153,9 +154,11 @@ def run_batch_pdfs(
                 )
 
                 started = time.perf_counter()
+                monitor.set_context(doc_id=doc_id, phase="lectura_ocr")
                 text = ocr_file.read_text(encoding="utf-8", errors="replace")
                 phases["lectura_ocr"] = time.perf_counter() - started
                 started = time.perf_counter()
+                monitor.set_context(doc_id=doc_id, phase="resumen")
                 res = summarize_document(
                     doc_id=doc_id,
                     text=text,
@@ -172,11 +175,13 @@ def run_batch_pdfs(
                 )
                 res.meta["source_kind"] = om["source_kind"]
                 started = time.perf_counter()
+                monitor.set_context(doc_id=doc_id, phase="qa")
                 qa = check_result(res)
                 phases["qa"] = time.perf_counter() - started
                 record = res.to_dict()
                 record["_qa"] = qa.to_dict()
                 started = time.perf_counter()
+                monitor.set_context(doc_id=doc_id, phase="escritura_resultado")
                 atomic_write_json(workspace.summary_path(doc_id), record)
                 phases["escritura_resultado"] = time.perf_counter() - started
                 item = BatchItem(
@@ -226,6 +231,7 @@ def run_batch_pdfs(
                     }
                 )
                 events.write("document_failed", doc_id=doc_id, error=error)
+            monitor.set_context()
             checkpoint()
         status = "completed_with_errors" if any(
             doc["status"] == "failed" for doc in documents

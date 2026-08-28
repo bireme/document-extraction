@@ -68,6 +68,7 @@ class TestBatchPdf(unittest.TestCase):
             self.assertTrue(ws.report_path.exists())
             self.assertEqual(report["metrics"]["total"], 1)
             self.assertEqual(report["duration_unit"], "seconds")
+            self.assertIn("gpu_monitoring", report["infrastructure"])
             self.assertIn("tiempo_medio_por_fase", report["metrics"])
             self.assertIn("transcripcion", report["documents"][0]["tiempos_por_fase"])
             self.assertIn("resumen", report["documents"][0]["tiempos_por_fase"])

@@ -15,9 +15,12 @@ import shutil
 import subprocess
 import threading
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 try:
     import resource
@@ -120,42 +123,201 @@ def _cpu_temperature() -> float | None:
     return max(readings) if readings else None
 
 
-def _gpu_metrics() -> list[dict[str, float]]:
-    command = [
-        "nvidia-smi",
-        "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu",
-        "--format=csv,noheader,nounits",
-    ]
+def _optional_float(value: str) -> float | None:
     try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            check=True,
-            text=True,
-            timeout=2,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return []
-    gpus: list[dict[str, float]] = []
-    for line in result.stdout.splitlines():
+        return float(value.strip())
+    except ValueError:
+        return None
+
+
+def _throttling_by_gpu() -> dict[str, bool]:
+    fields = ("clocks_event_reasons.active", "clocks_throttle_reasons.active")
+    for field in fields:
         try:
-            utilization, used, total, temperature = (
-                float(value.strip()) for value in line.split(",")
+            result = subprocess.run(
+                [
+                    "nvidia-smi",
+                    f"--query-gpu=index,{field}",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                check=True,
+                text=True,
+                timeout=2,
             )
-        except (ValueError, TypeError):
+        except (OSError, subprocess.SubprocessError):
             continue
+        states: dict[str, bool] = {}
+        for line in result.stdout.splitlines():
+            parts = [part.strip() for part in line.split(",", 1)]
+            if len(parts) != 2:
+                continue
+            value = parts[1].lower()
+            states[parts[0]] = value not in {
+                "0",
+                "0x0000000000000000",
+                "n/a",
+                "not active",
+            }
+        return states
+    return {}
+
+
+def _gpu_metrics() -> dict[str, Any]:
+    extended_fields = (
+        "index,uuid,name,utilization.gpu,memory.used,memory.total,"
+        "temperature.gpu,power.draw,power.limit,fan.speed,clocks.current.sm,"
+        "clocks.current.memory,pstate"
+    )
+    basic_fields = (
+        "index,uuid,name,utilization.gpu,memory.used,memory.total,temperature.gpu"
+    )
+    result: subprocess.CompletedProcess[str] | None = None
+    detail_level = "extended"
+    for fields in (extended_fields, basic_fields):
+        try:
+            result = subprocess.run(
+                [
+                    "nvidia-smi",
+                    f"--query-gpu={fields}",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                check=True,
+                text=True,
+                timeout=2,
+            )
+            detail_level = "extended" if fields == extended_fields else "basic"
+            break
+        except FileNotFoundError:
+            return {
+                "available": False,
+                "error": "nvidia-smi no encontrado",
+                "devices": [],
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "available": False,
+                "error": "tiempo de nvidia-smi agotado",
+                "devices": [],
+            }
+        except subprocess.SubprocessError:
+            continue
+    if result is None:
+        return {"available": False, "error": "nvidia-smi falló", "devices": []}
+    throttling = _throttling_by_gpu()
+    gpus: list[dict[str, Any]] = []
+    for line in result.stdout.splitlines():
+        values = [value.strip() for value in line.split(",")]
+        expected_fields = 13 if detail_level == "extended" else 7
+        if len(values) != expected_fields:
+            continue
+        index, uuid, name = values[:3]
+        numeric = [_optional_float(value) for value in values[3:]]
+        numeric += [None] * (9 - len(numeric))
         gpus.append(
             {
-                "utilization_percent": utilization,
-                "memory_used_mb": used,
-                "memory_total_mb": total,
-                "temperature_c": temperature,
+                "index": int(index) if index.isdigit() else index,
+                "uuid": uuid,
+                "name": name,
+                "utilization_percent": numeric[0],
+                "memory_used_mb": numeric[1],
+                "memory_total_mb": numeric[2],
+                "temperature_c": numeric[3],
+                "power_draw_w": numeric[4],
+                "power_limit_w": numeric[5],
+                "fan_speed_percent": numeric[6],
+                "clock_sm_mhz": numeric[7],
+                "clock_memory_mhz": numeric[8],
+                "performance_state": values[12]
+                if detail_level == "extended"
+                else None,
+                "throttling_active": throttling.get(index),
             }
         )
-    return gpus
+    if not gpus:
+        return {
+            "available": False,
+            "error": "nvidia-smi no devolvió GPUs",
+            "devices": [],
+        }
+    return {"available": True, "detail_level": detail_level, "devices": gpus}
 
 
-def collect_snapshot(disk_path: Path) -> dict[str, Any]:
+def _safe_ollama_host(host: str) -> str:
+    try:
+        parsed = urlsplit(host)
+        port = f":{parsed.port}" if parsed.port else ""
+    except ValueError:
+        return "invalid"
+    if not parsed.hostname:
+        return "invalid"
+    return f"{parsed.scheme or 'http'}://{parsed.hostname}{port}"
+
+
+def _ollama_metrics(host: str) -> dict[str, Any]:
+    safe_host = _safe_ollama_host(host)
+    if not host or safe_host == "invalid":
+        return {"available": False, "error": "host de Ollama no configurado"}
+    endpoint = f"{host.rstrip('/')}/api/ps"
+    try:
+        request = urllib.request.Request(endpoint, method="GET")
+        with urllib.request.urlopen(request, timeout=1) as response:
+            raw = response.read(1_000_001)
+        if len(raw) > 1_000_000:
+            raise ValueError("respuesta demasiado grande")
+        payload = json.loads(raw.decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("respuesta inválida")
+        raw_models = payload.get("models", [])
+        if not isinstance(raw_models, list):
+            raise ValueError("modelos inválidos")
+    except urllib.error.HTTPError as exc:
+        return {
+            "available": False,
+            "host": safe_host,
+            "error": f"Ollama HTTP {exc.code}",
+        }
+    except (OSError, ValueError):
+        return {
+            "available": False,
+            "host": safe_host,
+            "error": "Ollama no disponible",
+        }
+
+    models: list[dict[str, Any]] = []
+    for raw_model in raw_models:
+        if not isinstance(raw_model, dict):
+            continue
+        details = raw_model.get("details", {})
+        if not isinstance(details, dict):
+            details = {}
+        size = raw_model.get("size", 0)
+        size_vram = raw_model.get("size_vram", 0)
+        context_length = raw_model.get("context_length")
+        models.append(
+            {
+                "name": str(
+                    raw_model.get("name") or raw_model.get("model") or "unknown"
+                ),
+                "size_mb": round(size / 1024 / 1024, 3)
+                if isinstance(size, (int, float))
+                else None,
+                "size_vram_mb": round(size_vram / 1024 / 1024, 3)
+                if isinstance(size_vram, (int, float))
+                else None,
+                "context_length": context_length
+                if isinstance(context_length, (int, float))
+                else None,
+                "parameter_size": details.get("parameter_size"),
+                "quantization_level": details.get("quantization_level"),
+                "expires_at": raw_model.get("expires_at"),
+            }
+        )
+    return {"available": True, "host": safe_host, "models": models}
+
+
+def collect_snapshot(disk_path: Path, ollama_host: str = "") -> dict[str, Any]:
     """Recopila una muestra portátil, omitiendo métricas no disponibles."""
     process: dict[str, Any] = {
         "cpu_seconds": round(time.process_time(), 6),
@@ -201,9 +363,12 @@ def collect_snapshot(disk_path: Path) -> dict[str, Any]:
         "process": process,
         "host": host,
     }
-    gpus = _gpu_metrics()
-    if gpus:
-        snapshot["gpus"] = gpus
+    gpu = _gpu_metrics()
+    snapshot["gpu"] = gpu
+    if gpu["devices"]:
+        snapshot["gpus"] = gpu["devices"]  # compatibilidad con reportes 3.0
+    if ollama_host:
+        snapshot["ollama"] = _ollama_metrics(ollama_host)
     return snapshot
 
 
@@ -223,14 +388,33 @@ def _host_cpu_counters() -> tuple[int, int] | None:
 class InfrastructureMonitor:
     """Muestrea infraestructura en segundo plano y mantiene máximos/mínimos."""
 
-    def __init__(self, path: Path, disk_path: Path, interval: float = 5.0) -> None:
+    def __init__(
+        self,
+        path: Path,
+        disk_path: Path,
+        interval: float = 5.0,
+        ollama_host: str | None = None,
+        run_id: str | None = None,
+    ) -> None:
         self.path = path
         self.disk_path = disk_path
         self.interval = interval
+        self.run_id = run_id
+        metrics_enabled = os.getenv("PDFSUM_OLLAMA_METRICS", "1").lower() not in {
+            "0",
+            "false",
+            "no",
+        }
+        configured_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        self.ollama_host = (configured_host if ollama_host is None else ollama_host)
+        if not metrics_enabled:
+            self.ollama_host = ""
+        self.ollama_metrics_enabled = bool(self.ollama_host)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._samples: list[dict[str, Any]] = []
+        self._context: dict[str, str] = {}
         self._last_process_cpu: float | None = None
         self._last_monotonic: float | None = None
         self._last_host_cpu: tuple[int, int] | None = None
@@ -248,8 +432,27 @@ class InfrastructureMonitor:
         while not self._stop.wait(self.interval):
             self.sample()
 
+    def set_context(
+        self, *, doc_id: str | None = None, phase: str | None = None
+    ) -> None:
+        """Asocia las próximas muestras con el documento y la fase actuales."""
+        with self._lock:
+            self._context = {
+                key: value
+                for key, value in (("doc_id", doc_id), ("phase", phase))
+                if value is not None
+            }
+
     def sample(self) -> dict[str, Any]:
-        snapshot = collect_snapshot(self.disk_path)
+        snapshot = collect_snapshot(self.disk_path, self.ollama_host)
+        if not self.ollama_metrics_enabled:
+            snapshot["ollama"] = {
+                "available": False,
+                "disabled": True,
+                "error": "métricas de Ollama desactivadas",
+            }
+        if self.run_id is not None:
+            snapshot["run_id"] = self.run_id
         now = time.monotonic()
         process_cpu = snapshot["process"]["cpu_seconds"]
         host_cpu = _host_cpu_counters()
@@ -270,8 +473,9 @@ class InfrastructureMonitor:
         self._last_monotonic = now
         self._last_host_cpu = host_cpu
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        line = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"))
         with self._lock:
+            snapshot.update(self._context)
+            line = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"))
             with self.path.open("a", encoding="utf-8") as stream:
                 stream.write(line + "\n")
                 stream.flush()
@@ -319,17 +523,165 @@ class InfrastructureMonitor:
                 max(cpu_seconds) - min(cpu_seconds), 3
             )
 
+        gpu_observations = [sample.get("gpu", {}) for sample in samples]
         gpus = [gpu for sample in samples for gpu in sample.get("gpus", [])]
-        if gpus:
-            summary.update(
+        ollama_observations = [
+            sample["ollama"] for sample in samples if "ollama" in sample
+        ]
+        gpu_monitoring: dict[str, Any] = {
+            "nvidia_smi_available": any(
+                observation.get("available", False)
+                for observation in gpu_observations
+            ),
+            "ollama_api_available": any(
+                observation.get("available", False)
+                for observation in ollama_observations
+            ),
+            "ollama_metrics_enabled": any(
+                not observation.get("disabled", False)
+                for observation in ollama_observations
+            ),
+        }
+        nvidia_errors = [
+            observation.get("error")
+            for observation in gpu_observations
+            if observation.get("error")
+        ]
+        if nvidia_errors and not gpu_monitoring["nvidia_smi_available"]:
+            gpu_monitoring["nvidia_smi_error"] = nvidia_errors[-1]
+        detail_levels = [
+            observation.get("detail_level")
+            for observation in gpu_observations
+            if observation.get("detail_level")
+        ]
+        if detail_levels:
+            gpu_monitoring["nvidia_smi_detail_level"] = (
+                "extended" if "extended" in detail_levels else detail_levels[-1]
+            )
+        ollama_errors = [
+            observation.get("error")
+            for observation in ollama_observations
+            if observation.get("error")
+        ]
+        if ollama_errors and not gpu_monitoring["ollama_api_available"]:
+            gpu_monitoring["ollama_error"] = ollama_errors[-1]
+        ollama_hosts = [
+            observation.get("host")
+            for observation in ollama_observations
+            if observation.get("host")
+        ]
+        if ollama_hosts:
+            gpu_monitoring["ollama_host"] = ollama_hosts[-1]
+
+        def gpu_values(key: str) -> list[float]:
+            return [
+                value
+                for gpu in gpus
+                if isinstance((value := gpu.get(key)), (int, float))
+            ]
+
+        aggregate_gpu_fields = (
+            ("utilization_percent", "gpu_utilization_max_percent"),
+            ("memory_used_mb", "gpu_memory_peak_mb"),
+            ("temperature_c", "gpu_temperature_max_c"),
+            ("power_draw_w", "gpu_power_draw_max_w"),
+            ("fan_speed_percent", "gpu_fan_speed_max_percent"),
+        )
+        for source, target in aggregate_gpu_fields:
+            found = gpu_values(source)
+            if found:
+                summary[target] = round(max(found), 3)
+
+        device_groups: dict[str, list[dict[str, Any]]] = {}
+        for gpu in gpus:
+            identity = str(gpu.get("uuid") or gpu.get("index") or "unknown")
+            device_groups.setdefault(identity, []).append(gpu)
+        devices: list[dict[str, Any]] = []
+        for identity, observations in sorted(device_groups.items()):
+            first = observations[0]
+            device: dict[str, Any] = {
+                "id": identity,
+                "index": first.get("index"),
+                "name": first.get("name"),
+                "throttling_observed": any(
+                    gpu.get("throttling_active") is not None
+                    for gpu in observations
+                ),
+                "throttling_detected": any(
+                    gpu.get("throttling_active") is True for gpu in observations
+                ),
+            }
+            performance_states = sorted(
                 {
-                    "gpu_utilization_max_percent": max(
-                        gpu["utilization_percent"] for gpu in gpus
-                    ),
-                    "gpu_memory_peak_mb": max(gpu["memory_used_mb"] for gpu in gpus),
-                    "gpu_temperature_max_c": max(
-                        gpu["temperature_c"] for gpu in gpus
-                    ),
+                    str(gpu["performance_state"])
+                    for gpu in observations
+                    if gpu.get("performance_state")
                 }
             )
+            if performance_states:
+                device["performance_states_seen"] = performance_states
+            for source, target in (
+                ("utilization_percent", "utilization_max_percent"),
+                ("memory_used_mb", "memory_peak_mb"),
+                ("memory_total_mb", "memory_total_mb"),
+                ("temperature_c", "temperature_max_c"),
+                ("power_draw_w", "power_draw_max_w"),
+                ("power_limit_w", "power_limit_w"),
+                ("fan_speed_percent", "fan_speed_max_percent"),
+                ("clock_sm_mhz", "clock_sm_max_mhz"),
+                ("clock_memory_mhz", "clock_memory_max_mhz"),
+            ):
+                found = [
+                    value
+                    for gpu in observations
+                    if isinstance((value := gpu.get(source)), (int, float))
+                ]
+                if found:
+                    device[target] = round(max(found), 3)
+            devices.append(device)
+        if devices:
+            gpu_monitoring["devices"] = devices
+            gpu_monitoring["throttling_detected"] = any(
+                device["throttling_detected"] for device in devices
+            )
+
+        ollama_models: dict[str, list[dict[str, Any]]] = {}
+        ollama_vram_totals: list[float] = []
+        for observation in ollama_observations:
+            models = observation.get("models", [])
+            total_vram = 0.0
+            for model in models:
+                name = str(model.get("name", "unknown"))
+                ollama_models.setdefault(name, []).append(model)
+                size_vram = model.get("size_vram_mb")
+                if isinstance(size_vram, (int, float)):
+                    total_vram += size_vram
+            ollama_vram_totals.append(total_vram)
+        if ollama_vram_totals:
+            gpu_monitoring["ollama_vram_loaded_peak_mb"] = round(
+                max(ollama_vram_totals), 3
+            )
+        if ollama_models:
+            gpu_monitoring["ollama_models"] = [
+                {
+                    "name": name,
+                    "vram_peak_mb": round(
+                        max(
+                            model.get("size_vram_mb", 0) or 0
+                            for model in observations
+                        ),
+                        3,
+                    ),
+                    "context_length_max": max(
+                        model.get("context_length", 0) or 0
+                        for model in observations
+                    ),
+                    "parameter_size": observations[-1].get("parameter_size"),
+                    "quantization_level": observations[-1].get(
+                        "quantization_level"
+                    ),
+                }
+                for name, observations in sorted(ollama_models.items())
+            ]
+        summary["gpu_monitoring"] = gpu_monitoring
         return summary

@@ -482,6 +482,21 @@ Levanta también el servicio `ollama` (imagen `ollama/ollama:0.33.0`,
 volumen nombrado `ollama_models` para persistir modelos descargados,
 `gpus: all`).
 
+`pdfsum` consulta automáticamente `OLLAMA_HOST/api/ps`, por lo que registra los
+modelos cargados y la VRAM asignada por Ollama aunque la GPU pertenezca al otro
+contenedor. Para observar además utilización física, temperatura, potencia,
+ventilador, clocks y throttling mediante `nvidia-smi`, habilita el override:
+
+```bash
+docker compose -f compose.yml -f compose.gpu-observability.yml \
+  --profile gpu up --build
+```
+
+El override es opt-in para que el modo normal siga funcionando en equipos sin
+NVIDIA. Requiere NVIDIA Container Toolkit. Si no se habilita, `report.json`
+explica que `nvidia-smi` no está disponible, pero mantiene la VRAM reportada por
+Ollama. Define `PDFSUM_OLLAMA_METRICS=0` para desactivar la consulta a `/api/ps`.
+
 > ⚠️ **El servicio `ollama` (perfil `gpu`) requiere GPU pasada al
 > contenedor** (`gpus: all`), lo que exige el **NVIDIA Container Toolkit**
 > instalado y configurado en el host (`nvidia-ctk`), además del driver
