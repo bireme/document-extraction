@@ -206,6 +206,28 @@ flujo PDF mide `transcripcion`, `lectura_ocr`, `resumen`, `qa` y
 lote de textos mide `lectura_texto`, `cola`, `resumen`, `qa` y
 `escritura_resultado`, e indica con `cache_hit` si reutilizó el resultado.
 
+### Logs continuos e infraestructura
+
+Los comandos `run` y `batch` mantienen tres archivos de observabilidad en el
+directorio del reporte:
+
+- `events.jsonl`: eventos append-only con `run_id`, documento, fase, error y
+  estado. Cada línea se vacía y sincroniza inmediatamente en disco.
+- `infrastructure.jsonl`: muestras periódicas de CPU, RAM, carga, swap, disco,
+  temperatura del host (si el sistema expone sensores) y GPU NVIDIA/VRAM (si
+  `nvidia-smi` está disponible).
+- `report.json`: checkpoint atómico actualizado al comenzar el lote y después
+  de cada documento. `progress` muestra descubiertos, concluidos, fallidos y
+  pendientes; `infrastructure` resume picos y mínimos de la ejecución.
+
+Una falla en un documento queda registrada y no detiene los documentos
+siguientes. Ante interrupción normal, el reporte queda con estado
+`interrupted`; ante una caída abrupta, incluso `SIGKILL`, queda disponible el
+último checkpoint ya sincronizado, además de los eventos anteriores. Como
+ningún software puede ejecutar después de una pérdida total de energía, el
+documento que estaba en curso puede aparecer solo como `document_started`;
+todos los que ya emitieron `document_completed` permanecen confirmados.
+
 ## Versionado
 
 Semantic Versioning (`MAJOR.MINOR.PATCH`):

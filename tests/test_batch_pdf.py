@@ -32,6 +32,22 @@ class CountingTranscriber:
         ).transcribe(path)
 
 
+class SelectiveTranscriber:
+    def transcribe(self, path):
+        if Path(path).stem == "bad":
+            raise RuntimeError("falha de OCR simulada")
+        return FakeTranscriber(
+            _TEXT, pages=4, source_kind=SourceKind.NATIVO
+        ).transcribe(path)
+
+
+class InterruptingSummarizer:
+    def summarize(self, request):
+        if request.doc_id == "b":
+            raise KeyboardInterrupt()
+        return FakeSummarizer().summarize(request)
+
+
 def _make_pdfs(d: Path, names):
     for n in names:
         (d / f"{n}.pdf").write_bytes(b"%PDF-1.4 fake")
@@ -136,6 +152,54 @@ class TestBatchPdf(unittest.TestCase):
                     "summaries", "art.json"
                 ).exists()
             )
+
+    def test_log_continuo_e_falha_isolada(self):
+        """Falha de um PDF fica registrada e o lote continua no próximo."""
+        with TemporaryDirectory() as td:
+            ind = Path(td) / "in"
+            ind.mkdir()
+            _make_pdfs(ind, ["bad", "good"])
+            logs = Path(td) / "logs"
+            ws = Workspace(Path(td) / "ws", logs_dir=logs)
+
+            report = run_batch_pdfs(
+                str(ind), ws, SelectiveTranscriber(), FakeSummarizer()
+            )
+
+            self.assertEqual(report["status"], "completed_with_errors")
+            self.assertEqual(report["progress"]["completed"], 1)
+            self.assertEqual(report["progress"]["failed"], 1)
+            statuses = {doc["doc_id"]: doc["status"] for doc in report["documents"]}
+            self.assertEqual(statuses, {"bad": "failed", "good": "completed"})
+            events = (logs / "events.jsonl").read_text(encoding="utf-8")
+            self.assertIn('"event":"document_failed"', events)
+            self.assertIn('"event":"document_completed"', events)
+            self.assertTrue((logs / "infrastructure.jsonl").exists())
+            self.assertGreaterEqual(report["infrastructure"]["sample_count"], 2)
+
+    def test_checkpoint_sobrevive_interrupcao(self):
+        """Uma interrupção preserva no report os documentos já concluídos."""
+        with TemporaryDirectory() as td:
+            ind = Path(td) / "in"
+            ind.mkdir()
+            _make_pdfs(ind, ["a", "b"])
+            logs = Path(td) / "logs"
+            ws = Workspace(Path(td) / "ws", logs_dir=logs)
+
+            with self.assertRaises(KeyboardInterrupt):
+                run_batch_pdfs(
+                    str(ind),
+                    ws,
+                    FakeTranscriber(_TEXT, pages=4),
+                    InterruptingSummarizer(),
+                )
+
+            report = json.loads((logs / "report.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "interrupted")
+            self.assertEqual(report["progress"]["completed"], 1)
+            self.assertEqual(report["documents"][0]["doc_id"], "a")
+            events = (logs / "events.jsonl").read_text(encoding="utf-8")
+            self.assertIn('"event":"run_interrupted"', events)
 
 
 if __name__ == "__main__":

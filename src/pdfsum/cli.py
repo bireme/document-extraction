@@ -75,12 +75,14 @@ def cmd_batch(args: argparse.Namespace) -> int:
         max_retries=args.max_retries,
     )
     m = report["metrics"]
+    processing_failures = report["progress"]["failed"]
     print(
         f"lote: {m['total']} docs | ok={m['ok']} fallos={m['con_fallos']} "
+        f"errores_procesamiento={processing_failures} "
         f"| tipos={m['por_tipo']} idiomas={m['por_idioma']} "
         f"| tiempo_medio={m['tiempo_medio']}s"
     )
-    return 0
+    return 1 if processing_failures else 0
 
 
 def cmd_export(args: argparse.Namespace) -> int:
@@ -218,12 +220,14 @@ def cmd_run(args: argparse.Namespace) -> int:
         long_strategy=args.long_strategy,
     )
     m = report["metrics"]
+    processing_failures = report["progress"]["failed"]
     print(
         f"run: {m['total']} PDFs | ok={m['ok']} fallos={m['con_fallos']} "
+        f"errores_procesamiento={processing_failures} "
         f"| tipos={m['por_tipo']} | ocr={ws.ocr_dir} "
         f"| resumenes={ws.summaries_dir}"
     )
-    return 0
+    return 1 if processing_failures else 0
 
 
 def cmd_transcribe(args: argparse.Namespace) -> int:

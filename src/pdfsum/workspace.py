@@ -9,6 +9,8 @@ Layout:
     ocr/<doc_id>.txt         transcripciones (artefacto intermedio cacheado)
     summaries/<doc_id>.json  resúmenes estructurados
     <logs_dir>/report.json   reporte agregado del lote, si logs_dir fue definido
+    <logs_dir>/events.jsonl  eventos durables por documento/fase
+    <logs_dir>/infrastructure.jsonl  muestras de CPU/RAM/disco/temperatura/GPU
     summaries/report.json    fallback si logs_dir no fue definido
     lilacs.json              export de catalogación (borrador)
     bibframe/<doc_id>.bibframe.json  registros bibliográficos BIBFRAME (borrador)

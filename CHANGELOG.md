@@ -4,6 +4,17 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
 semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
 tags git locales.
 
+## [Unreleased] — Observabilidad durable
+### Añadido
+- Observabilidad durable para `run` y `batch`: `events.jsonl` sincronizado por
+  evento, `infrastructure.jsonl` con muestras periódicas de CPU, RAM, swap,
+  disco, temperatura y GPU cuando están disponibles, y resumen de picos/mínimos
+  en `report.json`.
+- `report.json` versión 3.0 se escribe atómicamente al inicio y después de cada
+  documento, con `run_id`, estado y progreso. Las fallas quedan asociadas al
+  documento y no interrumpen el resto del lote; una interrupción preserva el
+  último checkpoint confirmado.
+
 ## [Unreleased] — Registros bibliográficos BIBFRAME (FASE15)
 ### Añadido
 - **Extracción de datos bibliográficos** de los documentos procesados:

@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from .observability import atomic_write_json
+
 
 class MemoryJobStore:
     def __init__(self) -> None:
@@ -37,11 +39,7 @@ class FileJobStore:
             self._data = json.loads(self.path.read_text(encoding="utf-8"))
 
     def _flush(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
-            json.dumps(self._data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        atomic_write_json(self.path, self._data)
 
     def get(self, key: str) -> dict | None:
         return self._data.get(key)
