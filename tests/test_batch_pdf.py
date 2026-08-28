@@ -1,4 +1,4 @@
-"""Tests del flujo desde PDFs con OCR cacheado (criterios C2-C5)."""
+"""Tests del flujo desde PDFs con OCR cacheado (criterios C2-C6)"""
 
 import json
 import unittest
@@ -95,6 +95,42 @@ class TestBatchPdf(unittest.TestCase):
             self.assertEqual(
                 json.loads(ws.summary_path("art").read_text())["meta"]["source_kind"],
                 "nativo",
+            )
+
+    def test_report_em_logs_dir_separado(self):
+        """C6: report.json é gravado em logs_dir separado do workspace."""
+        with TemporaryDirectory() as td:
+            ind = Path(td) / "in"
+            ind.mkdir()
+            _make_pdfs(ind, ["art"])
+
+            workspace_dir = Path(td) / "output"
+            logs_dir = Path(td) / "logs"
+
+            ws = Workspace(
+                workspace_dir,
+                logs_dir=logs_dir,
+            )
+
+            run_batch_pdfs(
+                str(ind),
+                ws,
+                FakeTranscriber(_TEXT, pages=4),
+                FakeSummarizer(),
+            )
+
+            self.assertTrue(
+                (logs_dir / "report.json").exists()
+            )
+
+            self.assertFalse(
+                (workspace_dir / "summaries" / "report.json").exists()
+            )
+
+            self.assertTrue(
+                workspace_dir.joinpath(
+                    "summaries", "art.json"
+                ).exists()
             )
 
 

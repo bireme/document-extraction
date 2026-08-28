@@ -207,7 +207,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         err = _preflight_resumen(model, backend)
         if err is not None:
             return err
-    ws = Workspace(args.workspace)
+    ws = Workspace(args.workspace, logs_dir=args.logs_dir)
     transcriber = _build_transcriber(args.fake, args.lang)
     summarizer = _build_summarizer(args.fake or args.dry_run, backend, model)
     report = run_batch_pdfs(
@@ -409,6 +409,14 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--in", dest="in_dir", required=True, help="directorio de PDFs")
     r.add_argument(
         "--workspace", required=True, help="dir de artefactos (ocr/, summaries/)"
+    )
+    r.add_argument(
+        "--logs-dir",
+        default=None,
+        help=(
+            "directorio para report.json "
+            "(por defecto: <workspace>/summaries)"
+        ),
     )
     r.add_argument(
         "--lang",

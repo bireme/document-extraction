@@ -8,7 +8,8 @@ Layout:
   <root>/
     ocr/<doc_id>.txt         transcripciones (artefacto intermedio cacheado)
     summaries/<doc_id>.json  resúmenes estructurados
-    summaries/report.json    reporte agregado del lote
+    <logs_dir>/report.json   reporte agregado del lote, si logs_dir fue definido
+    summaries/report.json    fallback si logs_dir no fue definido
     lilacs.json              export de catalogación (borrador)
     bibframe/<doc_id>.bibframe.json  registros bibliográficos BIBFRAME (borrador)
 """
@@ -22,9 +23,15 @@ from pathlib import Path
 @dataclass(frozen=True)
 class Workspace:
     root: Path
+    logs_dir: Path | None = None
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, logs_dir: str | Path | None = None) -> None:
         object.__setattr__(self, "root", Path(root))
+        object.__setattr__(
+            self,
+            "logs_dir",
+            Path(logs_dir) if logs_dir is not None else None,
+        )
 
     @property
     def ocr_dir(self) -> Path:
@@ -42,6 +49,8 @@ class Workspace:
 
     @property
     def report_path(self) -> Path:
+        if self.logs_dir is not None:
+            return self.logs_dir / "report.json"
         return self.summaries_dir / "report.json"
 
     @property

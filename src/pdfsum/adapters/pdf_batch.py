@@ -103,6 +103,7 @@ def run_batch_pdfs(
             for it in items
         ],
     }
+    workspace.report_path.parent.mkdir(parents=True, exist_ok=True)
     workspace.report_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
