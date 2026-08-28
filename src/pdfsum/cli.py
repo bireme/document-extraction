@@ -277,6 +277,24 @@ def _preflight_resumen(model: str, backend: str = "ollama") -> int | None:
     return None
 
 
+def _find_samples_dir() -> Path:
+    """Localiza o diretório samples no repo ou no ambiente de execução."""
+    candidates = [
+        Path.cwd() / "samples",
+        Path(__file__).resolve().parents[2] / "samples",
+    ]
+
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+
+    raise FileNotFoundError(
+        "No se encontró el directorio 'samples'. "
+        "Ejecuta desde la raíz del proyecto o indica "
+        "--pdfs y --control explícitamente."
+    )
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     """Corre el flujo sobre la muestra incluida y evalúa contra el control set."""
     from .acceptance import acceptance_verdict, load_control_set
@@ -285,9 +303,9 @@ def cmd_verify(args: argparse.Namespace) -> int:
     from .control import run_control_suite
     from .workspace import Workspace
 
-    here = Path(__file__).resolve().parent.parent.parent
-    pdfs = args.pdfs or str(here / "samples" / "pdfs")
-    control = args.control or str(here / "samples" / "control_set.json")
+    samples_dir = _find_samples_dir()
+    pdfs = args.pdfs or str(samples_dir / "pdfs")
+    control = args.control or str(samples_dir / "control_set.json")
     ws = Workspace(args.workspace)
     transcriber = _build_transcriber(args.fake, args.lang)
     backend, model = _resolve_backend_model(args.backend, args.model)
