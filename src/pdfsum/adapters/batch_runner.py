@@ -180,7 +180,7 @@ def run_batch(
                     qa_ok=qa.is_ok,
                     cache_hit=item.cache_hit,
                 )
-            except Exception as exc:  # noqa: BLE001 - isolar falha por documento
+            except Exception as exc:  # noqa: BLE001 - aislar el fallo por documento
                 error = f"{type(exc).__name__}: {exc}"[:2000]
                 documents.append(
                     {

@@ -35,7 +35,7 @@ class CountingTranscriber:
 class SelectiveTranscriber:
     def transcribe(self, path):
         if Path(path).stem == "bad":
-            raise RuntimeError("falha de OCR simulada")
+            raise RuntimeError("fallo simulado de OCR")
         return FakeTranscriber(
             _TEXT, pages=4, source_kind=SourceKind.NATIVO
         ).transcribe(path)
@@ -117,8 +117,8 @@ class TestBatchPdf(unittest.TestCase):
                 "nativo",
             )
 
-    def test_c06_report_em_logs_dir_separado(self):
-        """C06: report.json é gravado em logs_dir separado do workspace."""
+    def test_c06_report_en_logs_dir_separado(self):
+        """C06: report.json se escribe en logs_dir separado del workspace."""
         with TemporaryDirectory() as td:
             ind = Path(td) / "in"
             ind.mkdir()
@@ -153,8 +153,8 @@ class TestBatchPdf(unittest.TestCase):
                 ).exists()
             )
 
-    def test_log_continuo_e_falha_isolada(self):
-        """Falha de um PDF fica registrada e o lote continua no próximo."""
+    def test_log_continuo_y_fallo_aislado(self):
+        """El fallo de un PDF queda registrado y el lote continúa con el próximo."""
         with TemporaryDirectory() as td:
             ind = Path(td) / "in"
             ind.mkdir()
@@ -177,8 +177,8 @@ class TestBatchPdf(unittest.TestCase):
             self.assertTrue((logs / "infrastructure.jsonl").exists())
             self.assertGreaterEqual(report["infrastructure"]["sample_count"], 2)
 
-    def test_checkpoint_sobrevive_interrupcao(self):
-        """Uma interrupção preserva no report os documentos já concluídos."""
+    def test_checkpoint_sobrevive_interrupcion(self):
+        """Una interrupción preserva en el reporte los documentos ya terminados."""
         with TemporaryDirectory() as td:
             ind = Path(td) / "in"
             ind.mkdir()

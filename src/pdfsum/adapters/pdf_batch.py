@@ -209,7 +209,7 @@ def run_batch_pdfs(
                     seconds=round(time.perf_counter() - document_started, 3),
                     qa_ok=qa.is_ok,
                 )
-            except Exception as exc:  # noqa: BLE001 - isolar falha por documento
+            except Exception as exc:  # noqa: BLE001 - aislar el fallo por documento
                 error = f"{type(exc).__name__}: {exc}"[:2000]
                 documents.append(
                     {

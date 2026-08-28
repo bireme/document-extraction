@@ -282,7 +282,7 @@ def _preflight_resumen(model: str, backend: str = "ollama") -> int | None:
 
 
 def _find_samples_dir() -> Path:
-    """Localiza o diretório samples no repo ou no ambiente de execução."""
+    """Localiza el directorio samples en el repo o entorno de ejecución."""
     candidates = [
         Path.cwd() / "samples",
         Path(__file__).resolve().parents[2] / "samples",

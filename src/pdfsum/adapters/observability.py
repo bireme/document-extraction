@@ -1,9 +1,9 @@
-"""Observabilidade local e durável para os runners de lote.
+"""Observabilidad local y durable para los ejecutores de lotes.
 
-Os eventos JSONL são sincronizados em disco a cada escrita. O report.json usa
-troca atômica, evitando que uma queda deixe um JSON parcialmente escrito.
-As métricas usam apenas a stdlib e degradam com segurança quando o host não
-expõe /proc, sensores térmicos ou nvidia-smi.
+Los eventos JSONL se sincronizan en disco con cada escritura. El report.json usa
+un reemplazo atómico, evitando que una caída deje un JSON escrito parcialmente.
+Las métricas usan solo la biblioteca estándar y se degradan de forma segura si
+el host no expone /proc, sensores térmicos o nvidia-smi.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def utc_now() -> str:
 
 
 def _fsync_directory(path: Path) -> None:
-    """Sincroniza metadados do diretório quando a plataforma permite."""
+    """Sincroniza los metadatos del directorio si la plataforma lo permite."""
     try:
         fd = os.open(path, os.O_RDONLY)
     except OSError:
@@ -44,7 +44,7 @@ def _fsync_directory(path: Path) -> None:
 
 
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    """Grava JSON completo e o publica por rename atômico."""
+    """Escribe el JSON completo y lo publica mediante un renombrado atómico."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     data = json.dumps(payload, ensure_ascii=False, indent=2)
@@ -57,7 +57,7 @@ def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 class EventLog:
-    """Log JSONL append-only; cada registro é flushado e fsyncado."""
+    """Log JSONL append-only; cada registro se vacía y sincroniza en disco."""
 
     def __init__(self, path: Path, run_id: str) -> None:
         self.path = path
@@ -156,7 +156,7 @@ def _gpu_metrics() -> list[dict[str, float]]:
 
 
 def collect_snapshot(disk_path: Path) -> dict[str, Any]:
-    """Coleta uma amostra portátil, omitindo métricas indisponíveis."""
+    """Recopila una muestra portátil, omitiendo métricas no disponibles."""
     process: dict[str, Any] = {
         "cpu_seconds": round(time.process_time(), 6),
         "threads": threading.active_count(),
@@ -208,7 +208,7 @@ def collect_snapshot(disk_path: Path) -> dict[str, Any]:
 
 
 def _host_cpu_counters() -> tuple[int, int] | None:
-    """Retorna (total, idle) de /proc/stat para cálculo entre amostras."""
+    """Devuelve (total, idle) de /proc/stat para calcular entre muestras."""
     try:
         fields = Path("/proc/stat").read_text(encoding="utf-8").splitlines()[0]
         ticks = [int(value) for value in fields.split()[1:]]
@@ -221,7 +221,7 @@ def _host_cpu_counters() -> tuple[int, int] | None:
 
 
 class InfrastructureMonitor:
-    """Amostra infraestrutura em background e mantém máximos/mínimos."""
+    """Muestrea infraestructura en segundo plano y mantiene máximos/mínimos."""
 
     def __init__(self, path: Path, disk_path: Path, interval: float = 5.0) -> None:
         self.path = path
