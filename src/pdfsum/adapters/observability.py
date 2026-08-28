@@ -9,6 +9,7 @@ el host no expone /proc, sensores térmicos o nvidia-smi.
 from __future__ import annotations
 
 import json
+import math
 import os
 import platform
 import shutil
@@ -130,9 +131,37 @@ def _optional_float(value: str) -> float | None:
         return None
 
 
-def _throttling_by_gpu() -> dict[str, bool]:
-    fields = ("clocks_event_reasons.active", "clocks_throttle_reasons.active")
-    for field in fields:
+def _percentile(values: list[float], percentile: float) -> float | None:
+    """Calcula el percentil usando el método nearest-rank."""
+    if not values:
+        return None
+
+    ordered = sorted(values)
+    rank = math.ceil(percentile * len(ordered))
+    index = max(0, min(rank - 1, len(ordered) - 1))
+    return ordered[index]
+
+
+def _average(values: list[float]) -> float | None:
+    """Calcula el promedio simple sin dependencias externas."""
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def _throttling_by_gpu() -> dict[str, dict[str, Any]]:
+    reason_fields = {
+        "sw_power_cap": "clocks_event_reasons.sw_power_cap",
+        "sw_thermal_slowdown": "clocks_event_reasons.sw_thermal_slowdown",
+        "hw_thermal_slowdown": "clocks_event_reasons.hw_thermal_slowdown",
+        "hw_power_brake_slowdown": (
+            "clocks_event_reasons.hw_power_brake_slowdown"
+        ),
+    }
+
+    states: dict[str, dict[str, Any]] = {}
+
+    for reason_name, field in reason_fields.items():
         try:
             result = subprocess.run(
                 [
@@ -147,20 +176,35 @@ def _throttling_by_gpu() -> dict[str, bool]:
             )
         except (OSError, subprocess.SubprocessError):
             continue
-        states: dict[str, bool] = {}
+
         for line in result.stdout.splitlines():
             parts = [part.strip() for part in line.split(",", 1)]
             if len(parts) != 2:
                 continue
-            value = parts[1].lower()
-            states[parts[0]] = value not in {
+
+            index, raw_value = parts
+            value = raw_value.lower()
+
+            active = value not in {
                 "0",
                 "0x0000000000000000",
                 "n/a",
                 "not active",
             }
-        return states
-    return {}
+
+            gpu_state = states.setdefault(
+                index,
+                {
+                    "active": False,
+                    "reasons": [],
+                },
+            )
+
+            if active:
+                gpu_state["active"] = True
+                gpu_state["reasons"].append(reason_name)
+
+    return states
 
 
 def _gpu_metrics() -> dict[str, Any]:
@@ -215,6 +259,7 @@ def _gpu_metrics() -> dict[str, Any]:
         index, uuid, name = values[:3]
         numeric = [_optional_float(value) for value in values[3:]]
         numeric += [None] * (9 - len(numeric))
+        throttle_state = throttling.get(index, {})
         gpus.append(
             {
                 "index": int(index) if index.isdigit() else index,
@@ -232,7 +277,8 @@ def _gpu_metrics() -> dict[str, Any]:
                 "performance_state": values[12]
                 if detail_level == "extended"
                 else None,
-                "throttling_active": throttling.get(index),
+                "throttling_active": throttle_state.get("active"),
+                "throttling_reasons": throttle_state.get("reasons", []),
             }
         )
     if not gpus:
@@ -501,22 +547,112 @@ class InfrastructureMonitor:
                 if key in sample.get(section, {})
             ]
 
-        mappings = (
-            ("process", "rss_mb", "process_rss_peak_mb", max),
-            ("process", "cpu_percent", "process_cpu_percent_max", max),
-            ("host", "memory_available_mb", "memory_available_min_mb", min),
-            ("host", "swap_free_mb", "swap_free_min_mb", min),
-            ("host", "disk_free_gb", "disk_free_min_gb", min),
-            ("host", "disk_used_percent", "disk_used_percent_max", max),
-            ("host", "load_1m", "load_1m_max", max),
-            ("host", "cpu_percent", "host_cpu_percent_max", max),
-            ("host", "temperature_max_c", "host_temperature_max_c", max),
-        )
-        for section, key, output, aggregate in mappings:
-            found = values(section, key)
-            if found:
-                summary[output] = round(aggregate(found), 3)
 
+        # Memoria del proceso
+        process_rss = values("process", "rss_mb")
+        if process_rss:
+            summary["process_rss_peak_mb"] = round(max(process_rss), 3)
+        
+        
+        # CPU del proceso
+        process_cpu = values("process", "cpu_percent")
+        if process_cpu:
+            average = _average(process_cpu)
+            if average is not None:
+                summary["process_cpu_percent_avg"] = round(average, 3)
+        
+            summary["process_cpu_percent_max"] = round(
+                max(process_cpu),
+                3,
+            )
+        
+        
+        # Memoria disponible en el host
+        memory_available = values("host", "memory_available_mb")
+        if memory_available:
+            average = _average(memory_available)
+            if average is not None:
+                summary["memory_available_avg_mb"] = round(average, 3)
+        
+            summary["memory_available_min_mb"] = round(
+                min(memory_available),
+                3,
+            )
+        
+        
+        # Swap mínimo
+        swap_free = values("host", "swap_free_mb")
+        if swap_free:
+            summary["swap_free_min_mb"] = round(
+                min(swap_free),
+                3,
+            )
+        
+        
+        # Disco
+        disk_free = values("host", "disk_free_gb")
+        if disk_free:
+            summary["disk_free_min_gb"] = round(
+                min(disk_free),
+                3,
+            )
+        
+        disk_used = values("host", "disk_used_percent")
+        if disk_used:
+            summary["disk_used_percent_max"] = round(
+                max(disk_used),
+                3,
+            )
+        
+        
+        # Load average
+        load_1m = values("host", "load_1m")
+        if load_1m:
+            average = _average(load_1m)
+            if average is not None:
+                summary["load_1m_avg"] = round(average, 3)
+        
+            summary["load_1m_max"] = round(
+                max(load_1m),
+                3,
+            )
+        
+        
+        # CPU total del host
+        host_cpu = values("host", "cpu_percent")
+        if host_cpu:
+            average = _average(host_cpu)
+            if average is not None:
+                summary["host_cpu_percent_avg"] = round(average, 3)
+        
+            summary["host_cpu_percent_max"] = round(
+                max(host_cpu),
+                3,
+            )
+        
+        
+        # Temperatura del host
+        host_temperature = values("host", "temperature_max_c")
+        if host_temperature:
+            average = _average(host_temperature)
+            if average is not None:
+                summary["host_temperature_avg_c"] = round(
+                    average,
+                    3,
+                )
+        
+            p95 = _percentile(host_temperature, 0.95)
+            if p95 is not None:
+                summary["host_temperature_p95_c"] = round(
+                    p95,
+                    3,
+                )
+        
+            summary["host_temperature_max_c"] = round(
+                max(host_temperature),
+                3,
+            )
+        
         cpu_seconds = values("process", "cpu_seconds")
         if len(cpu_seconds) >= 2:
             summary["process_cpu_seconds"] = round(
@@ -575,22 +711,83 @@ class InfrastructureMonitor:
 
         def gpu_values(key: str) -> list[float]:
             return [
-                value
+                float(value)
                 for gpu in gpus
                 if isinstance((value := gpu.get(key)), (int, float))
             ]
 
-        aggregate_gpu_fields = (
-            ("utilization_percent", "gpu_utilization_max_percent"),
-            ("memory_used_mb", "gpu_memory_peak_mb"),
-            ("temperature_c", "gpu_temperature_max_c"),
-            ("power_draw_w", "gpu_power_draw_max_w"),
-            ("fan_speed_percent", "gpu_fan_speed_max_percent"),
-        )
-        for source, target in aggregate_gpu_fields:
-            found = gpu_values(source)
-            if found:
-                summary[target] = round(max(found), 3)
+
+# Uso de la GPU
+        gpu_utilization = gpu_values("utilization_percent")
+        if gpu_utilization:
+            average = _average(gpu_utilization)
+            if average is not None:
+                summary["gpu_utilization_avg_percent"] = round(
+                    average,
+                    3,
+                )
+        
+            p95 = _percentile(gpu_utilization, 0.95)
+            if p95 is not None:
+                summary["gpu_utilization_p95_percent"] = round(
+                    p95,
+                    3,
+                )
+        
+            summary["gpu_utilization_max_percent"] = round(
+                max(gpu_utilization),
+                3,
+            )
+        
+        
+        # VRAM
+        gpu_memory = gpu_values("memory_used_mb")
+        if gpu_memory:
+            summary["gpu_memory_peak_mb"] = round(
+                max(gpu_memory),
+                3,
+            )
+        
+        
+        # Temperatura de la GPU
+        gpu_temperature = gpu_values("temperature_c")
+        if gpu_temperature:
+            average = _average(gpu_temperature)
+            if average is not None:
+               summary["gpu_temperature_avg_c"] = round(
+                    average,
+                    3,
+                )
+        
+            summary["gpu_temperature_max_c"] = round(
+                max(gpu_temperature),
+                3,
+            )
+        
+        
+        # Potencia de la GPU
+        gpu_power = gpu_values("power_draw_w")
+        if gpu_power:
+            average = _average(gpu_power)
+            if average is not None:
+                summary["gpu_power_draw_avg_w"] = round(
+                    average,
+                    3,
+                )
+        
+            summary["gpu_power_draw_max_w"] = round(
+                max(gpu_power),
+                3,
+            )
+        
+        
+        # Ventilador
+        gpu_fan = gpu_values("fan_speed_percent")
+        if gpu_fan:
+            summary["gpu_fan_speed_max_percent"] = round(
+                max(gpu_fan),
+                3,
+            )
 
         device_groups: dict[str, list[dict[str, Any]]] = {}
         for gpu in gpus:
@@ -611,6 +808,18 @@ class InfrastructureMonitor:
                     gpu.get("throttling_active") is True for gpu in observations
                 ),
             }
+
+            throttling_reasons = sorted(
+                {
+                    reason
+                    for gpu in observations
+                    for reason in gpu.get("throttling_reasons", [])
+                }
+            )
+
+            if throttling_reasons:
+                device["throttling_reasons_seen"] = throttling_reasons
+
             performance_states = sorted(
                 {
                     str(gpu["performance_state"])
