@@ -7,8 +7,8 @@ from pdfsum.workspace import Workspace
 
 
 class TestWorkspace(unittest.TestCase):
-    def test_layout(self):
-        """C1: rutas canónicas ocr/, summaries/, y helpers por doc_id."""
+    def test_c01_layout(self):
+        """C01: rutas canónicas ocr/, summaries/, y helpers por doc_id."""
         ws = Workspace("/tmp/wsX")
         self.assertEqual(ws.ocr_dir, Path("/tmp/wsX/ocr"))
         self.assertEqual(ws.summaries_dir, Path("/tmp/wsX/summaries"))

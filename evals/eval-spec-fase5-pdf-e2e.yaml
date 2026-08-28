@@ -32,60 +32,68 @@ criterios:
       run_batch_pdfs(in_dir, workspace, transcriber, summarizer) procesa
       *.pdf: transcribe cada uno (guardando ocr/<doc_id>.txt), resume, y
       escribe summaries/<doc_id>.json + report.json.
-    verificacion: "test_batch_pdf.py::test_batch_desde_pdf"
+    verificacion: "test_batch_pdf.py::test_02_batch_desde_pdf"
 
   - id: C3-ocr-cacheado
     tipo: integration
     descripcion: >
       Si ocr/<doc_id>.txt ya existe, NO se vuelve a transcribir (se reutiliza),
       demostrando idempotencia del paso de OCR (transcriber no invocado).
-    verificacion: "test_batch_pdf.py::test_ocr_cacheado"
+    verificacion: "test_batch_pdf.py::test_03_ocr_cacheado"
 
   - id: C4-ocr-persistido
     tipo: integration
     descripcion: >
       Tras el lote, existe un ocr/<doc_id>.txt por documento con el texto
       transcrito (contenido no vacío).
-    verificacion: "test_batch_pdf.py::test_ocr_persistido"
+    verificacion: "test_batch_pdf.py::test_04_ocr_persistido"
 
   - id: C5-report-incluye-origen
     tipo: integration
     descripcion: >
       El report.json indica, por documento, el origen (source_kind:
       nativo/escaneado) reportado por la transcripción.
-    verificacion: "test_batch_pdf.py::test_report_origen"
+    verificacion: "test_batch_pdf.py::test_05_report_origen"
+
+  - id: C6-report-logs-separado
+    tipo: integration
+    descripcion: >
+      Workspace permite configurar un directorio de logs separado.
+      Cuando logs_dir está definido, report.json se escribe en
+      <logs_dir>/report.json y no en summaries/.
+    verificacion: "test_batch_pdf.py::test_c06_report_em_logs_dir_separado"
 
   # --- CLI ---
-  - id: C6-cli-run
+  - id: C7-cli-run
     tipo: integration
     descripcion: >
       'pdfsum run --in <dir-pdfs> --workspace <dir>' ejecuta el flujo completo
       desde PDFs (transcribe+resume+report) usando un transcriber fake por
       inyección (--fake para tests, sin poppler/tesseract).
-    verificacion: "test_cli_run.py::test_cli_run"
+    verificacion: "test_cli_run.py::test_07_cli_run"
 
-  - id: C7-cli-transcribe
+  - id: C8-cli-transcribe
     tipo: integration
     descripcion: >
       'pdfsum transcribe --in <dir-pdfs> --workspace <dir>' solo transcribe y
       guarda ocr/<doc_id>.txt (sin resumir).
-    verificacion: "test_cli_run.py::test_cli_transcribe"
+    verificacion: "test_cli_run.py::test_08_cli_transcribe"
 
   # --- Arquitectura ---
-  - id: C8-dominio-sin-adaptadores
+  - id: C9-dominio-sin-adaptadores
     tipo: architecture
     descripcion: >
       workspace.py (dominio) NO importa adaptadores ni procesos externos; solo
       compone rutas.
-    verificacion: "test_architecture.py::test_domain_has_no_adapter_imports"
+    verificacion: "test_architecture.py::test_09_domain_has_no_adapter_imports"
 
   # --- Calidad / no regresión ---
-  - id: C9-lint
+  - id: C10-lint
     tipo: metrics
     descripcion: "ruff limpio en src/ y tests/."
     verificacion: "make lint"
 
-  - id: C10-no-regresion
+  - id: C11-no-regresion
     tipo: metrics
     descripcion: "Los 49 tests de Fases 0-4 siguen verdes."
     verificacion: "make test"

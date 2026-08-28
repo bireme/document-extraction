@@ -1,4 +1,4 @@
-"""Tests de arquitectura hexagonal (criterios C8, C9).
+"""Tests de arquitectura hexagonal de varias fases.
 
 Verifican por AST que el dominio no importa adaptadores concretos, y que el
 resumidor es un puerto (Protocol) que los adaptadores implementan.
@@ -53,15 +53,15 @@ def _imports(path: Path) -> set[str]:
 
 
 class TestArchitecture(unittest.TestCase):
-    def test_domain_has_no_adapter_imports(self):
-        """C8: dominio no importa adaptadores ni procesos externos."""
+    def test_c09_domain_has_no_adapter_imports(self):
+        """C09 (F5): dominio no importa adaptadores ni procesos externos."""
         for mod in DOMAIN_MODULES:
             imps = _imports(SRC / mod)
             bad = (imps & FORBIDDEN) | ({FORBIDDEN_LOCAL} & imps)
             self.assertFalse(bad, f"{mod} importa dependencias prohibidas: {bad}")
 
     def test_summarizer_is_port(self):
-        """C9: Summarizer es un Protocol y los adaptadores lo cumplen."""
+        """C9 (F0): Summarizer es un Protocol y los adaptadores lo cumplen."""
         from pdfsum.adapters.fake_summarizer import FakeSummarizer
         from pdfsum.contract import Summarizer
 

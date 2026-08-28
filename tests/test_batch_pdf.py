@@ -38,8 +38,8 @@ def _make_pdfs(d: Path, names):
 
 
 class TestBatchPdf(unittest.TestCase):
-    def test_batch_desde_pdf(self):
-        """C2: procesa *.pdf -> ocr/ + summaries/ + report.json."""
+    def test_c02_batch_desde_pdf(self):
+        """C02: procesa *.pdf -> ocr/ + summaries/ + report.json."""
         with TemporaryDirectory() as td:
             ind = Path(td) / "in"
             ind.mkdir()
@@ -52,8 +52,8 @@ class TestBatchPdf(unittest.TestCase):
             self.assertTrue(ws.report_path.exists())
             self.assertEqual(report["metrics"]["total"], 1)
 
-    def test_ocr_cacheado(self):
-        """C3: si ocr/<id>.txt existe, no se re-transcribe."""
+    def test_c03_ocr_cacheado(self):
+        """C03: si ocr/<id>.txt existe, no se re-transcribe."""
         with TemporaryDirectory() as td:
             ind = Path(td) / "in"
             ind.mkdir()
@@ -65,8 +65,8 @@ class TestBatchPdf(unittest.TestCase):
             transcribe_pdfs(str(ind), ws, tr)  # segunda vez: cacheado
             self.assertEqual(tr.calls, 1)  # no aumentó
 
-    def test_ocr_persistido(self):
-        """C4: existe ocr/<id>.txt con contenido tras el lote."""
+    def test_c04_ocr_persistido(self):
+        """C04: existe ocr/<id>.txt con contenido tras el lote."""
         with TemporaryDirectory() as td:
             ind = Path(td) / "in"
             ind.mkdir()
@@ -77,8 +77,8 @@ class TestBatchPdf(unittest.TestCase):
             self.assertTrue(ocr.exists())
             self.assertIn("RESUMO", ocr.read_text(encoding="utf-8"))
 
-    def test_report_origen(self):
-        """C5: report incluye source_kind por documento."""
+    def test_c05_report_origen(self):
+        """C05: report incluye source_kind por documento."""
         with TemporaryDirectory() as td:
             ind = Path(td) / "in"
             ind.mkdir()
@@ -97,8 +97,8 @@ class TestBatchPdf(unittest.TestCase):
                 "nativo",
             )
 
-    def test_report_em_logs_dir_separado(self):
-        """C6: report.json é gravado em logs_dir separado do workspace."""
+    def test_c06_report_em_logs_dir_separado(self):
+        """C06: report.json é gravado em logs_dir separado do workspace."""
         with TemporaryDirectory() as td:
             ind = Path(td) / "in"
             ind.mkdir()
