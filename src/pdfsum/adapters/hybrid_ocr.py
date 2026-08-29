@@ -13,16 +13,21 @@ Composición:
 
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
 import tempfile
+import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from ..contract import PageOCR, SourceKind, TranscriptResult
 from ..ocr_routing import MIN_CONF, MIN_WORDS, parse_tsv_confidence, route_page
 from ..segment import detect_regions, sort_reading_order, valid_regions
 
 _TEXT_PER_PAGE = 100
+_logger = logging.getLogger(__name__)
 
 
 def _run(cmd: list[str], timeout: int = 120) -> str:
@@ -49,16 +54,35 @@ class HybridOcrTranscriber:
         vlm: PageOCR | None = None,
         min_conf: float = MIN_CONF,
         min_words: int = MIN_WORDS,
+        event_sink: Callable[..., None] | None = None,
     ):
         self.lang = lang
         self.dpi = dpi
         self.vlm = vlm
         self.min_conf = min_conf
         self.min_words = min_words
+        self._event_sink = event_sink
         for tool in ("pdftotext", "pdfinfo", "pdftoppm"):
             if not shutil.which(tool):
                 raise RuntimeError(f"falta herramienta requerida: {tool}")
         self.vlm_used_pages = 0
+
+    def set_event_sink(
+        self, sink: Callable[..., None] | None
+    ) -> Callable[..., None] | None:
+        """Configura el destino de eventos y devuelve el destino anterior."""
+        previous = self._event_sink
+        self._event_sink = sink
+        return previous
+
+    def _emit_event(self, event: str, **fields: Any) -> None:
+        """Emite progreso al log estándar y, si existe, al log durable."""
+        _logger.info(
+            "Progreso del OCR por página",
+            extra={"evento": event, **fields},
+        )
+        if self._event_sink is not None:
+            self._event_sink(event, **fields)
 
     def transcribe(self, path: str) -> TranscriptResult:
         pages = _pdfinfo_pages(path)
@@ -78,19 +102,42 @@ class HybridOcrTranscriber:
             source_kind=SourceKind.ESCANEADO,
         )
 
-    def _ocr_regions(self, img: Path) -> str:
+    def _ocr_regions(
+        self, img: Path, metrics: dict[str, Any] | None = None
+    ) -> str:
         """Segmenta la página y hace OCR por región, ensamblando en orden."""
         from PIL import Image
 
-        im = Image.open(img)
-        regs = sort_reading_order(valid_regions(detect_regions(im), *im.size))
-        partes: list[str] = []
-        for r in regs:
-            crop = im.crop((r.left, r.top, r.right, r.bottom))
-            tmp = img.parent / f"_reg_{r.left}_{r.top}.png"
-            crop.save(tmp)
-            partes.append(self._ocr_page(tmp))
-            tmp.unlink()
+        segment_timings: dict[str, float] = {}
+        fallback_before = self.vlm_used_pages
+        with Image.open(img) as im:
+            regs = sort_reading_order(
+                valid_regions(
+                    detect_regions(im, timings=segment_timings), *im.size
+                )
+            )
+            segmentation_finished = time.perf_counter()
+            partes: list[str] = []
+            for region in regs:
+                tmp = img.parent / f"_reg_{region.left}_{region.top}.png"
+                try:
+                    with im.crop(
+                        (region.left, region.top, region.right, region.bottom)
+                    ) as crop:
+                        crop.save(tmp)
+                    partes.append(self._ocr_page(tmp))
+                finally:
+                    tmp.unlink(missing_ok=True)
+        if metrics is not None:
+            metrics.update(segment_timings)
+            metrics.update(
+                {
+                    "regiones": len(regs),
+                    "ocr_segundos": time.perf_counter()
+                    - segmentation_finished,
+                    "fallback_vlm": self.vlm_used_pages > fallback_before,
+                }
+            )
         return "\n".join(p for p in partes if p.strip())
 
     def _ocr_page(self, img: Path) -> str:
@@ -114,7 +161,14 @@ class HybridOcrTranscriber:
         chunks: list[str] = []
         with tempfile.TemporaryDirectory() as td:
             for p in range(1, max(pages, 1) + 1):
+                self._emit_event(
+                    "ocr_pagina_iniciada",
+                    doc_id=Path(path).stem,
+                    pagina=p,
+                    paginas_total=pages,
+                )
                 prefix = str(Path(td) / f"pg{p}")
+                render_started = time.perf_counter()
                 _run(
                     [
                         "pdftoppm",
@@ -129,10 +183,36 @@ class HybridOcrTranscriber:
                         prefix,
                     ]
                 )
+                render_seconds = time.perf_counter() - render_started
                 imgs = sorted(Path(td).glob(f"pg{p}*.jpg"))
                 if not imgs:
+                    self._emit_event(
+                        "ocr_pagina_sin_imagen",
+                        doc_id=Path(path).stem,
+                        pagina=p,
+                        paginas_total=pages,
+                        render_segundos=round(render_seconds, 6),
+                    )
                     continue
-                chunks.append(f"=== pág {p} ===\n{self._ocr_regions(imgs[0])}")
+                metrics: dict[str, Any] = {}
+                text = self._ocr_regions(imgs[0], metrics)
+                chunks.append(f"=== pág {p} ===\n{text}")
+                self._emit_event(
+                    "ocr_pagina_completada",
+                    doc_id=Path(path).stem,
+                    pagina=p,
+                    paginas_total=pages,
+                    render_segundos=round(render_seconds, 6),
+                    mascara_segundos=round(metrics["mascara_segundos"], 6),
+                    columnas_segundos=round(metrics["columnas_segundos"], 6),
+                    regiones_segundos=round(metrics["regiones_segundos"], 6),
+                    segmentacion_segundos=round(
+                        metrics["segmentacion_segundos"], 6
+                    ),
+                    regiones=metrics["regiones"],
+                    ocr_segundos=round(metrics["ocr_segundos"], 6),
+                    fallback_vlm=metrics["fallback_vlm"],
+                )
                 for im in imgs:
                     im.unlink()
         return "\n".join(chunks)

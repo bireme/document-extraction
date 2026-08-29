@@ -137,7 +137,15 @@ def run_batch_pdfs(
                         "cached": True,
                     }
                 else:
-                    tr = transcriber.transcribe(str(pdf))
+                    set_event_sink = getattr(transcriber, "set_event_sink", None)
+                    previous_sink = None
+                    if callable(set_event_sink):
+                        previous_sink = set_event_sink(events.write)
+                    try:
+                        tr = transcriber.transcribe(str(pdf))
+                    finally:
+                        if callable(set_event_sink):
+                            set_event_sink(previous_sink)
                     ocr_file.write_text(tr.text, encoding="utf-8")
                     om = {
                         "pages": tr.pages,

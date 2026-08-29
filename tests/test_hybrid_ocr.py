@@ -151,6 +151,58 @@ class TestHybridOcr(unittest.TestCase):
         self.assertTrue(seen_lang_args)
         self.assertTrue(all(l == lang_combo for l in seen_lang_args))
 
+    def test_progreso_detallado_por_pagina(self):
+        """Cada página informa tiempos, regiones y uso del fallback VLM."""
+        events: list[tuple[str, dict]] = []
+
+        def capture(event, **fields):
+            events.append((event, fields))
+
+        with (
+            patch("pdfsum.adapters.hybrid_ocr.shutil.which", return_value="/usr/bin/x"),
+            patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1),
+            patch("pdfsum.adapters.hybrid_ocr._run") as run,
+        ):
+
+            def fake_run(cmd, timeout=120):
+                joined = " ".join(cmd)
+                if "pdftotext" in joined:
+                    return ""
+                if "pdftoppm" in joined:
+                    _save_page_image(Path(cmd[-1] + "-1.jpg"))
+                    return ""
+                if "tsv" in joined:
+                    return _tsv(95.0, 30)
+                return "texto tesseract"
+
+            run.side_effect = fake_run
+            transcriber = HybridOcrTranscriber(
+                lang="por", vlm=FakePageOCR(), event_sink=capture
+            )
+            transcriber.transcribe(str(self.dir / "x.pdf"))
+
+        names = [event for event, _ in events]
+        self.assertEqual(names[0], "ocr_pagina_iniciada")
+        self.assertIn("ocr_pagina_completada", names)
+        completed = next(
+            fields
+            for event, fields in events
+            if event == "ocr_pagina_completada"
+        )
+        self.assertEqual(completed["pagina"], 1)
+        self.assertEqual(completed["paginas_total"], 1)
+        self.assertGreaterEqual(completed["regiones"], 1)
+        self.assertFalse(completed["fallback_vlm"])
+        for field in (
+            "render_segundos",
+            "mascara_segundos",
+            "columnas_segundos",
+            "regiones_segundos",
+            "segmentacion_segundos",
+            "ocr_segundos",
+        ):
+            self.assertGreaterEqual(completed[field], 0)
+
     def test_cli_run_hibrido_fake(self):
         """C7: run con fake no rompe (inyección del transcriptor)."""
         # La integración CLI->híbrido real se valida manualmente con Ollama;

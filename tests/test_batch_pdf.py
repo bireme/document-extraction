@@ -41,6 +41,29 @@ class SelectiveTranscriber:
         ).transcribe(path)
 
 
+class EventTranscriber:
+    """Transcriptor fake que emite progreso mediante el destino inyectado."""
+
+    def __init__(self):
+        self.sink = None
+
+    def set_event_sink(self, sink):
+        previous = self.sink
+        self.sink = sink
+        return previous
+
+    def transcribe(self, path):
+        self.sink(
+            "ocr_pagina_completada",
+            doc_id=Path(path).stem,
+            pagina=1,
+            paginas_total=1,
+        )
+        return FakeTranscriber(
+            _TEXT, pages=1, source_kind=SourceKind.ESCANEADO
+        ).transcribe(path)
+
+
 class InterruptingSummarizer:
     def summarize(self, request):
         if request.doc_id == "b":
@@ -153,6 +176,25 @@ class TestBatchPdf(unittest.TestCase):
                     "summaries", "art.json"
                 ).exists()
             )
+
+    def test_progreso_ocr_llega_al_log_durable(self):
+        """El lote conecta y restaura el destino de eventos del transcriptor."""
+        with TemporaryDirectory() as td:
+            input_dir = Path(td) / "entrada"
+            input_dir.mkdir()
+            _make_pdfs(input_dir, ["art"])
+            logs_dir = Path(td) / "logs"
+            workspace = Workspace(Path(td) / "salida", logs_dir=logs_dir)
+            transcriber = EventTranscriber()
+
+            run_batch_pdfs(
+                str(input_dir), workspace, transcriber, FakeSummarizer()
+            )
+
+            events = (logs_dir / "events.jsonl").read_text(encoding="utf-8")
+            self.assertIn('"event":"ocr_pagina_completada"', events)
+            self.assertIn('"pagina":1', events)
+            self.assertIsNone(transcriber.sink)
 
     def test_log_continuo_y_fallo_aislado(self):
         """El fallo de un PDF queda registrado y el lote continúa con el próximo."""
