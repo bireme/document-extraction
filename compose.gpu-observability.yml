@@ -1,0 +1,8 @@
+# Override opcional: permite que el monitor de pdfsum consulte la GPU física.
+# Uso junto con compose.yml; requiere NVIDIA Container Toolkit en el host.
+services:
+  pdfsum:
+    gpus: all
+    environment:
+      # Solo expone las utilidades de gestión; pdfsum no ejecuta inferencia.
+      NVIDIA_DRIVER_CAPABILITIES: utility

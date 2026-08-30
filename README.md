@@ -197,6 +197,52 @@ uv run pdfsum serve --batch-dir ./_resumenes --port 8765
 Salida: JSON con `doc_id`, `idioma_principal`, `tipo_documento`, `plantilla`,
 `secciones`, `idiomas_resumo_origem`, `abstracts_origem`, `meta`.
 
+El `report.json` incluye `report_version`, fecha UTC de generación y unidad de
+duración. Cada entrada de `documents` informa `tiempo_total` y
+`tiempos_por_fase`; en `metrics`, `tiempo_total_por_fase` y
+`tiempo_medio_por_fase` permiten comparar los cuellos de botella del lote. El
+flujo PDF mide `transcripcion`, `lectura_ocr`, `resumen`, `qa` y
+`escritura_resultado`, e indica con `transcription_cached` si reutilizó OCR. El
+lote de textos mide `lectura_texto`, `cola`, `resumen`, `qa` y
+`escritura_resultado`, e indica con `cache_hit` si reutilizó el resultado.
+
+### Logs continuos e infraestructura
+
+Los comandos `run` y `batch` mantienen tres archivos de observabilidad en el
+directorio del reporte:
+
+- `events.jsonl`: eventos append-only con `run_id`, documento, fase, error y
+  estado. Cada línea se vacía y sincroniza inmediatamente en disco.
+- `infrastructure.jsonl`: muestras periódicas de CPU, RAM, carga, swap, disco,
+  temperatura del host y aceleradores. Consulta `/api/ps` del Ollama para
+  registrar modelos cargados, contexto y VRAM asignada aunque Ollama esté en
+  otro contenedor; si `nvidia-smi` está disponible, añade por GPU utilización,
+  VRAM, temperatura, potencia, ventilador, clocks y throttling.
+- `report.json`: checkpoint atómico actualizado al comenzar el lote y después
+  de cada documento. `progress` muestra descubiertos, concluidos, fallidos y
+  pendientes; `infrastructure` resume picos y mínimos de la ejecución.
+
+Una falla en un documento queda registrada y no detiene los documentos
+siguientes. Ante interrupción normal, el reporte queda con estado
+`interrupted`; ante una caída abrupta, incluso `SIGKILL`, queda disponible el
+último checkpoint ya sincronizado, además de los eventos anteriores. Como
+ningún software puede ejecutar después de una pérdida total de energía, el
+documento que estaba en curso puede aparecer solo como `document_started`;
+todos los que ya emitieron `document_completed` permanecen confirmados.
+
+En Docker, la VRAM de Ollama se observa automáticamente mediante `OLLAMA_HOST`.
+Para permitir también las métricas físicas de NVIDIA dentro de `pdfsum`, usa el
+override opt-in (requiere NVIDIA Container Toolkit):
+
+```bash
+docker compose -f compose.yml -f compose.gpu-observability.yml \
+  --profile gpu up --build
+```
+
+Sin ese override, el reporte indica `nvidia_smi_available: false`, pero conserva
+las métricas del host y la VRAM comunicada por Ollama. La consulta a `/api/ps`
+se puede desactivar con `PDFSUM_OLLAMA_METRICS=0`.
+
 ## Versionado
 
 Semantic Versioning (`MAJOR.MINOR.PATCH`):

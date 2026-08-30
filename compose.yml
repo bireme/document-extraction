@@ -28,6 +28,7 @@ services:
       # Las API keys NUNCA se hardcodean aqui: pasan del entorno del host
       # (o de tu .env, ver .env.example) tal cual, vacias si no las defines.
       PDFSUM_SUMMARIZER_BACKEND: ${PDFSUM_SUMMARIZER_BACKEND:-}
+      PDFSUM_OLLAMA_METRICS: ${PDFSUM_OLLAMA_METRICS:-1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

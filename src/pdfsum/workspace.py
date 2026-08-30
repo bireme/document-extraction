@@ -9,6 +9,8 @@ Layout:
     ocr/<doc_id>.txt         transcripciones (artefacto intermedio cacheado)
     summaries/<doc_id>.json  resúmenes estructurados
     <logs_dir>/report.json   reporte agregado del lote, si logs_dir fue definido
+    <logs_dir>/events.jsonl  eventos durables por documento/fase
+    <logs_dir>/infrastructure.jsonl  muestras de CPU/RAM/disco/temperatura/GPU
     summaries/report.json    fallback si logs_dir no fue definido
     lilacs.json              export de catalogación (borrador)
     bibframe/<doc_id>.bibframe.json  registros bibliográficos BIBFRAME (borrador)
@@ -16,8 +18,25 @@ Layout:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
+
+_SECUENCIA_RUTA_CODIFICADA = re.compile(r"%(?:2e|2f|5c)", re.IGNORECASE)
+
+
+def _validate_doc_id(doc_id: str) -> str:
+    """Rechaza IDs capaces de alterar la ruta canónica del documento."""
+    if (
+        not doc_id.strip()
+        or doc_id in {".", ".."}
+        or "/" in doc_id
+        or "\\" in doc_id
+        or _SECUENCIA_RUTA_CODIFICADA.search(doc_id)
+        or any(ord(character) < 32 or ord(character) == 127 for character in doc_id)
+    ):
+        raise ValueError("ID de documento inválido para construir una ruta")
+    return doc_id
 
 
 @dataclass(frozen=True)
@@ -42,10 +61,10 @@ class Workspace:
         return self.root / "summaries"
 
     def ocr_path(self, doc_id: str) -> Path:
-        return self.ocr_dir / f"{doc_id}.txt"
+        return self.ocr_dir / f"{_validate_doc_id(doc_id)}.txt"
 
     def summary_path(self, doc_id: str) -> Path:
-        return self.summaries_dir / f"{doc_id}.json"
+        return self.summaries_dir / f"{_validate_doc_id(doc_id)}.json"
 
     @property
     def report_path(self) -> Path:
@@ -62,4 +81,4 @@ class Workspace:
         return self.root / "bibframe"
 
     def bibframe_path(self, doc_id: str) -> Path:
-        return self.bibframe_dir / f"{doc_id}.bibframe.json"
+        return self.bibframe_dir / f"{_validate_doc_id(doc_id)}.bibframe.json"
