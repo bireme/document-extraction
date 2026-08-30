@@ -17,6 +17,28 @@ class TestWorkspace(unittest.TestCase):
         self.assertEqual(ws.report_path, Path("/tmp/wsX/summaries/report.json"))
         self.assertEqual(ws.lilacs_path, Path("/tmp/wsX/lilacs.json"))
 
+    def test_ids_maliciosos_no_escapan_del_workspace(self):
+        """Los IDs no pueden construir rutas fuera de los directorios canónicos."""
+        ws = Workspace("/tmp/wsX")
+        ids_invalidos = (
+            "",
+            "../escape",
+            "../../archivo",
+            "/tmp/absoluto",
+            "%2e%2e",
+            r"..\escape",
+            "control\x00",
+        )
+
+        for doc_id in ids_invalidos:
+            with self.subTest(doc_id=repr(doc_id)):
+                with self.assertRaises(ValueError):
+                    ws.ocr_path(doc_id)
+                with self.assertRaises(ValueError):
+                    ws.summary_path(doc_id)
+                with self.assertRaises(ValueError):
+                    ws.bibframe_path(doc_id)
+
 
 if __name__ == "__main__":
     unittest.main()

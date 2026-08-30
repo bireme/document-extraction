@@ -435,10 +435,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument(
         "--logs-dir",
         default=None,
-        help=(
-            "directorio para report.json "
-            "(por defecto: <workspace>/summaries)"
-        ),
+        help=("directorio para report.json (por defecto: <workspace>/summaries)"),
     )
     r.add_argument(
         "--lang",

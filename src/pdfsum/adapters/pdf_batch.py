@@ -241,9 +241,11 @@ def run_batch_pdfs(
                 events.write("document_failed", doc_id=doc_id, error=error)
             monitor.set_context()
             checkpoint()
-        status = "completed_with_errors" if any(
-            doc["status"] == "failed" for doc in documents
-        ) else "completed"
+        status = (
+            "completed_with_errors"
+            if any(doc["status"] == "failed" for doc in documents)
+            else "completed"
+        )
         checkpoint()
         events.write("run_completed", status=status)
     except BaseException as exc:

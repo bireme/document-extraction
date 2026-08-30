@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 try:
     import resource
@@ -50,13 +51,17 @@ def _fsync_directory(path: Path) -> None:
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     """Escribe el JSON completo y lo publica mediante un renombrado atómico."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
     data = json.dumps(payload, ensure_ascii=False, indent=2)
-    with temporary.open("w", encoding="utf-8") as stream:
-        stream.write(data)
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.replace(temporary, path)
+    try:
+        with temporary.open("w", encoding="utf-8") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
     _fsync_directory(path.parent)
 
 
@@ -154,9 +159,7 @@ def _throttling_by_gpu() -> dict[str, dict[str, Any]]:
         "sw_power_cap": "clocks_event_reasons.sw_power_cap",
         "sw_thermal_slowdown": "clocks_event_reasons.sw_thermal_slowdown",
         "hw_thermal_slowdown": "clocks_event_reasons.hw_thermal_slowdown",
-        "hw_power_brake_slowdown": (
-            "clocks_event_reasons.hw_power_brake_slowdown"
-        ),
+        "hw_power_brake_slowdown": ("clocks_event_reasons.hw_power_brake_slowdown"),
     }
 
     states: dict[str, dict[str, Any]] = {}
@@ -274,9 +277,7 @@ def _gpu_metrics() -> dict[str, Any]:
                 "fan_speed_percent": numeric[6],
                 "clock_sm_mhz": numeric[7],
                 "clock_memory_mhz": numeric[8],
-                "performance_state": values[12]
-                if detail_level == "extended"
-                else None,
+                "performance_state": values[12] if detail_level == "extended" else None,
                 "throttling_active": throttle_state.get("active"),
                 "throttling_reasons": throttle_state.get("reasons", []),
             }
@@ -314,17 +315,17 @@ def _ollama_metrics(host: str) -> dict[str, Any]:
             raise ValueError("respuesta demasiado grande")
         payload = json.loads(raw.decode("utf-8"))
         if not isinstance(payload, dict):
-            raise ValueError("respuesta inválida")
+            raise TypeError("respuesta inválida")
         raw_models = payload.get("models", [])
         if not isinstance(raw_models, list):
-            raise ValueError("modelos inválidos")
+            raise TypeError("modelos inválidos")
     except urllib.error.HTTPError as exc:
         return {
             "available": False,
             "host": safe_host,
             "error": f"Ollama HTTP {exc.code}",
         }
-    except (OSError, ValueError):
+    except (OSError, TypeError, ValueError):
         return {
             "available": False,
             "host": safe_host,
@@ -452,7 +453,7 @@ class InfrastructureMonitor:
             "no",
         }
         configured_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-        self.ollama_host = (configured_host if ollama_host is None else ollama_host)
+        self.ollama_host = configured_host if ollama_host is None else ollama_host
         if not metrics_enabled:
             self.ollama_host = ""
         self.ollama_metrics_enabled = bool(self.ollama_host)
@@ -547,39 +548,35 @@ class InfrastructureMonitor:
                 if key in sample.get(section, {})
             ]
 
-
         # Memoria del proceso
         process_rss = values("process", "rss_mb")
         if process_rss:
             summary["process_rss_peak_mb"] = round(max(process_rss), 3)
-        
-        
+
         # CPU del proceso
         process_cpu = values("process", "cpu_percent")
         if process_cpu:
             average = _average(process_cpu)
             if average is not None:
                 summary["process_cpu_percent_avg"] = round(average, 3)
-        
+
             summary["process_cpu_percent_max"] = round(
                 max(process_cpu),
                 3,
             )
-        
-        
+
         # Memoria disponible en el host
         memory_available = values("host", "memory_available_mb")
         if memory_available:
             average = _average(memory_available)
             if average is not None:
                 summary["memory_available_avg_mb"] = round(average, 3)
-        
+
             summary["memory_available_min_mb"] = round(
                 min(memory_available),
                 3,
             )
-        
-        
+
         # Swap mínimo
         swap_free = values("host", "swap_free_mb")
         if swap_free:
@@ -587,8 +584,7 @@ class InfrastructureMonitor:
                 min(swap_free),
                 3,
             )
-        
-        
+
         # Disco
         disk_free = values("host", "disk_free_gb")
         if disk_free:
@@ -596,41 +592,38 @@ class InfrastructureMonitor:
                 min(disk_free),
                 3,
             )
-        
+
         disk_used = values("host", "disk_used_percent")
         if disk_used:
             summary["disk_used_percent_max"] = round(
                 max(disk_used),
                 3,
             )
-        
-        
+
         # Load average
         load_1m = values("host", "load_1m")
         if load_1m:
             average = _average(load_1m)
             if average is not None:
                 summary["load_1m_avg"] = round(average, 3)
-        
+
             summary["load_1m_max"] = round(
                 max(load_1m),
                 3,
             )
-        
-        
+
         # CPU total del host
         host_cpu = values("host", "cpu_percent")
         if host_cpu:
             average = _average(host_cpu)
             if average is not None:
                 summary["host_cpu_percent_avg"] = round(average, 3)
-        
+
             summary["host_cpu_percent_max"] = round(
                 max(host_cpu),
                 3,
             )
-        
-        
+
         # Temperatura del host
         host_temperature = values("host", "temperature_max_c")
         if host_temperature:
@@ -640,19 +633,19 @@ class InfrastructureMonitor:
                     average,
                     3,
                 )
-        
+
             p95 = _percentile(host_temperature, 0.95)
             if p95 is not None:
                 summary["host_temperature_p95_c"] = round(
                     p95,
                     3,
                 )
-        
+
             summary["host_temperature_max_c"] = round(
                 max(host_temperature),
                 3,
             )
-        
+
         cpu_seconds = values("process", "cpu_seconds")
         if len(cpu_seconds) >= 2:
             summary["process_cpu_seconds"] = round(
@@ -666,8 +659,7 @@ class InfrastructureMonitor:
         ]
         gpu_monitoring: dict[str, Any] = {
             "nvidia_smi_available": any(
-                observation.get("available", False)
-                for observation in gpu_observations
+                observation.get("available", False) for observation in gpu_observations
             ),
             "ollama_api_available": any(
                 observation.get("available", False)
@@ -716,8 +708,7 @@ class InfrastructureMonitor:
                 if isinstance((value := gpu.get(key)), (int, float))
             ]
 
-
-# Uso de la GPU
+        # Uso de la GPU
         gpu_utilization = gpu_values("utilization_percent")
         if gpu_utilization:
             average = _average(gpu_utilization)
@@ -726,20 +717,19 @@ class InfrastructureMonitor:
                     average,
                     3,
                 )
-        
+
             p95 = _percentile(gpu_utilization, 0.95)
             if p95 is not None:
                 summary["gpu_utilization_p95_percent"] = round(
                     p95,
                     3,
                 )
-        
+
             summary["gpu_utilization_max_percent"] = round(
                 max(gpu_utilization),
                 3,
             )
-        
-        
+
         # VRAM
         gpu_memory = gpu_values("memory_used_mb")
         if gpu_memory:
@@ -747,24 +737,22 @@ class InfrastructureMonitor:
                 max(gpu_memory),
                 3,
             )
-        
-        
+
         # Temperatura de la GPU
         gpu_temperature = gpu_values("temperature_c")
         if gpu_temperature:
             average = _average(gpu_temperature)
             if average is not None:
-               summary["gpu_temperature_avg_c"] = round(
+                summary["gpu_temperature_avg_c"] = round(
                     average,
                     3,
                 )
-        
+
             summary["gpu_temperature_max_c"] = round(
                 max(gpu_temperature),
                 3,
             )
-        
-        
+
         # Potencia de la GPU
         gpu_power = gpu_values("power_draw_w")
         if gpu_power:
@@ -774,13 +762,12 @@ class InfrastructureMonitor:
                     average,
                     3,
                 )
-        
+
             summary["gpu_power_draw_max_w"] = round(
                 max(gpu_power),
                 3,
             )
-        
-        
+
         # Ventilador
         gpu_fan = gpu_values("fan_speed_percent")
         if gpu_fan:
@@ -801,8 +788,7 @@ class InfrastructureMonitor:
                 "index": first.get("index"),
                 "name": first.get("name"),
                 "throttling_observed": any(
-                    gpu.get("throttling_active") is not None
-                    for gpu in observations
+                    gpu.get("throttling_active") is not None for gpu in observations
                 ),
                 "throttling_detected": any(
                     gpu.get("throttling_active") is True for gpu in observations
@@ -876,19 +862,15 @@ class InfrastructureMonitor:
                     "name": name,
                     "vram_peak_mb": round(
                         max(
-                            model.get("size_vram_mb", 0) or 0
-                            for model in observations
+                            model.get("size_vram_mb", 0) or 0 for model in observations
                         ),
                         3,
                     ),
                     "context_length_max": max(
-                        model.get("context_length", 0) or 0
-                        for model in observations
+                        model.get("context_length", 0) or 0 for model in observations
                     ),
                     "parameter_size": observations[-1].get("parameter_size"),
-                    "quantization_level": observations[-1].get(
-                        "quantization_level"
-                    ),
+                    "quantization_level": observations[-1].get("quantization_level"),
                 }
                 for name, observations in sorted(ollama_models.items())
             ]

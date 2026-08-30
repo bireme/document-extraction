@@ -47,9 +47,7 @@ def run_batch(
     run_id = str(uuid4())
     started_at = utc_now()
     events = EventLog(out / "events.jsonl", run_id)
-    monitor = InfrastructureMonitor(
-        out / "infrastructure.jsonl", out, run_id=run_id
-    )
+    monitor = InfrastructureMonitor(out / "infrastructure.jsonl", out, run_id=run_id)
     items: list[BatchItem] = []
     documents: list[dict] = []
     status = "running"
@@ -206,9 +204,11 @@ def run_batch(
                 events.write("document_failed", doc_id=doc_id, error=error)
             monitor.set_context()
             checkpoint()
-        status = "completed_with_errors" if any(
-            doc["status"] == "failed" for doc in documents
-        ) else "completed"
+        status = (
+            "completed_with_errors"
+            if any(doc["status"] == "failed" for doc in documents)
+            else "completed"
+        )
         checkpoint()
         events.write("run_completed", status=status)
     except BaseException as exc:

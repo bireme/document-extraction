@@ -128,11 +128,7 @@ def _detect_columns_reduced(mask: _ContentMask) -> list[Region]:
     projection_x, _ = mask.image.getprojection()
     projection_x = list(projection_x)
     gutter_min = _scaled(_GUTTER_MIN, mask.scale_x)
-    gaps = [
-        gap
-        for gap in _valleys(projection_x)
-        if (gap[1] - gap[0]) >= gutter_min
-    ]
+    gaps = [gap for gap in _valleys(projection_x) if (gap[1] - gap[0]) >= gutter_min]
     cuts = [0] + [(left + right) // 2 for left, right in gaps] + [mask.width]
     min_width = _scaled(_MIN_COL_ANCHO, mask.scale_x)
     columns: list[Region] = []
@@ -144,9 +140,7 @@ def _detect_columns_reduced(mask: _ContentMask) -> list[Region]:
     return columns
 
 
-def _project_region(
-    region: Region, mask: _ContentMask, margin: int = 0
-) -> Region:
+def _project_region(region: Region, mask: _ContentMask, margin: int = 0) -> Region:
     """Proyecta una caja reducida sin recortar sus bordes por redondeo."""
     left = region.left * mask.original_width // mask.width
     top = region.top * mask.original_height // mask.height
@@ -215,9 +209,11 @@ def detect_regions(
             (column.top + top, column.top + bottom)
             for top, bottom in _valleys(projection_y, min_run=min_gap)
         ]
-        cuts = [column.top] + [
-            (top + bottom) // 2 for top, bottom in gaps
-        ] + [column.bottom]
+        cuts = (
+            [column.top]
+            + [(top + bottom) // 2 for top, bottom in gaps]
+            + [column.bottom]
+        )
         prefix = [0]
         for value in projection_y:
             prefix.append(prefix[-1] + bool(value))

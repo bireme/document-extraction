@@ -102,9 +102,7 @@ class HybridOcrTranscriber:
             source_kind=SourceKind.ESCANEADO,
         )
 
-    def _ocr_regions(
-        self, img: Path, metrics: dict[str, Any] | None = None
-    ) -> str:
+    def _ocr_regions(self, img: Path, metrics: dict[str, Any] | None = None) -> str:
         """Segmenta la página y hace OCR por región, ensamblando en orden."""
         from PIL import Image
 
@@ -112,9 +110,7 @@ class HybridOcrTranscriber:
         fallback_before = self.vlm_used_pages
         with Image.open(img) as im:
             regs = sort_reading_order(
-                valid_regions(
-                    detect_regions(im, timings=segment_timings), *im.size
-                )
+                valid_regions(detect_regions(im, timings=segment_timings), *im.size)
             )
             segmentation_finished = time.perf_counter()
             partes: list[str] = []
@@ -133,8 +129,7 @@ class HybridOcrTranscriber:
             metrics.update(
                 {
                     "regiones": len(regs),
-                    "ocr_segundos": time.perf_counter()
-                    - segmentation_finished,
+                    "ocr_segundos": time.perf_counter() - segmentation_finished,
                     "fallback_vlm": self.vlm_used_pages > fallback_before,
                 }
             )
@@ -206,9 +201,7 @@ class HybridOcrTranscriber:
                     mascara_segundos=round(metrics["mascara_segundos"], 6),
                     columnas_segundos=round(metrics["columnas_segundos"], 6),
                     regiones_segundos=round(metrics["regiones_segundos"], 6),
-                    segmentacion_segundos=round(
-                        metrics["segmentacion_segundos"], 6
-                    ),
+                    segmentacion_segundos=round(metrics["segmentacion_segundos"], 6),
                     regiones=metrics["regiones"],
                     ocr_segundos=round(metrics["ocr_segundos"], 6),
                     fallback_vlm=metrics["fallback_vlm"],

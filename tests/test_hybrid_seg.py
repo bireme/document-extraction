@@ -117,11 +117,17 @@ class TestHybridSeg(unittest.TestCase):
             tr = self._hybrid(MarkingOCR()).transcribe(str(self.pdf))
         # los marcadores aparecen en orden de lectura (col izq antes que der)
         self.assertTrue(seen)
-        # primera región (izquierda) antes que la derecha
-        left_idx = tr.text.find("<_reg_80_") if "_reg_80_" in tr.text else -1
-        right_idx = tr.text.find("<_reg_460_") if "_reg_460_" in tr.text else -1
-        if left_idx >= 0 and right_idx >= 0:
-            self.assertLess(left_idx, right_idx)
+        # La proyección añade margen, por eso se comparan las columnas
+        # descubiertas en vez de fijar coordenadas exactas y frágiles.
+        positions = {name: int(name.split("_")[2]) for name in seen}
+        self.assertGreater(len(set(positions.values())), 1)
+        left = min(positions, key=positions.get)
+        right = max(positions, key=positions.get)
+        left_idx = tr.text.find(f"<{left}>")
+        right_idx = tr.text.find(f"<{right}>")
+        self.assertGreaterEqual(left_idx, 0)
+        self.assertGreaterEqual(right_idx, 0)
+        self.assertLess(left_idx, right_idx)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from pdfsum.adapters.fake_summarizer import FakeSummarizer
 from pdfsum.adapters.fake_transcriber import FakeTranscriber
@@ -69,6 +70,11 @@ class InterruptingSummarizer:
         if request.doc_id == "b":
             raise KeyboardInterrupt()
         return FakeSummarizer().summarize(request)
+
+
+class InterruptingTranscriber:
+    def transcribe(self, path):
+        raise KeyboardInterrupt()
 
 
 def _make_pdfs(d: Path, names):
@@ -163,19 +169,11 @@ class TestBatchPdf(unittest.TestCase):
                 FakeSummarizer(),
             )
 
-            self.assertTrue(
-                (logs_dir / "report.json").exists()
-            )
+            self.assertTrue((logs_dir / "report.json").exists())
 
-            self.assertFalse(
-                (workspace_dir / "summaries" / "report.json").exists()
-            )
+            self.assertFalse((workspace_dir / "summaries" / "report.json").exists())
 
-            self.assertTrue(
-                workspace_dir.joinpath(
-                    "summaries", "art.json"
-                ).exists()
-            )
+            self.assertTrue(workspace_dir.joinpath("summaries", "art.json").exists())
 
     def test_progreso_ocr_llega_al_log_durable(self):
         """El lote conecta y restaura el destino de eventos del transcriptor."""
@@ -187,9 +185,7 @@ class TestBatchPdf(unittest.TestCase):
             workspace = Workspace(Path(td) / "salida", logs_dir=logs_dir)
             transcriber = EventTranscriber()
 
-            run_batch_pdfs(
-                str(input_dir), workspace, transcriber, FakeSummarizer()
-            )
+            run_batch_pdfs(str(input_dir), workspace, transcriber, FakeSummarizer())
 
             events = (logs_dir / "events.jsonl").read_text(encoding="utf-8")
             self.assertIn('"event":"ocr_pagina_completada"', events)
@@ -243,6 +239,105 @@ class TestBatchPdf(unittest.TestCase):
             self.assertEqual(report["documents"][0]["doc_id"], "a")
             events = (logs / "events.jsonl").read_text(encoding="utf-8")
             self.assertIn('"event":"run_interrupted"', events)
+
+    def test_interrupcion_durante_ocr_deja_reporte_valido(self):
+        """Una interrupción de OCR publica estado interrupted sin resumen parcial."""
+        with TemporaryDirectory() as td:
+            input_dir = Path(td) / "entrada"
+            input_dir.mkdir()
+            _make_pdfs(input_dir, ["a"])
+            logs = Path(td) / "logs"
+            workspace = Workspace(Path(td) / "salida", logs_dir=logs)
+
+            with self.assertRaises(KeyboardInterrupt):
+                run_batch_pdfs(
+                    str(input_dir),
+                    workspace,
+                    InterruptingTranscriber(),
+                    FakeSummarizer(),
+                )
+
+            report = json.loads(workspace.report_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "interrupted")
+            self.assertEqual(report["progress"]["processed"], 0)
+            self.assertFalse(workspace.summary_path("a").exists())
+
+    def test_interrupcion_escribiendo_summary_preserva_archivo_valido(self):
+        """El summary anterior no se sustituye si falla su publicación atómica."""
+        from pdfsum.adapters.observability import atomic_write_json as real_atomic
+
+        with TemporaryDirectory() as td:
+            input_dir = Path(td) / "entrada"
+            input_dir.mkdir()
+            _make_pdfs(input_dir, ["a"])
+            logs = Path(td) / "logs"
+            workspace = Workspace(Path(td) / "salida", logs_dir=logs)
+            workspace.summaries_dir.mkdir(parents=True)
+            real_atomic(workspace.summary_path("a"), {"estado": "anterior"})
+
+            def interrupt_summary(path, payload):
+                if path == workspace.summary_path("a"):
+                    raise KeyboardInterrupt()
+                return real_atomic(path, payload)
+
+            with (
+                patch(
+                    "pdfsum.adapters.pdf_batch.atomic_write_json",
+                    side_effect=interrupt_summary,
+                ),
+                self.assertRaises(KeyboardInterrupt),
+            ):
+                run_batch_pdfs(
+                    str(input_dir),
+                    workspace,
+                    FakeTranscriber(_TEXT, pages=1),
+                    FakeSummarizer(),
+                )
+
+            self.assertEqual(
+                json.loads(workspace.summary_path("a").read_text(encoding="utf-8")),
+                {"estado": "anterior"},
+            )
+            report = json.loads(workspace.report_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "interrupted")
+
+    def test_interrupcion_actualizando_report_se_recupera(self):
+        """Un fallo transitorio del checkpoint termina con report JSON válido."""
+        from pdfsum.adapters.observability import atomic_write_json as real_atomic
+
+        with TemporaryDirectory() as td:
+            input_dir = Path(td) / "entrada"
+            input_dir.mkdir()
+            _make_pdfs(input_dir, ["a"])
+            logs = Path(td) / "logs"
+            workspace = Workspace(Path(td) / "salida", logs_dir=logs)
+            report_writes = 0
+
+            def interrupt_second_report(path, payload):
+                nonlocal report_writes
+                if path == workspace.report_path:
+                    report_writes += 1
+                    if report_writes == 2:
+                        raise KeyboardInterrupt()
+                return real_atomic(path, payload)
+
+            with (
+                patch(
+                    "pdfsum.adapters.pdf_batch.atomic_write_json",
+                    side_effect=interrupt_second_report,
+                ),
+                self.assertRaises(KeyboardInterrupt),
+            ):
+                run_batch_pdfs(
+                    str(input_dir),
+                    workspace,
+                    FakeTranscriber(_TEXT, pages=1),
+                    FakeSummarizer(),
+                )
+
+            report = json.loads(workspace.report_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "interrupted")
+            self.assertEqual(report["progress"]["completed"], 1)
 
 
 if __name__ == "__main__":

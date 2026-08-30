@@ -40,9 +40,14 @@ class TestGpuMetrics(unittest.TestCase):
                     "215.5, 250, N/A, 1410, 1215, P2\n"
                 ),
             ),
-            subprocess.CompletedProcess(
-                [], 0, stdout="0, 0x0000000000000004\n"
-            ),
+            *[
+                subprocess.CompletedProcess(
+                    [],
+                    0,
+                    stdout=("0, 0x0000000000000004\n" if index == 0 else "0, 0\n"),
+                )
+                for index in range(4)
+            ],
         ]
 
         observation = _gpu_metrics()
@@ -71,9 +76,7 @@ class TestGpuMetrics(unittest.TestCase):
             subprocess.CompletedProcess(
                 [], 0, stdout="0, GPU-old, NVIDIA T4, 80, 12000, 15360, 72\n"
             ),
-            subprocess.CompletedProcess(
-                [], 0, stdout="0, 0x0000000000000000\n"
-            ),
+            *[subprocess.CompletedProcess([], 0, stdout="0, 0\n") for _ in range(4)],
         ]
 
         observation = _gpu_metrics()

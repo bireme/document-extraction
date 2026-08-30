@@ -185,9 +185,7 @@ class TestHybridOcr(unittest.TestCase):
         self.assertEqual(names[0], "ocr_pagina_iniciada")
         self.assertIn("ocr_pagina_completada", names)
         completed = next(
-            fields
-            for event, fields in events
-            if event == "ocr_pagina_completada"
+            fields for event, fields in events if event == "ocr_pagina_completada"
         )
         self.assertEqual(completed["pagina"], 1)
         self.assertEqual(completed["paginas_total"], 1)
