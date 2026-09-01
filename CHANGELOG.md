@@ -19,6 +19,11 @@ tags git locales.
   memoria, temperatura, potencia, ventilador, clocks y throttling. El override
   `compose.gpu-observability.yml` expone esas métricas físicas a `pdfsum` de
   forma opt-in sin volver obligatoria una GPU NVIDIA.
+### Cambiado
+- **Breaking change para scripts:** los comandos `batch` y `run` ahora
+  devuelven código de salida `1` (`rc=1`) cuando se producen fallos de
+  procesamiento en uno o más documentos. Las automatizaciones que dependan
+  del código de salida deben contemplar este nuevo comportamiento.
 
 ## [Unreleased] — Registros bibliográficos BIBFRAME (FASE15)
 ### Añadido
