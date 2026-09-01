@@ -165,7 +165,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
-def _build_transcriber(fake: bool, lang: str, vlm_model: str = None):
+def _build_transcriber(fake: bool, lang: str, vlm_model: str | None = None):
     """Transcriptor por defecto: híbrido nativo+Tesseract con fallback VLM.
 
     Si Ollama + el modelo de visión están disponibles, el híbrido los usa como
