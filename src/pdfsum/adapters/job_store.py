@@ -10,21 +10,28 @@ backend SQLite/Redis sería otro adaptador sin tocar el dominio.
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
+
+from .observability import atomic_write_json
 
 
 class MemoryJobStore:
     def __init__(self) -> None:
         self._data: dict[str, dict] = {}
+        self._lock = threading.RLock()
 
     def get(self, key: str) -> dict | None:
-        return self._data.get(key)
+        with self._lock:
+            return self._data.get(key)
 
     def put(self, key: str, value: dict) -> None:
-        self._data[key] = value
+        with self._lock:
+            self._data[key] = value
 
     def all(self) -> dict[str, dict]:
-        return dict(self._data)
+        with self._lock:
+            return dict(self._data)
 
 
 class FileJobStore:
@@ -33,22 +40,22 @@ class FileJobStore:
     def __init__(self, path: str) -> None:
         self.path = Path(path)
         self._data: dict[str, dict] = {}
+        self._lock = threading.RLock()
         if self.path.exists():
             self._data = json.loads(self.path.read_text(encoding="utf-8"))
 
     def _flush(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
-            json.dumps(self._data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        atomic_write_json(self.path, self._data)
 
     def get(self, key: str) -> dict | None:
-        return self._data.get(key)
+        with self._lock:
+            return self._data.get(key)
 
     def put(self, key: str, value: dict) -> None:
-        self._data[key] = value
-        self._flush()
+        with self._lock:
+            self._data[key] = value
+            self._flush()
 
     def all(self) -> dict[str, dict]:
-        return dict(self._data)
+        with self._lock:
+            return dict(self._data)

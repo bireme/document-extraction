@@ -78,6 +78,49 @@ class TestCloudSummarizer(unittest.TestCase):
         self.assertEqual(captured["body"]["model"], "gpt-4o-mini")
         self.assertIn("texto", captured["body"]["messages"][0]["content"])
 
+    def test_timeout_y_error_externo_se_propagan(self):
+        """La red no puede convertir una falla externa en una respuesta vacía."""
+        summarizer = CloudSummarizer(
+            provider="openai",
+            model="gpt-4o-mini",
+            api_key="sk-test",
+            timeout=23,
+        )
+        for error in (TimeoutError("demora"), OSError("red no disponible")):
+            with (
+                self.subTest(error=type(error).__name__),
+                patch("urllib.request.urlopen", side_effect=error) as urlopen,
+                self.assertRaises(type(error)),
+            ):
+                summarizer._call("prompt")
+            self.assertEqual(urlopen.call_args.kwargs["timeout"], 23)
+
+    def test_payload_invalido_no_se_acepta_como_respuesta(self):
+        """JSON corrupto o sin el contrato esperado produce un error visible."""
+        summarizer = CloudSummarizer(
+            provider="openai", model="gpt-4o-mini", api_key="sk-test"
+        )
+        cases = (
+            (_FakeResponse(b"{"), json.JSONDecodeError),
+            (_FakeResponse(b'{"choices": []}'), IndexError),
+        )
+        for response, error_type in cases:
+            with (
+                self.subTest(error=error_type.__name__),
+                patch("urllib.request.urlopen", return_value=response),
+                self.assertRaises(error_type),
+            ):
+                summarizer._call("prompt")
+
+    def test_respuesta_vacia_se_conserva_vacia(self):
+        """Un contenido vacío válido no se sustituye por texto inventado."""
+        response = _openai_style_response("")
+        with patch("urllib.request.urlopen", return_value=response):
+            output = CloudSummarizer(
+                provider="openai", model="gpt-4o-mini", api_key="sk-test"
+            )._call("prompt")
+        self.assertEqual(output, "")
+
     def test_no_leak_api_key_en_mensaje_error(self):
         """C7: la API key no aparece en el mensaje de error (solo el nombre de la env var)."""
         with patch.dict("os.environ", {}, clear=True):
@@ -86,9 +129,8 @@ class TestCloudSummarizer(unittest.TestCase):
                 s._call("prompt")
         msg = str(ctx.exception)
         self.assertIn("OPENAI_API_KEY", msg)
-        # nunca imprime un valor de key real (ninguna key se configuró aquí,
-        # pero el mensaje tampoco debe contener el propio atributo api_key)
-        self.assertNotIn(s.api_key, msg) if s.api_key else None
+        self.assertNotIn("Authorization", msg)
+        self.assertNotIn("Bearer", msg)
 
 
 if __name__ == "__main__":

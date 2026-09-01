@@ -1,4 +1,8 @@
 __pycache__/
+.coverage
+.coverage.*
+htmlcov/
+mutants/
 *.pyc
 .ruff_cache/
 samples/*.txt

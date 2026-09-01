@@ -20,6 +20,8 @@ class BatchItem:
     result: SummaryResult
     qa: QAReport
     seconds: float = 0.0
+    phase_seconds: dict[str, float] = field(default_factory=dict)
+    cache_hit: bool = False
 
 
 @dataclass
@@ -32,6 +34,8 @@ class BatchMetrics:
     gates_fallados: dict[str, int] = field(default_factory=dict)
     tiempo_total: float = 0.0
     tiempo_medio: float = 0.0
+    tiempo_total_por_fase: dict[str, float] = field(default_factory=dict)
+    tiempo_medio_por_fase: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -43,6 +47,14 @@ class BatchMetrics:
             "gates_fallados": self.gates_fallados,
             "tiempo_total": round(self.tiempo_total, 3),
             "tiempo_medio": round(self.tiempo_medio, 3),
+            "tiempo_total_por_fase": {
+                phase: round(seconds, 6)
+                for phase, seconds in self.tiempo_total_por_fase.items()
+            },
+            "tiempo_medio_por_fase": {
+                phase: round(seconds, 6)
+                for phase, seconds in self.tiempo_medio_por_fase.items()
+            },
         }
 
 
@@ -52,6 +64,7 @@ def batch_metrics(items: list[BatchItem]) -> BatchMetrics:
     tipos: Counter[str] = Counter()
     idiomas: Counter[str] = Counter()
     gates: Counter[str] = Counter()
+    phases: Counter[str] = Counter()
     for it in items:
         if it.qa.is_ok:
             m.ok += 1
@@ -62,8 +75,13 @@ def batch_metrics(items: list[BatchItem]) -> BatchMetrics:
         tipos[it.result.tipo_documento] += 1
         idiomas[it.result.idioma_principal] += 1
         m.tiempo_total += it.seconds
+        phases.update(it.phase_seconds)
     m.por_tipo = dict(tipos)
     m.por_idioma = dict(idiomas)
     m.gates_fallados = dict(gates)
     m.tiempo_medio = m.tiempo_total / m.total if m.total else 0.0
+    m.tiempo_total_por_fase = dict(sorted(phases.items()))
+    m.tiempo_medio_por_fase = {
+        phase: seconds / m.total for phase, seconds in sorted(phases.items())
+    }
     return m

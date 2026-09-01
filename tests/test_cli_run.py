@@ -1,4 +1,4 @@
-"""Tests de los subcomandos run y transcribe (criterios C6, C7)."""
+"""Tests de los subcomandos run y transcribe (criterios C7, C8)."""
 
 import json
 import unittest
@@ -14,8 +14,8 @@ def _make_pdfs(d: Path, n):
 
 
 class TestCLIRun(unittest.TestCase):
-    def test_cli_run(self):
-        """C6: 'run --fake' ejecuta flujo completo desde PDFs."""
+    def test_c07_cli_run(self):
+        """C07: 'run --fake' ejecuta flujo completo desde PDFs."""
         with TemporaryDirectory() as td:
             ind = Path(td) / "pdfs"
             ind.mkdir()
@@ -29,8 +29,8 @@ class TestCLIRun(unittest.TestCase):
             report = json.loads((ws / "summaries" / "report.json").read_text())
             self.assertEqual(report["metrics"]["total"], 2)
 
-    def test_cli_transcribe(self):
-        """C7: 'transcribe --fake' solo genera ocr/*.txt."""
+    def test_c08_cli_transcribe(self):
+        """C08: 'transcribe --fake' solo genera ocr/*.txt."""
         with TemporaryDirectory() as td:
             ind = Path(td) / "pdfs"
             ind.mkdir()

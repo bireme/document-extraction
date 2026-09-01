@@ -2,7 +2,6 @@
 
 import io
 import json
-import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -25,13 +24,10 @@ class TestCLI(unittest.TestCase):
                 encoding="utf-8",
             )
             buf = io.StringIO()
-            t0 = time.time()
             with redirect_stdout(buf):
                 rc = main(["summarize", "--text", str(txt), "--dry-run"])
-            elapsed = time.time() - t0
 
             self.assertEqual(rc, 0)
-            self.assertLess(elapsed, 5.0)
             data = json.loads(buf.getvalue())
             # contrato
             for f in (

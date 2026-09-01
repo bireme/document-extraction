@@ -75,12 +75,14 @@ def cmd_batch(args: argparse.Namespace) -> int:
         max_retries=args.max_retries,
     )
     m = report["metrics"]
+    processing_failures = report["progress"]["failed"]
     print(
         f"lote: {m['total']} docs | ok={m['ok']} fallos={m['con_fallos']} "
+        f"errores_procesamiento={processing_failures} "
         f"| tipos={m['por_tipo']} idiomas={m['por_idioma']} "
         f"| tiempo_medio={m['tiempo_medio']}s"
     )
-    return 0
+    return 1 if processing_failures else 0
 
 
 def cmd_export(args: argparse.Namespace) -> int:
@@ -165,7 +167,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
-def _build_transcriber(fake: bool, lang: str, vlm_model: str = None):
+def _build_transcriber(fake: bool, lang: str, vlm_model: str | None = None):
     """Transcriptor por defecto: híbrido nativo+Tesseract con fallback VLM.
 
     Si Ollama + el modelo de visión están disponibles, el híbrido los usa como
@@ -182,6 +184,7 @@ def _build_transcriber(fake: bool, lang: str, vlm_model: str = None):
     vlm = None
     try:
         from .adapters.vlm_ocr import VlmPageOCR, resolve_vlm_model
+
         resolved_vlm_model = resolve_vlm_model(vlm_model)
         models = _ollama_models() or []
         if resolved_vlm_model in models:
@@ -206,7 +209,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         err = _preflight_resumen(model, backend)
         if err is not None:
             return err
-    ws = Workspace(args.workspace)
+    ws = Workspace(args.workspace, logs_dir=args.logs_dir)
     transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
     summarizer = _build_summarizer(args.fake or args.dry_run, backend, model)
     report = run_batch_pdfs(
@@ -217,12 +220,14 @@ def cmd_run(args: argparse.Namespace) -> int:
         long_strategy=args.long_strategy,
     )
     m = report["metrics"]
+    processing_failures = report["progress"]["failed"]
     print(
         f"run: {m['total']} PDFs | ok={m['ok']} fallos={m['con_fallos']} "
+        f"errores_procesamiento={processing_failures} "
         f"| tipos={m['por_tipo']} | ocr={ws.ocr_dir} "
         f"| resumenes={ws.summaries_dir}"
     )
-    return 0
+    return 1 if processing_failures else 0
 
 
 def cmd_transcribe(args: argparse.Namespace) -> int:
@@ -276,6 +281,24 @@ def _preflight_resumen(model: str, backend: str = "ollama") -> int | None:
     return None
 
 
+def _find_samples_dir() -> Path:
+    """Localiza el directorio samples en el repo o entorno de ejecución."""
+    candidates = [
+        Path.cwd() / "samples",
+        Path(__file__).resolve().parents[2] / "samples",
+    ]
+
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+
+    raise FileNotFoundError(
+        "No se encontró el directorio 'samples'. "
+        "Ejecuta desde la raíz del proyecto o indica "
+        "--pdfs y --control explícitamente."
+    )
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     """Corre el flujo sobre la muestra incluida y evalúa contra el control set."""
     from .acceptance import acceptance_verdict, load_control_set
@@ -284,9 +307,9 @@ def cmd_verify(args: argparse.Namespace) -> int:
     from .control import run_control_suite
     from .workspace import Workspace
 
-    here = Path(__file__).resolve().parent.parent.parent
-    pdfs = args.pdfs or str(here / "samples" / "pdfs")
-    control = args.control or str(here / "samples" / "control_set.json")
+    samples_dir = _find_samples_dir()
+    pdfs = args.pdfs or str(samples_dir / "pdfs")
+    control = args.control or str(samples_dir / "control_set.json")
     ws = Workspace(args.workspace)
     transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
     backend, model = _resolve_backend_model(args.backend, args.model)
@@ -416,6 +439,11 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--in", dest="in_dir", required=True, help="directorio de PDFs")
     r.add_argument(
         "--workspace", required=True, help="dir de artefactos (ocr/, summaries/)"
+    )
+    r.add_argument(
+        "--logs-dir",
+        default=None,
+        help=("directorio para report.json (por defecto: <workspace>/summaries)"),
     )
     r.add_argument(
         "--lang",

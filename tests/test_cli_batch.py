@@ -34,9 +34,15 @@ class TestCLIBatch(unittest.TestCase):
             self.assertTrue((outd / "fly.json").exists())
             self.assertTrue((outd / "report.json").exists())
             self.assertTrue((outd / "_jobs.json").exists())
+            self.assertTrue((outd / "events.jsonl").exists())
+            self.assertTrue((outd / "infrastructure.jsonl").exists())
 
             report = json.loads((outd / "report.json").read_text())
+            self.assertEqual(report["status"], "completed")
+            self.assertEqual(report["progress"]["completed"], 2)
             self.assertEqual(report["metrics"]["total"], 2)
+            self.assertIn("tiempo_medio_por_fase", report["metrics"])
+            self.assertIn("resumen", report["documents"][0]["tiempos_por_fase"])
             # el artículo debe clasificarse como tal
             tipos = {d["doc_id"]: d["tipo"] for d in report["documents"]}
             self.assertEqual(tipos["art"], "articulo")

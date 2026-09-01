@@ -27,12 +27,14 @@ _PROMPTS = {
 # Secuencia ANSI de control que emite ollama (colores/limpieza de línea).
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
+
 def resolve_vlm_model(model: str | None) -> str:
     """Resuelve el modelo: flag > config > default."""
     if model:
         return model
     configured = get_config_value("vlm_model", None)
     return configured or DEFAULT_VLM
+
 
 class VlmPageOCR:
     """Implementa PageOCR invocando `ollama run` (proceso externo)."""

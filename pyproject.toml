@@ -39,7 +39,16 @@ dependencies = ["pillow>=10"]
 # la máquina, `uv run` cae a PATH si el venv no lo tiene) pero fallaba en
 # CI (runner limpio, sin ruff global): "Failed to spawn: ruff". Declararlo
 # aquí hace que `uv sync` lo instale en el venv del proyecto siempre.
-dev = ["ruff>=0.16", "tomli>=2; python_version < '3.11'"]
+dev = [
+  "build>=1.2",
+  "coverage>=7.6",
+  "hatchling>=1.24",
+  "hypothesis>=6.100",
+  "pyyaml>=6",
+  "ruff>=0.16",
+  "tomli>=2; python_version < '3.11'",
+]
+mutation = ["mutmut>=3.0"]
 
 [project.scripts]
 pdfsum = "pdfsum.cli:main"
@@ -65,3 +74,30 @@ exclude = [
 
 [tool.ruff]
 line-length = 88
+
+[tool.coverage.run]
+branch = true
+source = ["src/pdfsum"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+[tool.mutmut]
+source_paths = ["src/pdfsum"]
+only_mutate = [
+  "src/pdfsum/segment.py",
+  "src/pdfsum/qa.py",
+  "src/pdfsum/ocr_routing.py",
+  "src/pdfsum/pipeline.py",
+  "src/pdfsum/adapters/pdf_batch.py",
+]
+pytest_add_cli_args_test_selection = [
+  "tests/test_batch_pdf.py",
+  "tests/test_ocr_routing.py",
+  "tests/test_pipeline_fase1.py",
+  "tests/test_pipeline_hierarchical.py",
+  "tests/test_qa.py",
+  "tests/test_segment.py",
+]
+mutate_only_covered_lines = true
