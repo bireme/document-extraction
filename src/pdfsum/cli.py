@@ -218,6 +218,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         transcriber,
         summarizer,
         long_strategy=args.long_strategy,
+        retranscribe=args.retranscribe,
     )
     m = report["metrics"]
     processing_failures = report["progress"]["failed"]
@@ -237,7 +238,7 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
 
     ws = Workspace(args.workspace)
     transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
-    meta = transcribe_pdfs(args.in_dir, ws, transcriber)
+    meta = transcribe_pdfs(args.in_dir, ws, transcriber, retranscribe=args.retranscribe)
     cached = sum(1 for m in meta.values() if m.get("cached"))
     print(f"transcribe: {len(meta)} PDFs ({cached} cacheados) -> {ws.ocr_dir}")
     return 0
@@ -459,6 +460,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=get_config_value("long_strategy", "excerpt"),
         choices=["excerpt", "blocks", "hierarchical"],
     )
+    r.add_argument(
+        "--retranscribe",
+        action="store_true",
+        help="forzar re-OCR aun con caché válida (regenera ocr/*.meta.json)",
+    )
     r.add_argument("--dry-run", action="store_true", help="resumidor fake (OCR real)")
     r.add_argument(
         "--fake",
@@ -477,6 +483,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="modelo vlm a usar (def: config 'vlm_model', si no "
         "el default del backend)",
+    )
+    t.add_argument(
+        "--retranscribe",
+        action="store_true",
+        help="forzar re-OCR aun con caché válida (regenera ocr/*.meta.json)",
     )
     t.add_argument("--fake", action="store_true")
     t.set_defaults(func=cmd_transcribe)

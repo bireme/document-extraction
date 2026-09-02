@@ -57,7 +57,7 @@ class TestPdfFlowE2E(unittest.TestCase):
 
     def _assert_report(self, workspace: Workspace, expected: int) -> dict:
         report = json.loads(workspace.report_path.read_text(encoding="utf-8"))
-        self.assertEqual(report["report_version"], "3.0")
+        self.assertEqual(report["report_version"], "3.1")  # FASE16 aditivo
         self.assertEqual(report["status"], "completed")
         self.assertEqual(report["progress"]["discovered"], expected)
         self.assertEqual(report["progress"]["processed"], expected)

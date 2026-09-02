@@ -14,9 +14,8 @@ from __future__ import annotations
 import shutil
 import subprocess
 
+from ..classify import DEFAULT_TEXT_PER_PAGE_THRESHOLD
 from ..contract import SourceKind, TranscriptResult
-
-_TEXT_PER_PAGE = 100
 
 
 def _run(cmd: list[str], timeout: int = 120) -> str:
@@ -50,7 +49,7 @@ class OcrTranscriber:
         chars = len(native.replace(" ", "").replace("\n", ""))
         per_page = chars / pages if pages else 0
 
-        if per_page >= _TEXT_PER_PAGE:
+        if per_page >= DEFAULT_TEXT_PER_PAGE_THRESHOLD:
             return TranscriptResult(
                 text=native, pages=pages, source_kind=SourceKind.NATIVO
             )
