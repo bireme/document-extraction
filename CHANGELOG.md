@@ -6,6 +6,31 @@ rama → PR → CI → merge; las versiones se marcan con tags `vX.Y.Z`
 (el tag dispara la publicación a PyPI vía `publish.yml`).
 
 ## [Unreleased]
+### Añadido — QA de transcripción medible (FASE16)
+- **Métricas OCR persistidas**: cada transcripción escribe
+  `ocr/<doc_id>.meta.json` (sha256 del PDF, versión del pipeline OCR,
+  detalle por página: fuente nativo/tesseract/vlm, confianza Tesseract,
+  palabras, chars; bloque `quality` agregado). La confianza que el
+  híbrido ya calculaba y descartaba ahora se conserva.
+- **Gates de calidad del transcript** (dominio puro `transcript_qa.py`),
+  evaluados ANTES de resumir y sin bloquear el resumen (decisión PO):
+  `garbage` (error), `stopword_ratio`, `paginas` (error si >20% vacías),
+  `conf_baja`, `legacy_cache` (warnings). Veredicto en `_qa.transcript`
+  del registro, en `events.jsonl` (`transcript_qa_completed`) y en
+  `report.json`.
+- **`report.json` 3.1 (aditivo sobre 3.0)**: bloque
+  `transcription_quality` por documento y agregado del lote (conf media,
+  docs con error/warnings, páginas VLM/vacías, docs legacy).
+- **Caché de transcripción versionada**: `ocr/<doc_id>.txt` se reutiliza
+  solo si el sha256 del PDF y la `ocr_pipeline_version` coinciden; PDF
+  cambiado o pipeline nuevo -> re-OCR automático. Cachés previas (txt
+  sin meta) se reutilizan con marca `legacy` (nunca re-OCR masivo
+  silencioso); nuevo flag `--retranscribe` en `run`/`transcribe` fuerza
+  re-OCR. Eliminado el conteo ad-hoc de páginas por marcador.
+### Cambiado
+- Umbral nativo/escaneado unificado en
+  `classify.DEFAULT_TEXT_PER_PAGE_THRESHOLD` (antes triplicado en
+  adaptadores).
 ### Corregido
 - Estrategia `hierarchical`: `_summarize_chapter()` llamaba dos veces a
   `summarize_in_blocks()` con argumentos idénticos, duplicando TODAS las
