@@ -24,7 +24,7 @@ def _save_page_image(path: Path) -> None:
     d = ImageDraw.Draw(img)
     for y in range(20, 280, 20):
         d.rectangle([40, y, 360, y + 10], fill=0)
-    img.save(path, "JPEG")
+    img.save(path, format="PPM")
 
 
 def _make_pdf(d: Path, name="x.pdf"):
@@ -62,7 +62,7 @@ class TestHybridOcr(unittest.TestCase):
                 if "tsv" in s:
                     return _tsv(95.0, 30)
                 if "pdftoppm" in s:
-                    _save_page_image(Path(cmd[-1] + "-1.jpg"))
+                    _save_page_image(Path(cmd[-1] + "-1.pgm"))
                     return ""
                 return "texto tesseract"
 
@@ -87,7 +87,7 @@ class TestHybridOcr(unittest.TestCase):
                 if "tsv" in s:
                     return _tsv(40.0, 3)  # baja confianza
                 if "pdftoppm" in s:
-                    _save_page_image(Path(cmd[-1] + "-1.jpg"))
+                    _save_page_image(Path(cmd[-1] + "-1.pgm"))
                     return ""
                 return "texto tesseract"
 
@@ -136,7 +136,7 @@ class TestHybridOcr(unittest.TestCase):
                 if "tsv" in s:
                     return _tsv(95.0, 30)
                 if "pdftoppm" in s:
-                    _save_page_image(Path(cmd[-1] + "-1.jpg"))
+                    _save_page_image(Path(cmd[-1] + "-1.pgm"))
                     return ""
                 return "texto tesseract"
 
@@ -169,7 +169,7 @@ class TestHybridOcr(unittest.TestCase):
                 if "pdftotext" in joined:
                     return ""
                 if "pdftoppm" in joined:
-                    _save_page_image(Path(cmd[-1] + "-1.jpg"))
+                    _save_page_image(Path(cmd[-1] + "-1.pgm"))
                     return ""
                 if "tsv" in joined:
                     return _tsv(95.0, 30)

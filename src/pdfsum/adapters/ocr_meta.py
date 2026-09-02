@@ -21,7 +21,9 @@ META_VERSION = "1.0"
 # de OCR lleguen a corpus ya procesados.
 # "2" = FASE17: decisión nativo/OCR por página (los documentos mixtos
 # recuperan las páginas escaneadas que antes se perdían en silencio).
-OCR_PIPELINE_VERSION = "2"
+# "3" = FASE18: preprocesado medido (render gris PGM + autocontraste +
+# deskew: +5.9% palabras, -15% tiempo) y marcador de región no textual.
+OCR_PIPELINE_VERSION = "3"
 
 _PAGE_MARKER = re.compile(r"(?m)^=== pág \d+ ===$")
 

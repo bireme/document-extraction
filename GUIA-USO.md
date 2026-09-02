@@ -174,6 +174,11 @@ Copia tu configuración desde `.pdfsum-config.example.json` en el repo.
   puede tardar ~1–3 min con el VLM local; re-ejecutar no lo repite (cacheado).
 - **Nativos** se extraen directo; **escaneados** pasan por OCR con segmentación
   por columnas y fallback al modelo de visión en páginas difíciles.
+- **Preprocesado OCR:** las páginas escaneadas se renderizan en gris sin
+  compresión y pasan por autocontraste + enderezado automático (deskew)
+  antes del OCR — cadena aceptada por benchmark (+5% palabras, −13%
+  tiempo; `benchmarks/RESULTADOS-F18.md`). Regiones con tinta pero sin
+  texto legible (figuras/tablas) se marcan con aviso si no hay VLM.
 - **Mixtos:** la decisión nativo/OCR es **por página** — un libro nativo con
   anexos escaneados ya no pierde esas páginas: solo ellas pasan por OCR
   (`source_kind: mixto`, fuente por página en `ocr/<doc_id>.meta.json`).

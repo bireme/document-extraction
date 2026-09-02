@@ -71,7 +71,9 @@ class TestHybridSeg(unittest.TestCase):
                 if "pdftoppm" in s:
                     # producir la imagen rasterizada en el prefijo pedido
                     prefix = Path(cmd[-1])
-                    Image.open(page_img).save(Path(str(prefix) + "-1.jpg"), "JPEG")
+                    Image.open(page_img).save(
+                        Path(str(prefix) + "-1.pgm"), format="PPM"
+                    )
                     return ""
                 if "tsv" in s:
                     return _tsv_low()  # baja confianza -> VLM
@@ -107,7 +109,9 @@ class TestHybridSeg(unittest.TestCase):
                     return ""
                 if "pdftoppm" in s:
                     prefix = Path(cmd[-1])
-                    Image.open(page_img).save(Path(str(prefix) + "-1.jpg"), "JPEG")
+                    Image.open(page_img).save(
+                        Path(str(prefix) + "-1.pgm"), format="PPM"
+                    )
                     return ""
                 if "tsv" in s:
                     return _tsv_low()

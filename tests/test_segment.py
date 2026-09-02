@@ -93,6 +93,31 @@ class TestSegment(unittest.TestCase):
         for a, b in pairwise(regs):
             self.assertTrue((a.left < b.left) or (a.left == b.left and a.top <= b.top))
 
+    def test_reading_order_tolerante_a_bordes_desiguales(self):
+        """FASE18 C5: misma columna con bordes izq. desiguales (± medio
+        gutter) se lee arriba->abajo; el orden estricto (left, top)
+        fallaba este caso."""
+        from pdfsum.segment import Region
+
+        misma_col_abajo = Region(100, 300, 300, 400)  # left menor, más abajo
+        misma_col_arriba = Region(112, 100, 300, 200)  # left mayor, arriba
+        otra_col = Region(500, 100, 700, 400)
+        orden = sort_reading_order([misma_col_abajo, otra_col, misma_col_arriba])
+        self.assertEqual(orden, [misma_col_arriba, misma_col_abajo, otra_col])
+        # el orden estricto anterior habría dado [abajo, arriba, otra] (mal)
+        estricto = sorted(
+            [misma_col_abajo, otra_col, misma_col_arriba],
+            key=lambda r: (r.left, r.top),
+        )
+        self.assertNotEqual(orden, estricto)
+
+    def test_reading_order_una_columna_intacto(self):
+        """FASE18 C5: una sola columna conserva el orden arriba->abajo."""
+        from pdfsum.segment import Region
+
+        regs = [Region(100, i * 100, 500, i * 100 + 80) for i in range(4)]
+        self.assertEqual(sort_reading_order(list(reversed(regs))), regs)
+
     def test_cobertura(self):
         """C4: multicolumna -> >1 región y cubre el contenido."""
         img = _img_2cols()

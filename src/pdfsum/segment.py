@@ -243,9 +243,86 @@ def detect_regions(
     return projected
 
 
+# FASE18: búsqueda de ángulo de deskew (barrido grueso + refinamiento).
+_SKEW_MAX = 3.0
+_SKEW_COARSE = 0.5
+_SKEW_FINE = 0.25
+SKEW_MIN_APPLY = 0.5  # por debajo, no rotar (página ya recta)
+
+
+def _projection_sharpness(mask_img: Any) -> float:
+    """Varianza de la DENSIDAD de tinta por fila: máxima con líneas rectas.
+
+    Nota: getprojection() de Pillow devuelve solo presencia 0/1 (inútil
+    para nitidez); aquí se usa la media por fila vía resize BOX a 1 px
+    de ancho, que sí distingue filas densas de huecos.
+    """
+    from PIL import Image
+
+    height = mask_img.height
+    if not height:
+        return 0.0
+    column = mask_img.resize((1, height), Image.Resampling.BOX)
+    values = list(column.getdata())
+    column.close()
+    mean = sum(values) / height
+    return sum((v - mean) ** 2 for v in values) / height
+
+
+def estimate_skew(img: Any, max_angle: float = _SKEW_MAX) -> float:
+    """Estima el ángulo de inclinación del texto (grados, DOMINIO PURO).
+
+    Maximiza la nitidez de la proyección horizontal de la máscara reducida
+    rotada en candidatos ±max_angle (grueso 0.5°, fino 0.25°). Positivo =
+    la página debe rotarse ese ángulo (Image.rotate) para enderezarse.
+    """
+    from PIL import Image
+
+    mask = _content_mask(img)
+    base = mask.image
+
+    def score(angle: float) -> float:
+        if angle == 0.0:
+            return _projection_sharpness(base)
+        rotated = base.rotate(angle, resample=Image.Resampling.BILINEAR, fillcolor=0)
+        value = _projection_sharpness(rotated)
+        rotated.close()
+        return value
+
+    candidates = [0.0]
+    steps = int(max_angle / _SKEW_COARSE)
+    candidates += [i * _SKEW_COARSE for i in range(-steps, steps + 1) if i]
+    best = max(candidates, key=score)
+    refined = [best - _SKEW_FINE, best, best + _SKEW_FINE]
+    best = max(refined, key=score)
+    base.close()
+    return best
+
+
+# FASE18: tolerancia de agrupación de columnas (medio gutter).
+_COLUMN_TOLERANCE = _GUTTER_MIN // 2
+
+
 def sort_reading_order(regions: list[Region]) -> list[Region]:
-    """Orden de lectura: primero por columna (izq->der), dentro por arriba->abajo."""
-    return sorted(regions, key=lambda region: (region.left, region.top))
+    """Orden de lectura: por columna (izq->der) y arriba->abajo dentro.
+
+    FASE18: agrupa por columna con TOLERANCIA — bordes izquierdos que
+    difieren menos de medio gutter pertenecen a la misma columna (el
+    orden estricto por (left, top) desordenaba columnas desiguales).
+    """
+    if not regions:
+        return []
+    by_left = sorted(regions, key=lambda region: region.left)
+    clusters: list[list[Region]] = [[by_left[0]]]
+    for region in by_left[1:]:
+        if region.left - clusters[-1][0].left <= _COLUMN_TOLERANCE:
+            clusters[-1].append(region)
+        else:
+            clusters.append([region])
+    out: list[Region] = []
+    for cluster in clusters:
+        out.extend(sorted(cluster, key=lambda region: (region.top, region.left)))
+    return out
 
 
 def _valid(region: Region, width: int, height: int) -> bool:
