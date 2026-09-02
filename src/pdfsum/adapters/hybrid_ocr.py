@@ -22,7 +22,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ..classify import DEFAULT_TEXT_PER_PAGE_THRESHOLD
+from ..classify import (
+    DEFAULT_TEXT_PER_PAGE_THRESHOLD,
+    aggregate_source,
+    route_pages,
+)
 from ..contract import PageOCR, SourceKind, TranscriptResult
 from ..ocr_routing import MIN_CONF, MIN_WORDS, parse_tsv_confidence, route_page
 from ..segment import detect_regions, sort_reading_order, valid_regions
@@ -87,25 +91,60 @@ class HybridOcrTranscriber:
     def transcribe(self, path: str) -> TranscriptResult:
         pages = _pdfinfo_pages(path)
         native = _run(["pdftotext", path, "-"])
-        chars = len(native.replace(" ", "").replace("\n", ""))
-        if pages and chars / pages >= DEFAULT_TEXT_PER_PAGE_THRESHOLD:
+        # FASE17: decisión POR PÁGINA (pdftotext separa páginas con \f).
+        native_pages = native.split("\f")[: pages or None]
+        if pages and len(native_pages) < pages:
+            native_pages += [""] * (pages - len(native_pages))
+        page_chars = [len(p.replace(" ", "").replace("\n", "")) for p in native_pages]
+        decisions = route_pages(page_chars, DEFAULT_TEXT_PER_PAGE_THRESHOLD)
+        kind = aggregate_source(decisions) if pages else SourceKind.ESCANEADO
+
+        if kind == SourceKind.NATIVO:
             return TranscriptResult(
                 text=native,
                 pages=pages,
                 source_kind=SourceKind.NATIVO,
                 pages_detail=[
-                    {"page": p, "source": "nativo"} for p in range(1, pages + 1)
+                    {"page": p, "source": "nativo", "chars": page_chars[p - 1]}
+                    for p in range(1, pages + 1)
                 ],
             )
         if not shutil.which("tesseract"):
             return TranscriptResult(
                 text=native, pages=pages, source_kind=SourceKind.ESCANEADO
             )
-        text, pages_detail = self._ocr_hybrid(path, pages)
+        if kind == SourceKind.ESCANEADO:
+            text, pages_detail = self._ocr_hybrid(path, pages)
+            return TranscriptResult(
+                text=text,
+                pages=pages,
+                source_kind=SourceKind.ESCANEADO,
+                pages_detail=pages_detail,
+            )
+        # MIXTO: solo las páginas pobres pasan por OCR; las nativas se
+        # toman del pdftotext ya hecho. Marcador en TODAS las páginas.
+        chunks: list[str] = []
+        pages_detail: list[dict] = []
+        with tempfile.TemporaryDirectory() as td:
+            for p in range(1, pages + 1):
+                if decisions[p - 1] == "nativo":
+                    page_text = native_pages[p - 1].strip("\n")
+                    chunks.append(f"=== pág {p} ===\n{page_text}")
+                    pages_detail.append(
+                        {
+                            "page": p,
+                            "source": "nativo",
+                            "chars": len(page_text),
+                        }
+                    )
+                else:
+                    text, detail = self._ocr_single_page(path, p, pages, td)
+                    chunks.append(f"=== pág {p} ===\n{text}")
+                    pages_detail.append(detail)
         return TranscriptResult(
-            text=text,
+            text="\n".join(chunks),
             pages=pages,
-            source_kind=SourceKind.ESCANEADO,
+            source_kind=SourceKind.MIXTO,
             pages_detail=pages_detail,
         )
 
@@ -173,72 +212,79 @@ class HybridOcrTranscriber:
         text = _run(["tesseract", str(img), "stdout", "-l", self.lang, "--psm", "1"])
         return text, conf, words
 
+    def _ocr_single_page(
+        self, path: str, p: int, pages_total: int, td: str
+    ) -> tuple[str, dict]:
+        """Rasteriza y OCRea UNA página; devuelve (texto, detalle F16)."""
+        self._emit_event(
+            "ocr_pagina_iniciada",
+            doc_id=Path(path).stem,
+            pagina=p,
+            paginas_total=pages_total,
+        )
+        prefix = str(Path(td) / f"pg{p}")
+        render_started = time.perf_counter()
+        _run(
+            [
+                "pdftoppm",
+                "-jpeg",
+                "-r",
+                str(self.dpi),
+                "-f",
+                str(p),
+                "-l",
+                str(p),
+                path,
+                prefix,
+            ]
+        )
+        render_seconds = time.perf_counter() - render_started
+        imgs = sorted(Path(td).glob(f"pg{p}*.jpg"))
+        if not imgs:
+            self._emit_event(
+                "ocr_pagina_sin_imagen",
+                doc_id=Path(path).stem,
+                pagina=p,
+                paginas_total=pages_total,
+                render_segundos=round(render_seconds, 6),
+            )
+            # FASE16: página perdida visible para el gate 'paginas'.
+            return "", {"page": p, "source": "sin_imagen", "chars": 0}
+        metrics: dict[str, Any] = {}
+        text = self._ocr_regions(imgs[0], metrics)
+        detail = {
+            "page": p,
+            "source": "vlm" if metrics["fallback_vlm"] else "tesseract",
+            "conf": round(metrics["conf_media"], 2),
+            "words": metrics["palabras"],
+            "chars": len(text),
+        }
+        self._emit_event(
+            "ocr_pagina_completada",
+            doc_id=Path(path).stem,
+            pagina=p,
+            paginas_total=pages_total,
+            render_segundos=round(render_seconds, 6),
+            mascara_segundos=round(metrics["mascara_segundos"], 6),
+            columnas_segundos=round(metrics["columnas_segundos"], 6),
+            regiones_segundos=round(metrics["regiones_segundos"], 6),
+            segmentacion_segundos=round(metrics["segmentacion_segundos"], 6),
+            regiones=metrics["regiones"],
+            ocr_segundos=round(metrics["ocr_segundos"], 6),
+            fallback_vlm=metrics["fallback_vlm"],
+        )
+        for im in imgs:
+            im.unlink()
+        return text, detail
+
     def _ocr_hybrid(self, path: str, pages: int) -> tuple[str, list[dict]]:
         chunks: list[str] = []
         pages_detail: list[dict] = []
         with tempfile.TemporaryDirectory() as td:
             for p in range(1, max(pages, 1) + 1):
-                self._emit_event(
-                    "ocr_pagina_iniciada",
-                    doc_id=Path(path).stem,
-                    pagina=p,
-                    paginas_total=pages,
-                )
-                prefix = str(Path(td) / f"pg{p}")
-                render_started = time.perf_counter()
-                _run(
-                    [
-                        "pdftoppm",
-                        "-jpeg",
-                        "-r",
-                        str(self.dpi),
-                        "-f",
-                        str(p),
-                        "-l",
-                        str(p),
-                        path,
-                        prefix,
-                    ]
-                )
-                render_seconds = time.perf_counter() - render_started
-                imgs = sorted(Path(td).glob(f"pg{p}*.jpg"))
-                if not imgs:
-                    self._emit_event(
-                        "ocr_pagina_sin_imagen",
-                        doc_id=Path(path).stem,
-                        pagina=p,
-                        paginas_total=pages,
-                        render_segundos=round(render_seconds, 6),
-                    )
-                    # FASE16: página perdida visible para el gate 'paginas'.
-                    pages_detail.append({"page": p, "source": "sin_imagen", "chars": 0})
+                text, detail = self._ocr_single_page(path, p, pages, td)
+                pages_detail.append(detail)
+                if detail["source"] == "sin_imagen":
                     continue
-                metrics: dict[str, Any] = {}
-                text = self._ocr_regions(imgs[0], metrics)
                 chunks.append(f"=== pág {p} ===\n{text}")
-                pages_detail.append(
-                    {
-                        "page": p,
-                        "source": "vlm" if metrics["fallback_vlm"] else "tesseract",
-                        "conf": round(metrics["conf_media"], 2),
-                        "words": metrics["palabras"],
-                        "chars": len(text),
-                    }
-                )
-                self._emit_event(
-                    "ocr_pagina_completada",
-                    doc_id=Path(path).stem,
-                    pagina=p,
-                    paginas_total=pages,
-                    render_segundos=round(render_seconds, 6),
-                    mascara_segundos=round(metrics["mascara_segundos"], 6),
-                    columnas_segundos=round(metrics["columnas_segundos"], 6),
-                    regiones_segundos=round(metrics["regiones_segundos"], 6),
-                    segmentacion_segundos=round(metrics["segmentacion_segundos"], 6),
-                    regiones=metrics["regiones"],
-                    ocr_segundos=round(metrics["ocr_segundos"], 6),
-                    fallback_vlm=metrics["fallback_vlm"],
-                )
-                for im in imgs:
-                    im.unlink()
         return "\n".join(chunks), pages_detail

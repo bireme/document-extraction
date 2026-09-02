@@ -16,10 +16,12 @@ from pathlib import Path
 from ..contract import TranscriptResult
 
 META_VERSION = "1.0"
-# Subir cuando cambie el comportamiento del pipeline de transcripción
-# (F17/F18/F19 la incrementarán): invalida cachés generadas con versiones
-# anteriores para que las mejoras de OCR lleguen a corpus ya procesados.
-OCR_PIPELINE_VERSION = "1"
+# Subir cuando cambie el comportamiento del pipeline de transcripción:
+# invalida cachés generadas con versiones anteriores para que las mejoras
+# de OCR lleguen a corpus ya procesados.
+# "2" = FASE17: decisión nativo/OCR por página (los documentos mixtos
+# recuperan las páginas escaneadas que antes se perdían en silencio).
+OCR_PIPELINE_VERSION = "2"
 
 _PAGE_MARKER = re.compile(r"(?m)^=== pág \d+ ===$")
 

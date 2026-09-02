@@ -174,6 +174,14 @@ Copia tu configuración desde `.pdfsum-config.example.json` en el repo.
   puede tardar ~1–3 min con el VLM local; re-ejecutar no lo repite (cacheado).
 - **Nativos** se extraen directo; **escaneados** pasan por OCR con segmentación
   por columnas y fallback al modelo de visión en páginas difíciles.
+- **Mixtos:** la decisión nativo/OCR es **por página** — un libro nativo con
+  anexos escaneados ya no pierde esas páginas: solo ellas pasan por OCR
+  (`source_kind: mixto`, fuente por página en `ocr/<doc_id>.meta.json`).
+- **Texto crudo vs limpio:** `ocr/*.txt` conserva el texto verbatim del
+  origen (auditable). Antes de resumir se aplica en memoria una limpieza
+  (des-hifenización de cortes de línea, encabezados/pies repetidos,
+  números de página); los abstracts se extraen del texto limpio — la
+  des-hifenización los acerca más al impreso original.
 - **Idiomas:** el resumen sale en el idioma del documento; los abstracts de
   origen multilingües se preservan verbatim.
 - Si falta Ollama/modelo, los comandos se detienen con un mensaje claro de qué

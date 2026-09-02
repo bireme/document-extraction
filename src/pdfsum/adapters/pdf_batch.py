@@ -16,6 +16,7 @@ from ..contract import Summarizer, Transcriber
 from ..metrics import BatchItem, batch_metrics
 from ..pipeline import summarize_document
 from ..qa import check_result
+from ..textclean import clean_text
 from ..transcript_qa import check_transcript
 from ..workspace import Workspace
 from .observability import (
@@ -243,15 +244,21 @@ def run_batch_pdfs(
                     gates=[f.gate for f in tqa.failures],
                 )
 
+                # FASE17: limpieza EN MEMORIA (el ocr/*.txt queda crudo).
+                cleaned = clean_text(text)
+
                 started = time.perf_counter()
                 monitor.set_context(doc_id=doc_id, phase="resumen")
                 res = summarize_document(
                     doc_id=doc_id,
-                    text=text,
+                    text=cleaned,
                     summarizer=summarizer,
                     pages=om["pages"],
                     long_strategy=long_strategy,
                 )
+                res.meta["text_cleaned"] = True
+                res.meta["chars_crudo"] = len(text)
+                res.meta["chars_limpio"] = len(cleaned)
                 phases["resumen"] = time.perf_counter() - started
                 events.write(
                     "phase_completed",
