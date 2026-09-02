@@ -1,11 +1,18 @@
 # Changelog — pdfsum
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/); versionado
-semántico. Repositorio **git local** (sin remoto); las versiones se marcan con
-tags git locales.
+semántico. Repositorio en GitHub (`idourra/pdf-summarizer`): flujo
+rama → PR → CI → merge; las versiones se marcan con tags `vX.Y.Z`
+(el tag dispara la publicación a PyPI vía `publish.yml`).
 
-## [Unreleased] — Observabilidad durable
-### Añadido
+## [0.13.0] — 2026-09-01 — Observabilidad durable, backends cloud, BIBFRAME y Docker
+
+> Consolida seis entregas mergeadas desde v0.12.0 (PRs #1–#6, #8–#9).
+> **Breaking change**: `batch` y `run` devuelven `rc=1` si hay fallos de
+> procesamiento (ver «Observabilidad durable → Cambiado»).
+
+### Observabilidad durable (PR #6/#9)
+#### Añadido
 - Observabilidad durable para `run` y `batch`: `events.jsonl` sincronizado por
   evento, `infrastructure.jsonl` con muestras periódicas de CPU, RAM, swap,
   disco, temperatura y GPU cuando están disponibles, y resumen de picos/mínimos
@@ -19,14 +26,27 @@ tags git locales.
   memoria, temperatura, potencia, ventilador, clocks y throttling. El override
   `compose.gpu-observability.yml` expone esas métricas físicas a `pdfsum` de
   forma opt-in sin volver obligatoria una GPU NVIDIA.
-### Cambiado
+#### Cambiado
 - **Breaking change para scripts:** los comandos `batch` y `run` ahora
   devuelven código de salida `1` (`rc=1`) cuando se producen fallos de
   procesamiento en uno o más documentos. Las automatizaciones que dependan
   del código de salida deben contemplar este nuevo comportamiento.
 
-## [Unreleased] — Registros bibliográficos BIBFRAME (FASE15)
-### Añadido
+### Fix publicación PyPI por tag
+#### Corregido
+- `publish.yml`: retirado `cache: "uv"` de `actions/setup-python@v5` (no
+  soportado; el job `build` moría en "Set up Python" y **la publicación de
+  v0.12.0 a PyPI nunca ocurrió**). Mismo bug que `FIX-CI-UV-CACHE-INFRA`
+  corrigió en `ci.yml`; criterio C1 ampliado a ambos workflows.
+
+### Selección del modelo VLM para OCR (PR #8)
+#### Añadido
+- Flag `--vlm-model` en `run` y `transcribe` (más `resolve_vlm_model()`:
+  flag > config `vlm_model` > default del backend) para elegir qué modelo
+  de visión usa el fallback VLM de OCR sin tocar código.
+
+### Registros bibliográficos BIBFRAME (FASE15)
+#### Añadido
 - **Extracción de datos bibliográficos** de los documentos procesados:
   nuevo adaptador `adapters/pdf_metadata.py` (metadata embebida del PDF
   vía `pdfinfo`: Title, Subject/capítulo, Author, Keywords, CreationDate,
@@ -44,7 +64,7 @@ tags git locales.
   export LILACS), con bloque `_pdfsum.sources` de trazabilidad.
 - `Workspace.bibframe_dir`/`bibframe_path()`; documentado en README.md y
   GUIA-USO.md.
-### Verificado
+#### Verificado
 - 21 tests nuevos (154 total): dominio (precedencia/dato mínimo/JSON-LD),
   adaptador (subprocess mockeado), CLI (un registro por doc, omitidos
   con motivo, --pdfs opcional). Arquitectura AST: bibframe.py en
@@ -53,8 +73,8 @@ tags git locales.
   con metadata real de los PDFs (título del libro, autor, año, capítulo)
   + materias/idioma del resumen. Spec: `evals/eval-spec-fase15-bibframe.yaml`.
 
-## [Unreleased] — bin/pdfsum-docker: wrapper CLI para Docker
-### Añadido
+### bin/pdfsum-docker: wrapper CLI para Docker
+#### Añadido
 - `bin/pdfsum-docker`: wrapper bash que arma el `docker run --network
   host` largo (3 volúmenes fijos del repo + `-w /work` para rutas
   relativas a tu `$PWD` de invocación) y reenvía argumentos a `pdfsum`.
@@ -64,15 +84,15 @@ tags git locales.
   recomendada, junto con una nota sobre por qué `--network host` hace
   falta (Ollama suele escuchar solo en `127.0.0.1`, no en
   `host.docker.internal`).
-### Verificado
+#### Verificado
 - `bin/pdfsum-docker doctor` invocado desde `/tmp` (cwd distinto al
   repo): reporta resumen y OCR VLM listos con el Ollama nativo del host.
 - `bin/pdfsum-docker run --in ./samples/pdfs --workspace
   ./_docker_smoke --lang por`: 2/2 PDFs OK, resumen real (no fake).
 - Spec: `evals/eval-spec-lite-docker-cli-wrapper.yaml`.
 
-## [Unreleased] — Backends de inferencia en la nube configurables (FASE14)
-### Añadido
+### Backends de inferencia en la nube configurables (FASE14)
+#### Añadido
 - **Backends cloud reales para el Summarizer** (antes solo prometidos en
   docs, nunca implementados): `adapters/cloud_summarizer.py`
   (`CloudSummarizer`, API Chat Completions estilo OpenAI — sirve para
@@ -101,18 +121,18 @@ tags git locales.
   `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` al contenedor `pdfsum` vía
   `${VAR:-}` (nunca hardcodeadas); nuevo "Modo C" (cloud puro, sin Ollama)
   documentado en `.env.example`/`INSTALL.md` §10.
-### Corregido
+#### Corregido
 - README.md/INSTALL.md §2 ("Opción B: Modelos Remotos"): la versión
   anterior rometía `summarizer_backend`/`openai_api_key` en
   `.pdfsum-config.json` que el código **nunca implementó** (`cli.py` solo
   construía `OllamaSummarizer`/`FakeSummarizer`). Reescrita para reflejar
   el mecanismo real (esta fase) y corregidas dos referencias cruzadas a
   secciones incorrectas, preexistentes.
-### Seguridad
+#### Seguridad
 - Ninguna API key se lee de `.pdfsum-config.json` ni se imprime en
   mensajes de error — solo variables de entorno (`OPENAI_API_KEY` /
   `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY`), verificado con test dedicado.
-### Verificado
+#### Verificado
 - `make check`: 133/133 tests (97 previos + 36 nuevos), lint limpio; 0
   llamadas de red reales en tests (urlopen mockeado).
 - Docker real: `docker run -e PDFSUM_SUMMARIZER_BACKEND=openai -e
@@ -120,8 +140,8 @@ tags git locales.
   confirmada, capacidad "resumen" en SÍ sin Ollama.
 - Detalle completo: `evals/eval-spec-fase14-backends-cloud.yaml`.
 
-## [Unreleased] — Fix runtime Pillow + Ollama configurable en Docker (FASE13)
-### Corregido
+### Fix runtime Pillow + Ollama configurable en Docker (FASE13)
+#### Corregido
 - **Pillow ahora dependencia real de runtime** (`pyproject.toml`:
   `dependencies = ["pillow>=10"]`, antes solo en `[dependency-groups].dev`).
   Corrige el `ModuleNotFoundError: No module named 'PIL'` documentado abajo
@@ -131,7 +151,7 @@ tags git locales.
   `adapters/ollama_summarizer.py`, deuda no relacionada que bloqueaba
   `make check`): normalizado con `ruff check --fix` (cambio puramente
   cosmético, sin cambio de comportamiento).
-### Cambiado
+#### Cambiado
 - `compose.yml`: el servicio `ollama` (con `gpus: all`) ahora vive detrás de
   `profiles: ["gpu"]` (opt-in, no arranca con `docker compose up` por
   defecto). El servicio `pdfsum` ya no tiene `depends_on: ollama` forzoso;
@@ -145,7 +165,7 @@ tags git locales.
   regresión no vuelva a pasar inadvertida.
 - `README.md` / `INSTALL.md` §10: reescritos con los dos modos de uso de
   Ollama con Docker; retirada la limitación conocida (ya resuelta).
-### Verificado
+#### Verificado
 - `make check`: 97/97 tests, lint limpio.
 - `docker build` + `docker run ... pdfsum transcribe` sobre
   `samples/pdfs/56186_10006001927.pdf` (el PDF que antes fallaba): OK, sin
@@ -154,8 +174,8 @@ tags git locales.
   manifiestos válidos.
 - Detalle completo y criterios: `evals/eval-spec-fase13-docker-ollama-runtime.yaml`.
 
-## [Unreleased] — Soporte Docker / Docker Compose
-### Añadido
+### Soporte Docker / Docker Compose
+#### Añadido
 - `Dockerfile` (`python:3.12-slim` + `poppler-utils` + `tesseract-ocr` con
   idiomas `por`/`eng`/`spa` + `curl`; `pip install .` del paquete; `CMD
   ["pdfsum", "--help"]`). PR #1 (`bireme/master`, mergeado 2026-08-26).
@@ -167,7 +187,7 @@ tags git locales.
 - `.dockerignore` (excluye `.git`, `.venv`, `__pycache__`, PDFs de prueba,
   `data/`, `data_hierarchical/`) y carpetas `input/`, `output/`, `logs/`
   (con `.gitkeep`) como puntos de montaje.
-### Verificado (2026-08-26, manual, ver `INSTALL.md` §10)
+#### Verificado (2026-08-26, manual, ver `INSTALL.md` §10)
 - `docker build -t pdfsum .`: build limpio OK (paquete `pdfsum` instalado vía
   `pip install .` dentro de la imagen).
 - `docker run --rm pdfsum` (CMD por defecto) y `pdfsum doctor` dentro del
@@ -178,7 +198,7 @@ tags git locales.
   PDFs de muestra falla** con `ModuleNotFoundError: No module named 'PIL'`
   en `adapters/hybrid_ocr.py:_ocr_regions` (ruta de OCR por región cuando el
   VLM no está disponible y degrada a Tesseract con recorte de regiones).
-### Conocido — limitación encontrada en esta verificación
+#### Conocido — limitación encontrada en esta verificación
 > ✅ **Resuelta** en la entrada `[Unreleased] — Fix runtime Pillow + Ollama
 > configurable en Docker (FASE13)` de arriba.
 - **Causa raíz**: `pyproject.toml` declara `dependencies = []` (núcleo solo
