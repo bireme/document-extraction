@@ -6,6 +6,33 @@ rama → PR → CI → merge; las versiones se marcan con tags `vX.Y.Z`
 (el tag dispara la publicación a PyPI vía `publish.yml`).
 
 ## [Unreleased]
+### Añadido — Preprocesado OCR medido por benchmark (FASE18)
+- **Cadena de preprocesado aceptada por medición** (13 páginas escaneadas
+  reales BIREME, `benchmarks/RESULTADOS-F18.md`): render `-gray` (PGM sin
+  artefactos JPEG) + autocontraste + deskew por proyección — **+5.3%
+  palabras, +0.3 conf, −13% tiempo** vs baseline JPEG. `estimate_skew`
+  (dominio puro, barrido ±3°) solo rota si |ángulo| >= 0.5°; el ángulo
+  aplicado queda en `pages_detail.deskew_angle`.
+- **Lazo de idioma DESCARTADO con evidencia**: pack único `por` empeora
+  vs `por+eng+spa` combinados (−0.42 conf, −0.8% palabras) — se
+  mantienen los packs combinados.
+- **Orden de lectura tolerante**: agrupación de columnas con margen de
+  medio gutter (el orden estricto por (left, top) desordenaba columnas
+  con bordes desiguales).
+- **Marcador de región no textual**: sin VLM disponible, una región con
+  tinta alta y OCR pobre (<5 palabras, conf<40) emite
+  `[región no textual: posible figura/tabla]` en lugar de basura OCR
+  (+ contador `non_text_regions` en la meta).
+- Nuevo `benchmarks/benchmark_ocr_quality.py` (reproducible, por técnica
+  y por página, VLM excluido para no contaminar la medición).
+### Cambiado
+- `OCR_PIPELINE_VERSION` -> "3" (el preprocesado cambia el texto
+  producido; cachés v2 se regeneran al próximo run).
+### Corregido
+- `_projection_sharpness`: `getprojection()` de Pillow devuelve solo
+  presencia 0/1; la nitidez ahora usa densidad por fila (resize BOX),
+  sin lo cual el deskew rotaba páginas rectas.
+
 ### Añadido — PDFs mixtos + limpieza del texto (FASE17)
 - **Decisión nativo/OCR POR PÁGINA** (antes: promedio global que perdía
   en silencio las páginas escaneadas de documentos mayormente nativos):

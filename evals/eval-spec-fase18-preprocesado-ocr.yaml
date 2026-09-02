@@ -1,0 +1,204 @@
+---
+id: FASE18-PREPROCESADO-OCR
+titulo: >-
+  Preprocesado de imagen medido por benchmark + orden de lectura robusto
+  + lazo de idioma OCR
+issue: "https://github.com/idourra/pdf-summarizer/issues/15"
+descripcion: >
+  Elevar la precisión del OCR de escaneados. El preprocesado de imagen
+  es el factor #1 de precisión de Tesseract y hoy la página cruda del
+  pdftoppm (JPEG con artefactos) va directa al OCR. Fase EXPERIMENTAL
+  por diseño: cada técnica se acepta o descarta según MEDICIÓN sobre el
+  material de control con las métricas F16 (confianza/palabras por
+  página ya persistidas). Un resultado "la técnica no mejora y se
+  descarta documentado" es un resultado VÁLIDO de esta fase — el spec
+  exige la medición, no forzar la implementación.
+
+  Decisiones de diseño (validar con el PO):
+  1. Cadena de preprocesado candidata (Pillow puro, sin cv2/NumPy,
+     coherente con segment.py), cada paso benchmarkeado POR SEPARADO:
+     (a) render PNG en vez de JPEG (sin artefactos de compresión);
+     (b) autocontraste (ImageOps.autocontrast) sobre la página gris;
+     (c) deskew por maximización de varianza de proyección horizontal
+     sobre la máscara reducida (barrido de ángulos ±3° en pasos de
+     0.25°; solo rota si |ángulo| >= 0.5°).
+  2. Criterio de aceptación por técnica (sobre las páginas escaneadas
+     del material de control + fixture torcido sintético):
+     acepta si (delta conf_media >= +1.0 puntos O delta palabras
+     válidas >= +2%) Y coste total OCR <= +25% de tiempo. Se registra
+     la tabla de resultados en el spec (resultado) y en
+     benchmarks/RESULTADOS-F18.md.
+  3. Deskew verificable con fixture sintético: página del sample
+     rotada -1.5° debe recuperar >= 80% de la confianza de la versión
+     recta (el deskew es la técnica de mayor impacto esperado en
+     escaneos reales torcidos).
+  4. Orden de lectura robusto: agrupar regiones por columna con
+     TOLERANCIA (clustering de bordes izquierdos con margen = medio
+     gutter) en lugar de sorted(key=(left, top)) que desordena columnas
+     con bordes desiguales. Dominio puro en segment.py.
+  5. Lazo de idioma OCR: detectar idioma con el texto disponible de las
+     primeras 3 páginas (nativo si existe; si no, OCR con packs
+     combinados) y usar el pack Tesseract único correspondiente
+     (por|spa|eng) para el resto SOLO si la detección es inequívoca
+     (score con margen >= 2x sobre el segundo) y el benchmark demuestra
+     mejora; si no, se mantienen los packs combinados actuales
+     (por+eng+spa). Criterio de medición: puede concluir "sin mejora,
+     descartado" con evidencia.
+  6. Regiones no textuales: si una región tiene densidad de tinta alta
+     pero el OCR produce < 5 palabras con confianza < 40 y no hay VLM
+     disponible, se inserta el marcador "[región no textual: posible
+     figura/tabla]" en el transcript (aviso para el revisor humano, no
+     extracción). Con VLM disponible el flujo actual no cambia.
+  7. OCR_PIPELINE_VERSION -> "3" SOLO si se acepta al menos una técnica
+     que cambie el texto producido; si todo se descarta, la versión no
+     sube (no invalidar cachés sin cambio real).
+
+estado: COMPLETADA
+fecha: 2026-09-02
+resultado: |
+  9/9 criterios cumplidos. Set de control aportado por el PO: 6 PDFs
+  escaneados reales de BIREME-INFOMED (13 páginas OCR).
+
+  Tabla final (benchmarks/RESULTADOS-F18.md, regla: dconf>=+1 o
+  dpal>=+2%, t<=+25%):
+    baseline      conf 93.15  pal 2903   t 27.6s
+    gray          +0.82       +4.0%      -14.6%   ACEPTADA
+    autocontrast  +0.59       +5.4%      -13.4%   ACEPTADA
+    deskew        +0.99       +3.3%      -14.2%   ACEPTADA
+    combo         +0.30       +5.3%      -12.6%   INTEGRADA (mejor pal)
+    lang_por      -0.42       -0.8%      -18.0%   DESCARTADA
+
+  - C1: benchmark_ocr_quality.py reproducible (por técnica y página,
+    VLM excluido). Hallazgo clave: pdftoppm -png tarda 13s/pág vs
+    -gray 0.12s -> la vía PGM hace viable el preprocesado CON ahorro
+    de tiempo (el JPEG decode + artefactos costaban más que el PGM).
+  - C2: cadena combo integrada en _preprocess_page; lang_por descartado
+    con evidencia (los packs combinados por+eng+spa ganan).
+  - C3: fixtures sintéticos — recta no rota (|ang|<0.5), -1.5 detecta
+    +1.5 (+-0.5), corrección endereza (segunda estimación < 0.5).
+  - C4: estimate_skew en segment.py (dominio, AST verde). BUG detectado
+    y corregido por los propios tests: getprojection() de Pillow es
+    presencia 0/1, no densidad — la primera métrica de nitidez rotaba
+    páginas rectas; re-medido el benchmark tras el fix (tabla arriba).
+  - C5: sort_reading_order con clustering tolerante (medio gutter);
+    fixture que el orden estricto desordenaba + una columna intacta;
+    suite de segmentación previa verde.
+  - C6: lazo de idioma medido y DESCARTADO (resultado válido del spec);
+    comportamiento por defecto sigue siendo packs combinados.
+  - C7: región tinta alta + OCR pobre sin VLM -> marcador
+    '[región no textual: posible figura/tabla]' + non_text_regions en
+    meta; con VLM el flujo actual intacto (3 tests).
+  - C8: OCR_PIPELINE_VERSION == "3" (combo cambia el texto producido).
+  - C9: suite 276 tests OK (+9), arquitectura OK, ruff limpio; E2E real
+    mixto+samples: conf_media 94.13 >= baseline F17 94.09, deskew_angle
+    en pages_detail, 0 páginas vacías, 0 gates fallados; GUIA-USO y
+    CHANGELOG actualizados con aceptado/descartado.
+
+criterios:
+  - id: C1-benchmark-reproducible
+    tipo: metrics
+    descripcion: >
+      Nuevo benchmarks/benchmark_ocr_quality.py: dado un conjunto de
+      PDFs/páginas, corre el OCR con y sin cada técnica (png,
+      autocontraste, deskew, lang único) y emite tabla JSON/markdown
+      con conf_media, palabras, chars y segundos por página y por
+      técnica. Reproducible con semilla/paths fijos del repo.
+    verificacion: >
+      PYTHONPATH=src python benchmarks/benchmark_ocr_quality.py
+      --pdfs samples/pdfs -> benchmarks/RESULTADOS-F18.md
+
+  - id: C2-preprocesado-solo-si-mejora
+    tipo: metrics
+    descripcion: >
+      Cada técnica de la cadena queda ACEPTADA (integrada en
+      hybrid_ocr) o DESCARTADA (documentada con su medición) según el
+      umbral de la decisión 2. La tabla final vive en
+      benchmarks/RESULTADOS-F18.md y en el resultado de este spec.
+    verificacion: "tabla de mediciones + código integrado coherente"
+
+  - id: C3-deskew-recupera-confianza
+    tipo: metrics
+    descripcion: >
+      Fixture sintético: página escaneada del sample rotada -1.5°;
+      con deskew activo la confianza media recupera >= 80% de la de la
+      página recta, y en la página ya recta el deskew no degrada
+      (|delta conf| <= 1 punto, ángulo detectado < 0.5° -> no rota).
+    verificacion: "tests/test_deskew.py (con imágenes generadas)"
+
+  - id: C4-deskew-dominio-puro
+    tipo: architecture
+    descripcion: >
+      La estimación del ángulo (proyección sobre máscara reducida) es
+      dominio puro en segment.py (o módulo propio auto-descubierto);
+      la rotación/aplicación es del adaptador. Arquitectura AST verde.
+    verificacion: "uv run python tests/test_architecture.py"
+
+  - id: C5-orden-lectura-tolerante
+    tipo: unit
+    descripcion: >
+      sort_reading_order agrupa por columna con tolerancia: regiones de
+      una misma columna con bordes izquierdos desiguales (± medio
+      gutter) se leen arriba->abajo antes de saltar a la columna
+      siguiente. Fixture que HOY se desordena con sorted((left, top))
+      queda en orden correcto; páginas de una sola columna intactas.
+    verificacion: "tests/test_segment.py (casos nuevos)"
+
+  - id: C6-lazo-idioma-medido
+    tipo: metrics
+    descripcion: >
+      Con el benchmark C1: pack único por (detección inequívoca en el
+      sample portugués) vs por+eng+spa combinados. Si mejora conf o
+      tiempo bajo el umbral de la decisión 2 -> se integra con el
+      guard de detección inequívoca y fallback a combinados; si no ->
+      se documenta y descarta. El comportamiento por defecto ante
+      detección ambigua SIEMPRE es el actual (combinados).
+    verificacion: "tabla C1 + tests del guard si se integra"
+
+  - id: C7-region-no-textual-marcada
+    tipo: unit
+    descripcion: >
+      Sin VLM disponible, una región con tinta alta y OCR pobre
+      (< 5 palabras, conf < 40) inserta el marcador
+      "[región no textual: posible figura/tabla]" en el transcript y
+      cuenta en pages_detail ("non_text_regions"). Con VLM disponible
+      el comportamiento actual no cambia (la región va al VLM).
+    verificacion: "tests/test_hybrid_regiones.py"
+
+  - id: C8-version-pipeline-condicional
+    tipo: unit
+    descripcion: >
+      Si se aceptó >= 1 técnica que cambia el texto producido,
+      OCR_PIPELINE_VERSION == "3" y CHANGELOG lo justifica; si no,
+      la versión queda en "2" (no invalidar cachés sin cambio).
+    verificacion: "grep + coherencia con C2"
+
+  - id: C9-sin-regresion-e2e
+    tipo: integration
+    descripcion: >
+      Suite completa + arquitectura + ruff verdes. E2E real sobre
+      samples/pdfs + fixture mixto de F17: gates F16 sin nuevos
+      fallos, conf_media del escaneado >= a la de F17 (94.09 como
+      línea base), pages_detail coherente. GUIA-USO/CHANGELOG
+      actualizados con lo aceptado/descartado.
+    verificacion: "make check + pdfsum run + comparación de metas"
+
+invariantes:
+  - "Sin dependencias nuevas: Pillow ya presente; nada de cv2/NumPy."
+  - >-
+    Cada técnica aceptada debe tener su medición en
+    benchmarks/RESULTADOS-F18.md; nada se integra 'porque debería
+    mejorar'.
+  - >-
+    El dominio no importa adaptadores (ADR-001); estimación de ángulo y
+    orden de lectura puros, aplicación en adaptadores.
+  - >-
+    Ante ambigüedad (idioma dudoso, ángulo < 0.5°), el comportamiento
+    es el actual (packs combinados, sin rotación).
+  - "El VLM fallback y su routing por confianza no cambian (F19)."
+
+no_objetivos:
+  - "Verificación anti-alucinación del VLM: F19."
+  - "Extracción estructurada de tablas: fuera de alcance (solo aviso)."
+  - "Paralelismo por página: se difiere salvo que el benchmark muestre
+    que el preprocesado hace inviable el tiempo (medir primero)."
+  - "OCR de manuscritos / layouts no occidentales."

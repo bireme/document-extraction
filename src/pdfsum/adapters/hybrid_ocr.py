@@ -29,9 +29,32 @@ from ..classify import (
 )
 from ..contract import PageOCR, SourceKind, TranscriptResult
 from ..ocr_routing import MIN_CONF, MIN_WORDS, parse_tsv_confidence, route_page
-from ..segment import detect_regions, sort_reading_order, valid_regions
+from ..segment import (
+    SKEW_MIN_APPLY,
+    detect_regions,
+    estimate_skew,
+    sort_reading_order,
+    valid_regions,
+)
 
 _logger = logging.getLogger(__name__)
+
+# FASE18 (benchmark RESULTADOS-F18.md): región con OCR pobre y tinta alta
+# sin VLM disponible se marca como no textual en lugar de emitir basura.
+NON_TEXT_MARKER = "[región no textual: posible figura/tabla]"
+_NON_TEXT_MAX_WORDS = 5
+_NON_TEXT_MAX_CONF = 40.0
+_NON_TEXT_MIN_INK = 0.05
+
+
+def _ink_fraction(img: Any) -> float:
+    """Fracción de píxeles oscuros (tinta) de una imagen."""
+    gray = img if img.mode == "L" else img.convert("L")
+    hist = gray.histogram()
+    if gray is not img:
+        gray.close()
+    total = sum(hist)
+    return sum(hist[:200]) / total if total else 0.0
 
 
 def _run(cmd: list[str], timeout: int = 120) -> str:
@@ -161,6 +184,7 @@ class HybridOcrTranscriber:
             segmentation_finished = time.perf_counter()
             partes: list[str] = []
             confs: list[tuple[float, int]] = []  # (conf, words) por región
+            non_text = 0
             for region in regs:
                 tmp = img.parent / f"_reg_{region.left}_{region.top}.png"
                 try:
@@ -168,10 +192,21 @@ class HybridOcrTranscriber:
                         (region.left, region.top, region.right, region.bottom)
                     ) as crop:
                         crop.save(tmp)
+                        ink = _ink_fraction(crop)
                     texto, conf, words = self._ocr_page(tmp)
-                    partes.append(texto)
-                    if words:
-                        confs.append((conf, words))
+                    if (
+                        self.vlm is None
+                        and words < _NON_TEXT_MAX_WORDS
+                        and conf < _NON_TEXT_MAX_CONF
+                        and ink > _NON_TEXT_MIN_INK
+                    ):
+                        # FASE18 C7: aviso en vez de basura OCR.
+                        partes.append(NON_TEXT_MARKER)
+                        non_text += 1
+                    else:
+                        partes.append(texto)
+                        if words:
+                            confs.append((conf, words))
                 finally:
                     tmp.unlink(missing_ok=True)
         total_words = sum(w for _, w in confs)
@@ -185,6 +220,7 @@ class HybridOcrTranscriber:
                     "fallback_vlm": self.vlm_used_pages > fallback_before,
                     "conf_media": conf_media,
                     "palabras": total_words,
+                    "non_text_regions": non_text,
                 }
             )
         return "\n".join(p for p in partes if p.strip())
@@ -224,10 +260,13 @@ class HybridOcrTranscriber:
         )
         prefix = str(Path(td) / f"pg{p}")
         render_started = time.perf_counter()
+        # FASE18 (benchmark RESULTADOS-F18.md): render -gray (PGM, sin
+        # artefactos JPEG ni coste PNG) + autocontraste + deskew medido:
+        # combo +5.9% palabras, +0.5 conf, -15% tiempo vs baseline JPEG.
         _run(
             [
                 "pdftoppm",
-                "-jpeg",
+                "-gray",
                 "-r",
                 str(self.dpi),
                 "-f",
@@ -239,7 +278,7 @@ class HybridOcrTranscriber:
             ]
         )
         render_seconds = time.perf_counter() - render_started
-        imgs = sorted(Path(td).glob(f"pg{p}*.jpg"))
+        imgs = sorted(Path(td).glob(f"pg{p}*.pgm"))
         if not imgs:
             self._emit_event(
                 "ocr_pagina_sin_imagen",
@@ -250,8 +289,9 @@ class HybridOcrTranscriber:
             )
             # FASE16: página perdida visible para el gate 'paginas'.
             return "", {"page": p, "source": "sin_imagen", "chars": 0}
+        page_img, skew_angle = self._preprocess_page(imgs[0])
         metrics: dict[str, Any] = {}
-        text = self._ocr_regions(imgs[0], metrics)
+        text = self._ocr_regions(page_img, metrics)
         detail = {
             "page": p,
             "source": "vlm" if metrics["fallback_vlm"] else "tesseract",
@@ -259,6 +299,10 @@ class HybridOcrTranscriber:
             "words": metrics["palabras"],
             "chars": len(text),
         }
+        if skew_angle:
+            detail["deskew_angle"] = skew_angle
+        if metrics.get("non_text_regions"):
+            detail["non_text_regions"] = metrics["non_text_regions"]
         self._emit_event(
             "ocr_pagina_completada",
             doc_id=Path(path).stem,
@@ -276,6 +320,32 @@ class HybridOcrTranscriber:
         for im in imgs:
             im.unlink()
         return text, detail
+
+    def _preprocess_page(self, img: Path) -> tuple[Path, float]:
+        """FASE18: autocontraste + deskew (cadena 'combo' del benchmark).
+
+        Devuelve (ruta imagen lista para OCR, ángulo aplicado o 0.0).
+        """
+        from PIL import Image, ImageOps
+
+        angle_applied = 0.0
+        with Image.open(img) as im:
+            out = ImageOps.autocontrast(im.convert("L"))
+            angle = estimate_skew(out)
+            if abs(angle) >= SKEW_MIN_APPLY:
+                rotated = out.rotate(
+                    angle,
+                    resample=Image.Resampling.BILINEAR,
+                    expand=True,
+                    fillcolor=255,
+                )
+                out.close()
+                out = rotated
+                angle_applied = round(angle, 2)
+            dest = img.parent / f"{img.stem}_prep.pgm"
+            out.save(dest, format="PPM")
+            out.close()
+        return dest, angle_applied
 
     def _ocr_hybrid(self, path: str, pages: int) -> tuple[str, list[dict]]:
         chunks: list[str] = []

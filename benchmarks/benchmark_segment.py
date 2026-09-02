@@ -33,28 +33,20 @@ def _previous_mask(img: Any) -> tuple[list[list[bool]], int, int]:
     width, height = gray.size
     pixels = gray.load()
     mask = [
-        [pixels[x, y] < _UMBRAL_CONTENIDO for y in range(height)]
-        for x in range(width)
+        [pixels[x, y] < _UMBRAL_CONTENIDO for y in range(height)] for x in range(width)
     ]
     return mask, width, height
 
 
 def _previous_columns(img: Any) -> list[Region]:
     mask, width, height = _previous_mask(img)
-    projection = [
-        sum(mask[x][y] for y in range(height)) for x in range(width)
-    ]
-    gaps = [
-        gap
-        for gap in _valleys(projection)
-        if gap[1] - gap[0] >= _GUTTER_MIN
-    ]
+    projection = [sum(mask[x][y] for y in range(height)) for x in range(width)]
+    gaps = [gap for gap in _valleys(projection) if gap[1] - gap[0] >= _GUTTER_MIN]
     cuts = [0] + [(left + right) // 2 for left, right in gaps] + [width]
     columns: list[Region] = []
     for left, right in pairwise(cuts):
-        if (
-            right - left >= _MIN_COL_ANCHO
-            and any(projection[x] > 0 for x in range(left, right))
+        if right - left >= _MIN_COL_ANCHO and any(
+            projection[x] > 0 for x in range(left, right)
         ):
             columns.append(Region(left, 0, right, height))
     return columns or [Region(0, 0, width, height)]
@@ -85,9 +77,11 @@ def _previous_regions(img: Any) -> list[Region]:
             (column.top + top, column.top + bottom)
             for top, bottom in _valleys(projection_y, min_run=_GAP_BLOQUE)
         ]
-        cuts = [column.top] + [
-            (top + bottom) // 2 for top, bottom in gaps
-        ] + [column.bottom]
+        cuts = (
+            [column.top]
+            + [(top + bottom) // 2 for top, bottom in gaps]
+            + [column.bottom]
+        )
         for top, bottom in pairwise(cuts):
             candidate = Region(column.left, top, column.right, bottom)
             if (
@@ -139,11 +133,7 @@ def main() -> None:
     )
     parser.add_argument("imagenes", nargs="+", type=Path)
     args = parser.parse_args()
-    benchmark = (
-        _benchmark_previous
-        if args.modo == "anterior"
-        else _benchmark_optimized
-    )
+    benchmark = _benchmark_previous if args.modo == "anterior" else _benchmark_optimized
     for path in args.imagenes:
         with Image.open(path) as img:
             img.load()
