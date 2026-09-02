@@ -24,11 +24,18 @@ _HEADERS = [
 _HEADER_TO_LANG = {h.upper(): lg for h, lg in _HEADERS}
 
 _HEADER_RE = re.compile(
-    r"(?im)^\s*(" + "|".join(h for h, _ in _HEADERS) + r")\s*[:.\-]?\s*"
+    r"(?im)^\s*(" + "|".join(re.escape(h) for h, _ in _HEADERS) + r")\s*[:.\-]?\s*"
 )
 _KW_RE = re.compile(
-    r"(?i)\b(Palavras[- ]chave|Palabras[- ]llave|Keywords?|"
-    r"Palabras\s+clave|Mots[- ]cl[ée]s|Descritores|Descriptors)\b\s*[:.\-]?\s*"
+    r"(?i)\b("
+    r"Palavras[-\s]*chave|"
+    r"Palabras[-\s]*llave|"
+    r"Palabras\s*clave|"
+    r"Key[-\s]*words?|"
+    r"Mots[-\s]*cl[ée]s|"
+    r"Descritores|"
+    r"Descriptors"
+    r")\b\s*[:.\-]?\s*"
 )
 _BODY_START_RE = re.compile(
     r"(?im)^\s*(Introdu[cç][aã]o|Introduction|Introducci[oó]n|"
