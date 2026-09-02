@@ -41,14 +41,10 @@ def _summarize_chapter(
         secciones = summarizer.summarize(req)
         return secciones, {"n_bloques": 1, "chars": len(text)}
 
-    # Sub-dividir en bloques y consolidar parciales
-    _, meta = summarize_in_blocks(
-        chapter_id, text, summarizer, lang, template, max_chars=max_chars
-    )
-    # El resultado consolidado ya está en meta (resumen final)
-    # Pero necesitamos extraer la parte de secciones consolidadas;
-    # reutilizamos summarize_in_blocks que devuelve (secciones, meta)
-    secciones, _ = summarize_in_blocks(
+    # Sub-dividir en bloques y consolidar parciales (UNA sola pasada:
+    # summarize_in_blocks ya devuelve secciones consolidadas + meta;
+    # la doble llamada anterior duplicaba todas las llamadas al LLM).
+    secciones, meta = summarize_in_blocks(
         chapter_id, text, summarizer, lang, template, max_chars=max_chars
     )
     return secciones, meta
