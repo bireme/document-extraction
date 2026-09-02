@@ -40,11 +40,11 @@ class TestHybridOcr(unittest.TestCase):
     def tearDown(self):
         self.td.cleanup()
 
-    def _hybrid(self, vlm):
+    def _hybrid(self, vlm, force_ocr=False):
         with patch(
             "pdfsum.adapters.hybrid_ocr.shutil.which", return_value="/usr/bin/x"
         ):
-            return HybridOcrTranscriber(lang="por", vlm=vlm)
+            return HybridOcrTranscriber(lang="por", vlm=vlm, force_ocr=force_ocr)
 
     def test_usa_tesseract(self):
         """C4: alta confianza -> usa Tesseract y NO invoca el VLM."""
@@ -115,6 +115,80 @@ class TestHybridOcr(unittest.TestCase):
             tr = self._hybrid(FakePageOCR()).transcribe(str(self.dir / "x.pdf"))
         self.assertEqual(tr.text, nativo)
         self.assertEqual(tr.source_kind.value, "nativo")
+        self.assertTrue(
+            any(call.args[0][0] == "pdftotext" for call in run.call_args_list)
+        )
+
+    def test_force_ocr_omite_pdftotext_y_ejecuta_pipeline_hibrido(self):
+        """Un PDF nativo forzado pasa directo por OCR, sin usar pdftotext."""
+        pages_detail = [
+            {"page": 1, "source": "tesseract", "chars": 9},
+        ]
+        transcriber = self._hybrid(FakePageOCR(), force_ocr=True)
+        with (
+            patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1),
+            patch("pdfsum.adapters.hybrid_ocr._run") as run,
+            patch.object(
+                transcriber,
+                "_ocr_hybrid",
+                return_value=("texto OCR", pages_detail),
+            ) as ocr_hybrid,
+            patch(
+                "pdfsum.adapters.hybrid_ocr.shutil.which",
+                return_value="/usr/bin/tesseract",
+            ),
+        ):
+            result = transcriber.transcribe(str(self.dir / "x.pdf"))
+
+        self.assertEqual(result.text, "texto OCR")
+        self.assertEqual(result.source_kind.value, "escaneado")
+        ocr_hybrid.assert_called_once_with(str(self.dir / "x.pdf"), 1)
+        run.assert_not_called()
+
+    def test_force_ocr_sin_tesseract_falla_explicitamente(self):
+        """El modo OCR forzado no degrada al texto nativo sin Tesseract."""
+        transcriber = self._hybrid(FakePageOCR(), force_ocr=True)
+        with (
+            patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1),
+            patch("pdfsum.adapters.hybrid_ocr._run") as run,
+            patch.object(transcriber, "_ocr_hybrid") as ocr_hybrid,
+            patch("pdfsum.adapters.hybrid_ocr.shutil.which", return_value=None),
+            self.assertRaisesRegex(RuntimeError, "--force-ocr.*Tesseract"),
+        ):
+            transcriber.transcribe(str(self.dir / "x.pdf"))
+
+        ocr_hybrid.assert_not_called()
+        run.assert_not_called()
+
+    def test_force_ocr_con_baja_confianza_mantiene_fallback_vlm(self):
+        """--force-ocr no convierte el fallback VLM en OCR obligatorio."""
+        vlm = FakePageOCR("texto vlm")
+        with (
+            patch("pdfsum.adapters.hybrid_ocr.shutil.which", return_value="/usr/bin/x"),
+            patch("pdfsum.adapters.hybrid_ocr._pdfinfo_pages", return_value=1),
+            patch("pdfsum.adapters.hybrid_ocr._run") as run,
+        ):
+
+            def fake_run(cmd, timeout=120):
+                if cmd[0] == "pdftotext":
+                    raise AssertionError("pdftotext no debe ejecutarse")
+                if cmd[0] == "pdftoppm":
+                    _save_page_image(Path(cmd[-1] + "-1.jpg"))
+                    return ""
+                if cmd[0] == "tesseract" and "tsv" in cmd:
+                    return _tsv(40.0, 3)
+                return "texto tesseract"
+
+            run.side_effect = fake_run
+            result = self._hybrid(vlm, force_ocr=True).transcribe(
+                str(self.dir / "x.pdf")
+            )
+
+        self.assertIn("texto vlm", result.text)
+        self.assertEqual(vlm.calls, 1)
+        self.assertFalse(
+            any(call.args[0][0] == "pdftotext" for call in run.call_args_list)
+        )
 
     def test_lang_passthrough_tesseract(self):
         """C3 (FASE9): self.lang se pasa intacto a '-l' en tesseract, sin

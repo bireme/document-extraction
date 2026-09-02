@@ -167,7 +167,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
-def _build_transcriber(fake: bool, lang: str, vlm_model: str | None = None):
+def _build_transcriber(
+    fake: bool,
+    lang: str,
+    vlm_model: str | None = None,
+    force_ocr: bool = False,
+):
     """Transcriptor por defecto: híbrido nativo+Tesseract con fallback VLM.
 
     Si Ollama + el modelo de visión están disponibles, el híbrido los usa como
@@ -196,7 +201,7 @@ def _build_transcriber(fake: bool, lang: str, vlm_model: str | None = None):
             )
     except (OSError, ValueError):
         print("aviso: Ollama no accesible; OCR de baja confianza usará Tesseract.")
-    return HybridOcrTranscriber(lang=lang, vlm=vlm)
+    return HybridOcrTranscriber(lang=lang, vlm=vlm, force_ocr=force_ocr)
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -210,7 +215,12 @@ def cmd_run(args: argparse.Namespace) -> int:
         if err is not None:
             return err
     ws = Workspace(args.workspace, logs_dir=args.logs_dir)
-    transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
+    transcriber = _build_transcriber(
+        args.fake,
+        args.lang,
+        vlm_model=args.vlm_model,
+        force_ocr=args.force_ocr,
+    )
     summarizer = _build_summarizer(args.fake or args.dry_run, backend, model)
     report = run_batch_pdfs(
         args.in_dir,
@@ -237,7 +247,12 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
     from .workspace import Workspace
 
     ws = Workspace(args.workspace)
-    transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
+    transcriber = _build_transcriber(
+        args.fake,
+        args.lang,
+        vlm_model=args.vlm_model,
+        force_ocr=args.force_ocr,
+    )
     meta = transcribe_pdfs(args.in_dir, ws, transcriber, retranscribe=args.retranscribe)
     cached = sum(1 for m in meta.values() if m.get("cached"))
     print(f"transcribe: {len(meta)} PDFs ({cached} cacheados) -> {ws.ocr_dir}")
@@ -312,7 +327,12 @@ def cmd_verify(args: argparse.Namespace) -> int:
     pdfs = args.pdfs or str(samples_dir / "pdfs")
     control = args.control or str(samples_dir / "control_set.json")
     ws = Workspace(args.workspace)
-    transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
+    transcriber = _build_transcriber(
+        args.fake,
+        args.lang,
+        vlm_model=args.vlm_model,
+        force_ocr=args.force_ocr,
+    )
     backend, model = _resolve_backend_model(args.backend, args.model)
     summarizer = _build_summarizer(args.fake or args.dry_run, backend, model)
     run_batch_pdfs(pdfs, ws, transcriber, summarizer, long_strategy=args.long_strategy)
@@ -465,6 +485,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="forzar re-OCR aun con caché válida (regenera ocr/*.meta.json)",
     )
+    r.add_argument(
+        "--force-ocr",
+        action="store_true",
+        help="fuerza OCR incluso en PDFs con texto nativo; omite la "
+        "transcripción mediante pdftotext",
+    )
     r.add_argument("--dry-run", action="store_true", help="resumidor fake (OCR real)")
     r.add_argument(
         "--fake",
@@ -489,6 +515,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="forzar re-OCR aun con caché válida (regenera ocr/*.meta.json)",
     )
+    t.add_argument(
+        "--force-ocr",
+        action="store_true",
+        help="fuerza OCR incluso en PDFs con texto nativo; omite la "
+        "transcripción mediante pdftotext",
+    )
     t.add_argument("--fake", action="store_true")
     t.set_defaults(func=cmd_transcribe)
 
@@ -511,6 +543,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["excerpt", "blocks", "hierarchical"],
     )
     v.add_argument("--min-coverage", dest="min_coverage", type=float, default=0.6)
+    v.add_argument(
+        "--force-ocr",
+        action="store_true",
+        help="fuerza OCR incluso en PDFs con texto nativo; omite la "
+        "transcripción mediante pdftotext",
+    )
     v.add_argument("--dry-run", action="store_true")
     v.add_argument(
         "--fake",

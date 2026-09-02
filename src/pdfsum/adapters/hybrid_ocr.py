@@ -59,6 +59,7 @@ class HybridOcrTranscriber:
         min_conf: float = MIN_CONF,
         min_words: int = MIN_WORDS,
         event_sink: Callable[..., None] | None = None,
+        force_ocr: bool = False,
     ):
         self.lang = lang
         self.dpi = dpi
@@ -66,7 +67,11 @@ class HybridOcrTranscriber:
         self.min_conf = min_conf
         self.min_words = min_words
         self._event_sink = event_sink
-        for tool in ("pdftotext", "pdfinfo", "pdftoppm"):
+        self.force_ocr = force_ocr
+        required_tools = ("pdfinfo", "pdftoppm")
+        if not self.force_ocr:
+            required_tools = ("pdftotext", *required_tools)
+        for tool in required_tools:
             if not shutil.which(tool):
                 raise RuntimeError(f"falta herramienta requerida: {tool}")
         self.vlm_used_pages = 0
@@ -90,6 +95,19 @@ class HybridOcrTranscriber:
 
     def transcribe(self, path: str) -> TranscriptResult:
         pages = _pdfinfo_pages(path)
+        if self.force_ocr:
+            if not shutil.which("tesseract"):
+                raise RuntimeError(
+                    "Se solicitó --force-ocr pero Tesseract no está disponible."
+                )
+            text, pages_detail = self._ocr_hybrid(path, pages)
+            return TranscriptResult(
+                text=text,
+                pages=pages,
+                source_kind=SourceKind.ESCANEADO,
+                pages_detail=pages_detail,
+            )
+
         native = _run(["pdftotext", path, "-"])
         # FASE17: decisión POR PÁGINA (pdftotext separa páginas con \f).
         native_pages = native.split("\f")[: pages or None]
