@@ -6,6 +6,27 @@ rama → PR → CI → merge; las versiones se marcan con tags `vX.Y.Z`
 (el tag dispara la publicación a PyPI vía `publish.yml`).
 
 ## [Unreleased]
+### Añadido — PDFs mixtos + limpieza del texto (FASE17)
+- **Decisión nativo/OCR POR PÁGINA** (antes: promedio global que perdía
+  en silencio las páginas escaneadas de documentos mayormente nativos):
+  una sola pasada de pdftotext (separador \f), solo las páginas pobres
+  se rasterizan y OCRean. `SourceKind.MIXTO` se emite por fin;
+  `pages_detail` refleja la fuente real de cada página. Documentos 100%
+  nativos o escaneados conservan su formato de transcript actual.
+- **Limpieza del texto para el resumidor** (dominio puro `textclean.py`,
+  aplicada EN MEMORIA; `ocr/*.txt` queda crudo/verbatim, auditable):
+  des-hifenización de cortes de línea ("informa-\nción" ->
+  "información"; "Guinea-\nBissau" conserva el guion), eliminación de
+  encabezados/pies repetidos (>= 40% de páginas, mín. 3) y de líneas
+  solo-número de página. Los abstracts se extraen del texto limpio
+  (la des-hifenización los acerca más al impreso original). Meta del
+  resumen: `text_cleaned`, `chars_crudo`, `chars_limpio`.
+### Cambiado
+- `OCR_PIPELINE_VERSION` -> "2": cachés v1 se re-transcriben
+  automáticamente al próximo run (los mixtos recuperan sus páginas
+  perdidas; nativos re-extraen en ms, escaneados re-OCRean una vez).
+  Cachés legacy siguen la política F16 (reutilizar con warning).
+
 ### Añadido — QA de transcripción medible (FASE16)
 - **Métricas OCR persistidas**: cada transcripción escribe
   `ocr/<doc_id>.meta.json` (sha256 del PDF, versión del pipeline OCR,

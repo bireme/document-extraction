@@ -1,0 +1,209 @@
+---
+id: FASE17-MIXTOS-LIMPIEZA
+titulo: >-
+  PDFs mixtos (decisión nativo/OCR por página) + limpieza del texto
+  para el resumidor
+issue: "https://github.com/idourra/pdf-summarizer/issues/14"
+descripcion: >
+  Dos brechas del análisis 2026-09-02 que pierden o ensucian texto:
+
+  (A) MIXTOS: la decisión nativo/escaneado usa el PROMEDIO GLOBAL de
+  chars/página. Un libro con 180 páginas nativas + 20 escaneadas pasa
+  como NATIVO y esas 20 páginas SE PIERDEN EN SILENCIO (pdftotext no
+  devuelve nada para ellas). `SourceKind.MIXTO` existe en el contrato y
+  nunca se emite. Base técnica verificada: pdftotext separa páginas con
+  form-feed (\f) -> el análisis por página no requiere subprocesos
+  extra; solo las páginas pobres se rasterizan y OCRean.
+
+  (B) LIMPIEZA: el texto llega sucio al resumidor y a los extractores
+  estructurales (regex por inicio de línea): guiones de corte de línea
+  ("palavra-\nquebrada"), encabezados/pies repetidos por página y
+  números de página intercalados.
+
+  Decisiones de diseño (validar con el PO):
+  1. Decisión POR PÁGINA: una sola pasada de pdftotext; split por \f;
+     páginas con chars >= DEFAULT_TEXT_PER_PAGE_THRESHOLD -> texto
+     nativo; páginas pobres -> OCR de esa página (render + segmentación
+     + Tesseract/VLM, camino existente). source_kind: NATIVO si todas
+     nativas, ESCANEADO si ninguna, MIXTO si mezcla. La decisión
+     por página es DOMINIO puro (page_routing en classify o módulo
+     propio); la ejecución es del adaptador.
+  2. Formato del transcript: documentos 100% nativos conservan el
+     formato actual (sin marcadores, sin cambio de contrato); documentos
+     MIXTOS y escaneados llevan marcador "=== pág N ===" en todas las
+     páginas (trazabilidad de qué página vino de dónde, coherente con
+     el formato OCR actual). pages_detail (F16) refleja la fuente real
+     por página: nativo | tesseract | vlm | sin_imagen.
+  3. El transcript persistido en ocr/<doc_id>.txt queda CRUDO
+     (fidelidad verbatim del origen, auditable). La LIMPIEZA es un paso
+     de DOMINIO puro (nuevo `textclean.py`) aplicado en memoria ANTES
+     de clasificar/extraer/resumir (pdf_batch y pipeline), no persiste:
+     así puede evolucionar sin invalidar cachés ni re-OCR.
+  4. Limpieza incluida: (a) des-hifenización de cortes de línea
+     (unir "palabra-\ncontinuación" cuando la continuación empieza en
+     minúscula; conservar el guion si empieza en mayúscula, caso
+     "Guinea-\nBissau"); (b) eliminación de encabezados/pies: líneas
+     cuya forma normalizada (sin dígitos, espacios colapsados, lower)
+     se repite en >= 40% de las páginas (mín. 3 páginas) y aparece en
+     las primeras/últimas 3 líneas de página; (c) líneas que son solo
+     números de página (dígitos o romanos). La limpieza requiere
+     fronteras de página: \f (nativo) o marcadores (OCR/mixto); sin
+     fronteras solo aplica (a).
+  5. `OCR_PIPELINE_VERSION` sube a "2": las cachés v1 se re-transcriben
+     automáticamente al próximo run (F16 C4). Coste asumido y acotado:
+     nativos re-extraen en ms; escaneados puros re-OCRean una vez
+     (beneficio: los mixtos mal clasificados recuperan sus páginas
+     perdidas). Cachés legacy siguen la política F16 (reutilizar con
+     warning salvo --retranscribe).
+  6. Nota sobre abstracts "verbatim": se extraen del texto LIMPIO; la
+     des-hifenización los acerca MÁS al original impreso (los guiones
+     eran artefactos del corte de línea), se documenta en GUIA-USO.
+
+estado: COMPLETADA
+fecha: 2026-09-02
+resultado: |
+  9/9 criterios cumplidos (decisiones 1-6 validadas por el PO).
+  - C1: route_pages/aggregate_source en classify.py y textclean.py como
+    dominio puro auto-descubierto; arquitectura AST verde.
+  - C2: espia sobre _ocr_single_page — 4 páginas con 2 pobres: OCR solo
+    de [2, 4], transcript con las 4 páginas, MIXTO, pages_detail
+    [nativo, tesseract, nativo, tesseract]; bordes NATIVO puro (formato
+    actual sin marcadores, 0 llamadas OCR) y ESCANEADO puro intactos.
+  - C3: des-hifenización con casos minuscula/mayuscula (Guinea-Bissau),
+    intra-línea y rangos 10-20 intactos, idempotente.
+  - C4: encabezado+pie repetidos (5 págs) eliminados, líneas solo-número
+    fuera, contenido único y títulos conservados, < 3 páginas no juzga,
+    sin fronteras solo des-hifeniza. Ajuste durante el ciclo: la forma
+    normalizada ignora dígitos SOLO en extremos de línea (ignorarlos en
+    todo el texto igualaba contenido distinto — falso positivo real
+    detectado por el propio test).
+  - C5: ocr/doc1.txt conserva "informa-\n" y encabezados; el resumen usa
+    el limpio (meta text_cleaned/chars_crudo/chars_limpio; text_chars ==
+    chars_limpio).
+  - C6: bloque RESUMO partido por encabezado se extrae completo tras la
+    limpieza (sucio arrastraba "Rev. Bras."); suite de abstracts/excerpt
+    existente verde sin modificar.
+  - C7: OCR_PIPELINE_VERSION == "2" con nota del motivo; mecanismo de
+    invalidación cubierto por tests F16 (verdes).
+  - C8: E2E real — mixto.pdf (pdfunite nativo+escaneado, 4 págs, 313
+    chars/pág de promedio global que ANTES habría pasado como NATIVO
+    perdiendo 3 páginas): source_kind mixto, pág 1 nativa + págs 2-4 OCR
+    (conf_media 94.09), 0 páginas vacías, gates OK; los 2 samples puros
+    sin regresión (nativo/escaneado, gates OK).
+  - C9: suite 267 tests OK (+17), arquitectura OK, ruff limpio,
+    GUIA-USO/CHANGELOG actualizados.
+
+criterios:
+  - id: C1-dominio-puro-page-routing-y-textclean
+    tipo: architecture
+    descripcion: >
+      La decisión por página (umbral chars/página -> nativo|ocr y
+      agregación a SourceKind NATIVO/ESCANEADO/MIXTO) y la limpieza
+      (`textclean.py`: des-hifenización, encabezados/pies, números de
+      página) son módulos de DOMINIO puro, auto-descubiertos por el
+      test de arquitectura AST, sin subprocess/IO.
+    verificacion: "uv run python tests/test_architecture.py"
+
+  - id: C2-mixto-cero-paginas-perdidas
+    tipo: unit
+    descripcion: >
+      Con un transcriber sobre PDF simulado de N páginas donde K son
+      pobres en texto nativo: (a) solo las K páginas pasan por OCR
+      (espía sobre el rasterizado/OCR); (b) el transcript contiene
+      texto de las N páginas; (c) source_kind == MIXTO; (d)
+      pages_detail marca fuente nativo para N-K y tesseract/vlm para
+      K. Casos borde: todas nativas -> NATIVO (formato actual sin
+      marcadores); ninguna nativa -> ESCANEADO (comportamiento
+      actual intacto).
+    verificacion: "tests/test_hybrid_mixto.py (subprocess mockeado)"
+
+  - id: C3-deshifenizacion
+    tipo: unit
+    descripcion: >
+      "informa-\nción" -> "información"; "Guinea-\nBissau" conserva el
+      guion ("Guinea-Bissau"); no toca guiones intra-línea ni rangos
+      numéricos ("10-20"); idempotente (aplicar dos veces == una).
+    verificacion: "tests/test_textclean.py"
+
+  - id: C4-encabezados-pies-y-numeros
+    tipo: unit
+    descripcion: >
+      Fixture multipágina con encabezado repetido ("Rev. Salud Pública"
+      + nº de página variable) y pie repetido: la limpieza los elimina
+      de todas las páginas (forma normalizada repetida >= 40% y
+      posición borde), elimina líneas solo-número, y NO elimina
+      líneas de contenido que aparecen una vez ni títulos legítimos.
+      Sin fronteras de página detectables, el texto queda intacto
+      (salvo des-hifenización).
+    verificacion: "tests/test_textclean.py"
+
+  - id: C5-limpieza-en-memoria-no-persistida
+    tipo: integration
+    descripcion: >
+      En run_batch_pdfs: ocr/<doc_id>.txt contiene el transcript CRUDO
+      (con guiones e hifenización original) mientras el resumen y los
+      abstracts se computan sobre el texto limpio; `meta` del resumen
+      registra `text_cleaned: true` y chars antes/después. La caché no
+      se invalida por cambios de limpieza.
+    verificacion: "tests/test_batch_textclean.py"
+
+  - id: C6-estructura-mejora-no-regresa
+    tipo: unit
+    descripcion: >
+      extract_abstracts y find_structural_sections sobre fixtures con
+      encabezados intercalados dentro del bloque RESUMO/ABSTRACT:
+      con limpieza el bloque se extrae completo (sin el encabezado
+      insertado). Los tests existentes de abstracts/excerpt siguen
+      verdes sin modificar.
+    verificacion: "tests/test_textclean.py + suite existente"
+
+  - id: C7-pipeline-version-2
+    tipo: unit
+    descripcion: >
+      OCR_PIPELINE_VERSION == "2"; una caché con meta v"1" válida por
+      hash se re-transcribe automáticamente (test F16 de versión
+      distinta cubre el mecanismo; aquí se verifica el valor y la
+      documentación del coste en GUIA-USO).
+    verificacion: "grep + tests/test_ocr_cache.py verdes"
+
+  - id: C8-e2e-mixto-real
+    tipo: metrics
+    descripcion: >
+      E2E con OCR real: PDF mixto construido de páginas nativas +
+      página escaneada (generado en el propio test/manual desde
+      samples): report 3.1 muestra source_kind mixto, pages_detail
+      con ambas fuentes, 0 páginas con chars=0 no justificadas, y los
+      2 PDFs de samples/pdfs mantienen su resultado actual (nativo y
+      escaneado puros, sin regresión de gates F16).
+    verificacion: >
+      pdfsum run sobre fixture mixto + samples/pdfs; inspección de
+      meta.json y report.json
+
+  - id: C9-sin-regresion-docs
+    tipo: integration
+    descripcion: >
+      Suite completa + arquitectura + ruff verdes; GUIA-USO.md y
+      CHANGELOG documentan mixtos, limpieza (cruda vs limpia),
+      versión de pipeline 2 y la nota sobre abstracts des-hifenizados.
+    verificacion: "make check + revisión de docs en el PR"
+
+invariantes:
+  - >-
+    El dominio no importa adaptadores (ADR-001): decisión por página y
+    limpieza puras; rasterizado/OCR/subprocess solo en adaptadores.
+  - >-
+    Documentos 100% nativos o 100% escaneados conservan su formato de
+    transcript actual (sin cambio de contrato para consumidores).
+  - >-
+    ocr/<doc_id>.txt es SIEMPRE el texto crudo del origen (auditable);
+    la limpieza nunca se persiste sobre él.
+  - "report.json sigue en 3.1 (sin cambios de contrato en esta fase)."
+  - "Sin dependencias nuevas."
+
+no_objetivos:
+  - "Preprocesado de imagen (deskew/binarización): F18."
+  - "Verificación anti-alucinación del VLM: F19."
+  - >-
+    pdftotext -layout / reconstrucción de columnas del texto nativo:
+    si el corpus lo exige, se especifica en F18 con medición.
+  - "Detección de tablas/figuras en texto nativo: F18."

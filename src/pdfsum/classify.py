@@ -30,6 +30,26 @@ def classify_source(
     return SourceKind.NATIVO if per_page >= threshold else SourceKind.ESCANEADO
 
 
+def route_pages(
+    page_chars: list[int], threshold: int = DEFAULT_TEXT_PER_PAGE_THRESHOLD
+) -> list[str]:
+    """FASE17: decisión POR PÁGINA -> 'nativo' | 'ocr'.
+
+    Sustituye el promedio global (que perdía en silencio las páginas
+    escaneadas de un documento mayormente nativo).
+    """
+    return ["nativo" if c >= threshold else "ocr" for c in page_chars]
+
+
+def aggregate_source(decisions: list[str]) -> SourceKind:
+    """Agrega decisiones por página al SourceKind del documento."""
+    if not decisions or all(d == "ocr" for d in decisions):
+        return SourceKind.ESCANEADO
+    if all(d == "nativo" for d in decisions):
+        return SourceKind.NATIVO
+    return SourceKind.MIXTO
+
+
 # --- Idioma: detector por stopwords (sin dependencias) --------------------
 _STOP = {
     "pt": {
