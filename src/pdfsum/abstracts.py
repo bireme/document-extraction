@@ -13,12 +13,10 @@ import re
 
 from .contract import Abstract
 
-
 # Encabezados de bloque de resumen -> idioma.
 _HEADERS = [
     ("RESUMO", "pt"),
     ("ABSTRACT", "en"),
-    ("SUMMARY", "en"),
     ("RESUMEN", "es"),
     ("RÉSUMÉ", "fr"),
     ("RESUME", "fr"),
@@ -32,18 +30,16 @@ _HEADER_TO_LANG = {h.upper(): lg for h, lg in _HEADERS}
 _AMBIGUOUS_HEADERS = {"RESUME"}
 
 _HEADER_RE = re.compile(
-    r"(?im)^\s*("
-    + "|".join(re.escape(h) for h, _ in _HEADERS)
-    + r")\s*[:.\-]?\s*"
+    r"(?im)^\s*(" + "|".join(re.escape(h) for h, _ in _HEADERS) + r")\s*[:.\-]?\s*"
 )
 
 _KW_RE = re.compile(
     r"(?i)\b("
-    r"Palavras[- ]chave|"
-    r"Palabras[- ]llave|"
-    r"Palabras\s+clave|"
-    r"Keywords?|"
-    r"Mots[- ]cl[ée]s|"
+    r"Palavras[-\s]*chave|"
+    r"Palabras[-\s]*llave|"
+    r"Palabras\s*clave|"
+    r"Key[-\s]*words?|"
+    r"Mots[-\s]*cl[ée]s|"
     r"Descritores|"
     r"Descriptors"
     r")\b\s*[:.\-]?\s*"
@@ -120,10 +116,7 @@ def _is_valid_ambiguous_header(
 
     # RESUME sin acento solo se acepta si existe una señal estructural
     # adicional típica de un resumen, como Mots-clés o Keywords.
-    if not _KW_RE.search(context):
-        return False
-
-    return True
+    return _KW_RE.search(context)
 
 
 def _find_abstract_headers(text: str) -> list[re.Match[str]]:
@@ -140,13 +133,10 @@ def _find_abstract_headers(text: str) -> list[re.Match[str]]:
     for match in candidates:
         header = match.group(1).upper()
 
-        if header in _AMBIGUOUS_HEADERS:
-            if not _is_valid_ambiguous_header(
-                text,
-                match,
-                body_start,
-            ):
-                continue
+        if (header in _AMBIGUOUS_HEADERS) and (
+            not _is_valid_ambiguous_header(text, match, body_start)
+        ):
+            continue
 
         matches.append(match)
 
