@@ -5,6 +5,15 @@ semántico. Repositorio en GitHub (`idourra/pdf-summarizer`): flujo
 rama → PR → CI → merge; las versiones se marcan con tags `vX.Y.Z`
 (el tag dispara la publicación a PyPI vía `publish.yml`).
 
+## [Unreleased]
+### Corregido
+- Estrategia `hierarchical`: `_summarize_chapter()` llamaba dos veces a
+  `summarize_in_blocks()` con argumentos idénticos, duplicando TODAS las
+  llamadas al LLM de cada capítulo largo (coste y latencia x2, mismo
+  resultado). Ahora una sola pasada (N bloques + 1 consolidación).
+  Spec: `evals/eval-spec-lite-fix-hierarchical-doble-resumen.yaml`
+  (issue #12).
+
 ## [0.13.0] — 2026-09-01 — Observabilidad durable, backends cloud, BIBFRAME y Docker
 
 > Consolida seis entregas mergeadas desde v0.12.0 (PRs #1–#6, #8–#9).
