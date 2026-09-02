@@ -32,6 +32,13 @@ rama → PR → CI → merge; las versiones se marcan con tags `vX.Y.Z`
   procesamiento en uno o más documentos. Las automatizaciones que dependan
   del código de salida deben contemplar este nuevo comportamiento.
 
+### Fix publicación PyPI por tag
+#### Corregido
+- `publish.yml`: retirado `cache: "uv"` de `actions/setup-python@v5` (no
+  soportado; el job `build` moría en "Set up Python" y **la publicación de
+  v0.12.0 a PyPI nunca ocurrió**). Mismo bug que `FIX-CI-UV-CACHE-INFRA`
+  corrigió en `ci.yml`; criterio C1 ampliado a ambos workflows.
+
 ### Selección del modelo VLM para OCR (PR #8)
 #### Añadido
 - Flag `--vlm-model` en `run` y `transcribe` (más `resolve_vlm_model()`:

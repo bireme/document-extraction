@@ -59,9 +59,14 @@ criterios:
   - id: C1-sin-cache-uv-redundante
     tipo: unit
     descripcion: >
-      Ninguno de los 3 steps `actions/setup-python@v5` en ci.yml declara
-      `cache: "uv"`.
-    verificacion: "! grep -q 'cache: \"uv\"' .github/workflows/ci.yml"
+      Ningún step `actions/setup-python@v5` en los workflows (ci.yml y
+      publish.yml) declara `cache: "uv"`. (Ampliado 2026-09-01: la
+      versión original solo cubría ci.yml y publish.yml quedó con el
+      bug — la publicación de v0.12.0 falló por esto; corregido en el
+      PR de release v0.13.0.)
+    verificacion: >-
+      ! grep -q 'cache: "uv"' .github/workflows/ci.yml
+      .github/workflows/publish.yml
 
   - id: C2-ci-corre-sin-el-error-de-cache
     tipo: integration
