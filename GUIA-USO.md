@@ -158,12 +158,30 @@ Copia tu configuración desde `.pdfsum-config.example.json` en el repo.
 ## Buenas prácticas
 
 - **Idempotente:** re-ejecutar no repite OCR (usa `ocr/*.txt` cacheados).
+  La caché está **versionada**: si el PDF cambia (hash) o mejora el
+  pipeline OCR, se re-transcribe sola. `--retranscribe` fuerza re-OCR.
   Para regenerar desde cero, borra el workspace.
+- **Calidad de transcripción medible:** junto a cada `ocr/<doc_id>.txt`
+  se escribe `ocr/<doc_id>.meta.json` (fuente y confianza OCR por página,
+  páginas VLM/vacías). Antes de resumir se ejecutan gates de transcript
+  (caracteres basura, señal de idioma, páginas vacías, confianza baja);
+  el veredicto va en `_qa.transcript` de cada resumen y en el bloque
+  `transcription_quality` de `report.json` (versión 3.1). Un transcript
+  degradado NO bloquea el resumen: queda marcado para revisión humana.
+  Transcripts de cachés antiguas aparecen con warning `legacy_cache`.
 - **Tiempos:** los nativos se extraen al instante; los escaneados se resuelven
   con OCR por región (Tesseract o VLM). Un folleto escaneado de pocas páginas
   puede tardar ~1–3 min con el VLM local; re-ejecutar no lo repite (cacheado).
 - **Nativos** se extraen directo; **escaneados** pasan por OCR con segmentación
   por columnas y fallback al modelo de visión en páginas difíciles.
+- **Mixtos:** la decisión nativo/OCR es **por página** — un libro nativo con
+  anexos escaneados ya no pierde esas páginas: solo ellas pasan por OCR
+  (`source_kind: mixto`, fuente por página en `ocr/<doc_id>.meta.json`).
+- **Texto crudo vs limpio:** `ocr/*.txt` conserva el texto verbatim del
+  origen (auditable). Antes de resumir se aplica en memoria una limpieza
+  (des-hifenización de cortes de línea, encabezados/pies repetidos,
+  números de página); los abstracts se extraen del texto limpio — la
+  des-hifenización los acerca más al impreso original.
 - **Idiomas:** el resumen sale en el idioma del documento; los abstracts de
   origen multilingües se preservan verbatim.
 - Si falta Ollama/modelo, los comandos se detienen con un mensaje claro de qué

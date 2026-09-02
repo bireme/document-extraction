@@ -101,6 +101,9 @@ class TranscriptResult:
     text: str
     pages: int
     source_kind: SourceKind
+    # FASE16: detalle opcional por página (fuente nativo/tesseract/vlm,
+    # confianza, palabras, chars) para persistir en ocr/<doc_id>.meta.json.
+    pages_detail: list[dict] | None = None
 
 
 @dataclass

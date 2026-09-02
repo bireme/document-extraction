@@ -1,10 +1,8 @@
 """Extracción de resúmenes de origen multilingües (DOMINIO PURO).
 
-Localiza bloques RESUMO/ABSTRACT/RESUMEN/... y los preserva VERBATIM, cada
-uno etiquetado con su idioma, sin traducir ni fusionar.
-
-Los encabezados ambiguos, como RESUME sin acentos, requieren validación
-estructural adicional para evitar falsos positivos dentro del cuerpo del texto.
+Localiza los bloques RESUMO/ABSTRACT/RESUMEN/... y los preserva VERBATIM, cada
+uno etiquetado con su idioma, sin traducir ni fusionar. Portado y consolidado
+desde el piloto (extract_abstracts.py), aquí como función pura del dominio.
 """
 
 from __future__ import annotations
@@ -23,16 +21,11 @@ _HEADERS = [
     ("RIASSUNTO", "it"),
     ("ZUSAMMENFASSUNG", "de"),
 ]
-
 _HEADER_TO_LANG = {h.upper(): lg for h, lg in _HEADERS}
-
-# Encabezados ambiguos que también pueden aparecer como palabras normales.
-_AMBIGUOUS_HEADERS = {"RESUME"}
 
 _HEADER_RE = re.compile(
     r"(?im)^\s*(" + "|".join(re.escape(h) for h, _ in _HEADERS) + r")\s*[:.\-]?\s*"
 )
-
 _KW_RE = re.compile(
     r"(?i)\b("
     r"Palavras[-\s]*chave|"
@@ -44,17 +37,10 @@ _KW_RE = re.compile(
     r"Descriptors"
     r")\b\s*[:.\-]?\s*"
 )
-
 _BODY_START_RE = re.compile(
-    r"(?im)^\s*("
-    r"Introdu[cç][aã]o|"
-    r"Introduction|"
-    r"Introducci[oó]n|"
-    r"1\.?\s+Introdu|"
-    r"Background"
-    r")\b"
+    r"(?im)^\s*(Introdu[cç][aã]o|Introduction|Introducci[oó]n|"
+    r"1\.?\s+Introdu|Background)\b"
 )
-
 _CUT_TAIL = [
     r"(?i)\bCom\.\s*Ci[eê]ncias\s+Sa[uú]de\b",
     r"(?i)\bRev\.?\s*[A-Z][a-z]+\.?\s*\d{4}",
@@ -119,6 +105,9 @@ def _is_valid_ambiguous_header(
     return _KW_RE.search(context)
 
 
+_AMBIGUOUS_HEADERS = {"RÉSUMÉ"}
+
+
 def _find_abstract_headers(text: str) -> list[re.Match[str]]:
     """Devuelve solamente encabezados compatibles con bloques de resumen."""
     candidates = list(_HEADER_RE.finditer(text))
@@ -145,77 +134,42 @@ def _find_abstract_headers(text: str) -> list[re.Match[str]]:
 
 def extract_abstracts(text: str) -> list[Abstract]:
     """Devuelve bloques de resumen de origen verbatim (lista vacía si no hay)."""
-    matches = _find_abstract_headers(text)
+    matches = list(_HEADER_RE.finditer(text))
     out: list[Abstract] = []
-
-    for i, match in enumerate(matches):
-        header = match.group(1).upper()
+    for i, m in enumerate(matches):
+        header = m.group(1).upper()
         lang = _HEADER_TO_LANG[header]
-
-        start = match.end()
-
-        if i + 1 < len(matches):
-            end = matches[i + 1].start()
-        else:
-            end = len(text)
-
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         chunk = text[start:end].strip()
 
         kw = ""
         kwm = _KW_RE.search(chunk)
-
         if kwm:
             body = chunk[: kwm.start()].strip()
-            kw = re.split(
-                r"\n\s*\n",
-                chunk[kwm.end() :].strip(),
-            )[0].strip()
+            kw = re.split(r"\n\s*\n", chunk[kwm.end() :].strip())[0].strip()
         else:
             body = chunk
 
         bs = _BODY_START_RE.search(body)
-
         if bs and bs.start() > 200:
             body = body[: bs.start()].strip()
 
-        body = re.sub(
-            r"\s+",
-            " ",
-            " ".join(body.split("\n")),
-        ).strip()
-
-        for pattern in _CUT_TAIL:
-            body = re.split(pattern, body)[0].strip()
-
+        body = re.sub(r"\s+", " ", " ".join(body.split("\n"))).strip()
+        for cr in _CUT_TAIL:
+            body = re.split(cr, body)[0].strip()
         if len(body) > _MAX_BODY:
-            truncated = body[:_MAX_BODY]
-
-            if "." in truncated:
-                truncated = truncated.rsplit(".", 1)[0].strip()
-
-            body = truncated.rstrip() + "."
-
+            body = body[:_MAX_BODY].rsplit(".", 1)[0].strip() + "."
         if len(body) < _MIN_BODY:
             continue
-
-        out.append(
-            Abstract(
-                lang=lang,
-                header=header,
-                text=body,
-                keywords=kw,
-            )
-        )
-
+        out.append(Abstract(lang=lang, header=header, text=body, keywords=kw))
     return out
 
 
 def abstract_langs(abstracts: list[Abstract]) -> list[str]:
     """Idiomas presentes, en orden de aparición y sin duplicados."""
     seen: list[str] = []
-
-    for abstract in abstracts:
-        if abstract.lang not in seen:
-            seen.append(abstract.lang)
-
+    for a in abstracts:
+        if a.lang not in seen:
+            seen.append(a.lang)
     return seen

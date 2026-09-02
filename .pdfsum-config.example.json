@@ -8,6 +8,9 @@
   "model": "qwen2.5:7b",
   "_model_help": "Modelo Ollama local, usado solo si summarizer_backend=ollama",
 
+  "vlm_model": "qwen3-vl:8b-instruct",
+  "_vlm_model_help": "Modelo Ollama local, usado para mejorar el ocr",
+
   "summarizer_backend": "ollama",
   "_summarizer_backend_help": "ollama (local, default) | openai | openrouter | anthropic. También via env PDFSUM_SUMMARIZER_BACKEND (prevalece sobre este archivo).",
 

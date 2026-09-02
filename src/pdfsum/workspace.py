@@ -60,6 +60,13 @@ class Workspace:
     def summaries_dir(self) -> Path:
         return self.root / "summaries"
 
+    @property
+    def abstracts_dir(self) -> Path:
+        return self.root / "abstracts"
+
+    def abstract_path(self, doc_id: str) -> Path:
+        return self.abstracts_dir / f"{_validate_doc_id(doc_id)}.json"
+
     def ocr_path(self, doc_id: str) -> Path:
         return self.ocr_dir / f"{_validate_doc_id(doc_id)}.txt"
 

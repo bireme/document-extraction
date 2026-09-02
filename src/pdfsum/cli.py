@@ -168,7 +168,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
-def _build_transcriber(fake: bool, lang: str, vlm_model: str = "qwen3-vl:8b-instruct"):
+def _build_transcriber(fake: bool, lang: str, vlm_model: str | None = None):
     """Transcriptor por defecto: híbrido nativo+Tesseract con fallback VLM.
 
     Si Ollama + el modelo de visión están disponibles, el híbrido los usa como
@@ -184,15 +184,15 @@ def _build_transcriber(fake: bool, lang: str, vlm_model: str = "qwen3-vl:8b-inst
 
     vlm = None
     try:
-        models = _ollama_models() or []
-        base = vlm_model.split(":")[0]
-        if any(m.startswith(base) for m in models):
-            from .adapters.vlm_ocr import VlmPageOCR
+        from .adapters.vlm_ocr import VlmPageOCR, resolve_vlm_model
 
-            vlm = VlmPageOCR(model=vlm_model)
+        resolved_vlm_model = resolve_vlm_model(vlm_model)
+        models = _ollama_models() or []
+        if resolved_vlm_model in models:
+            vlm = VlmPageOCR(model=resolved_vlm_model)
         else:
             print(
-                f"aviso: modelo VLM '{vlm_model}' no disponible; "
+                f"aviso: modelo VLM '{resolved_vlm_model}' no disponible; "
                 "OCR de escaneos de baja confianza degradará a Tesseract."
             )
     except (OSError, ValueError):
@@ -211,7 +211,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         if err is not None:
             return err
     ws = Workspace(args.workspace, logs_dir=args.logs_dir)
-    transcriber = _build_transcriber(args.fake, args.lang)
+    transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
     summarizer = _build_summarizer(args.fake or args.dry_run, backend, model)
     report = run_batch_pdfs(
         args.in_dir,
@@ -219,6 +219,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         transcriber,
         summarizer,
         long_strategy=args.long_strategy,
+        retranscribe=args.retranscribe,
     )
     m = report["metrics"]
     processing_failures = report["progress"]["failed"]
@@ -237,8 +238,8 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
     from .workspace import Workspace
 
     ws = Workspace(args.workspace)
-    transcriber = _build_transcriber(args.fake, args.lang)
-    meta = transcribe_pdfs(args.in_dir, ws, transcriber)
+    transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
+    meta = transcribe_pdfs(args.in_dir, ws, transcriber, retranscribe=args.retranscribe)
     cached = sum(1 for m in meta.values() if m.get("cached"))
     print(f"transcribe: {len(meta)} PDFs ({cached} cacheados) -> {ws.ocr_dir}")
     return 0
@@ -324,7 +325,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     pdfs = args.pdfs or str(samples_dir / "pdfs")
     control = args.control or str(samples_dir / "control_set.json")
     ws = Workspace(args.workspace)
-    transcriber = _build_transcriber(args.fake, args.lang)
+    transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
     backend, model = _resolve_backend_model(args.backend, args.model)
     summarizer = _build_summarizer(args.fake or args.dry_run, backend, model)
     run_batch_pdfs(pdfs, ws, transcriber, summarizer, long_strategy=args.long_strategy)
@@ -369,7 +370,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    def _add_backend_model(sp: argparse.ArgumentParser) -> None:
+    def _add_backend_model(sp: argparse.ArgumentParser, add_vlm=False) -> None:
         """--backend/--model comunes: resueltos por summarizer_factory (flag >
         env PDFSUM_SUMMARIZER_BACKEND / config > default 'ollama')"""
         from .adapters.summarizer_factory import BACKENDS
@@ -387,6 +388,14 @@ def build_parser() -> argparse.ArgumentParser:
             help="modelo a usar (def: config 'model'/'cloud_model', si no "
             "el default del backend)",
         )
+        if add_vlm:
+            sp.add_argument(
+                "--vlm-model",
+                dest="vlm_model",
+                default=None,
+                help="modelo vlm a usar (def: config 'vlm_model', si no "
+                "el default del backend)",
+            )
 
     s = sub.add_parser("summarize", help="resumir un texto ya transcrito")
     s.add_argument("--text", required=True, help="ruta a .txt (transcripción)")
@@ -457,12 +466,17 @@ def build_parser() -> argparse.ArgumentParser:
         "(default: por+eng+spa; ej. anadir frances: "
         "por+eng+spa+fra)",
     )
-    _add_backend_model(r)
+    _add_backend_model(r, add_vlm=True)
     r.add_argument(
         "--long-strategy",
         dest="long_strategy",
         default=get_config_value("long_strategy", "excerpt"),
         choices=["excerpt", "blocks", "hierarchical"],
+    )
+    r.add_argument(
+        "--retranscribe",
+        action="store_true",
+        help="forzar re-OCR aun con caché válida (regenera ocr/*.meta.json)",
     )
     r.add_argument("--dry-run", action="store_true", help="resumidor fake (OCR real)")
     r.add_argument(
@@ -476,6 +490,18 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--in", dest="in_dir", required=True, help="directorio de PDFs")
     t.add_argument("--workspace", required=True)
     t.add_argument("--lang", default="por+eng+spa")
+    t.add_argument(
+        "--vlm-model",
+        dest="vlm_model",
+        default=None,
+        help="modelo vlm a usar (def: config 'vlm_model', si no "
+        "el default del backend)",
+    )
+    t.add_argument(
+        "--retranscribe",
+        action="store_true",
+        help="forzar re-OCR aun con caché válida (regenera ocr/*.meta.json)",
+    )
     t.add_argument("--fake", action="store_true")
     t.set_defaults(func=cmd_transcribe)
 
@@ -499,7 +525,7 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--pdfs", default=None, help="dir de PDFs (def: muestra)")
     v.add_argument("--control", default=None, help="set de control (def: incluido)")
     v.add_argument("--lang", default="por+eng+spa")
-    _add_backend_model(v)
+    _add_backend_model(v, add_vlm=True)
     v.add_argument(
         "--long-strategy",
         dest="long_strategy",

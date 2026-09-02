@@ -13,13 +13,21 @@ class FakeTranscriber:
     """Implementa el Protocol Transcriber con salida fija."""
 
     def __init__(
-        self, text: str, pages: int = 1, source_kind: SourceKind = SourceKind.NATIVO
+        self,
+        text: str,
+        pages: int = 1,
+        source_kind: SourceKind = SourceKind.NATIVO,
+        pages_detail: list[dict] | None = None,
     ):
         self._text = text
         self._pages = pages
         self._kind = source_kind
+        self._pages_detail = pages_detail
 
     def transcribe(self, path: str) -> TranscriptResult:
         return TranscriptResult(
-            text=self._text, pages=self._pages, source_kind=self._kind
+            text=self._text,
+            pages=self._pages,
+            source_kind=self._kind,
+            pages_detail=self._pages_detail,
         )

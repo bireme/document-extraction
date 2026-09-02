@@ -1,0 +1,70 @@
+---
+id: FIX-HIERARCHICAL-DOBLE-RESUMEN
+titulo: "Fix: doble ejecución de summarize_in_blocks en estrategia hierarchical"
+issue: "https://github.com/idourra/pdf-summarizer/issues/12"
+descripcion: >
+  `pipeline._summarize_chapter()` (estrategia `hierarchical`, fase 10)
+  llama a `summarize_in_blocks()` DOS veces con argumentos idénticos
+  cuando un capítulo excede `max_chars`: una para quedarse con `meta` y
+  otra para quedarse con `secciones`. Como `summarize_in_blocks()` invoca
+  al puerto Summarizer por cada bloque + una consolidación, esto duplica
+  TODAS las llamadas al LLM de ese capítulo (coste y latencia x2) sin
+  cambiar el resultado (el summarizer del dominio se asume determinista
+  para el mismo request, y aun sin serlo, la primera pasada se descarta).
+
+  Fix: una sola llamada `secciones, meta = summarize_in_blocks(...)`.
+  Alcance: solo `src/pdfsum/pipeline.py::_summarize_chapter`.
+
+estado: COMPLETADA
+fecha: 2026-09-02
+resultado: |
+  3/3 criterios cumplidos. Test C1 (spy contador sobre FakeSummarizer)
+  primero demostró el bug con el código original: capítulo de 3 bloques
+  -> 8 llamadas al summarizer (2 x (3+1)); tras el fix -> 4 (3 bloques +
+  1 consolidación). C2: secciones/meta idénticos (tests C4/C5 de fase 10
+  verdes + aserciones de contrato en los tests nuevos). C3: suite
+  completa 223 tests OK (3 skipped), arquitectura OK, ruff check/format
+  limpios.
+
+criterios:
+  - id: C1-una-sola-pasada-por-capitulo
+    tipo: unit
+    descripcion: >
+      Con un Summarizer instrumentado (contador de llamadas) y un capítulo
+      que excede max_chars dividiéndose en N bloques, `_summarize_chapter`
+      produce exactamente N + 1 llamadas al summarizer (N bloques + 1
+      consolidación si N > 1) — no 2*(N+1).
+    verificacion: >
+      tests/test_pipeline_hierarchical.py::
+      test_capitulo_largo_una_sola_pasada_de_bloques
+
+  - id: C2-resultado-equivalente
+    tipo: unit
+    descripcion: >
+      El fix no cambia el contrato: `_summarize_chapter` devuelve las
+      mismas `secciones` (dict por sección) y `meta` con
+      `excerpt_strategy='blocks'`/`n_bloques` que devolvía la versión
+      anterior (la segunda llamada era idéntica a la primera).
+    verificacion: >
+      tests/test_pipeline_hierarchical.py (tests C4/C5 existentes verdes
+      + aserciones de meta en el test nuevo)
+
+  - id: C3-sin-regresion-suite
+    tipo: integration
+    descripcion: >
+      Suite completa del proyecto verde (unittest discover + tests de
+      arquitectura), lint y formato limpios.
+    verificacion: "uv run python -m unittest discover tests && ruff"
+
+invariantes:
+  - "Solo se toca pipeline.py::_summarize_chapter (sin refactor extra)."
+  - "El dominio sigue sin importar adaptadores (ADR-001)."
+  - "chunking.summarize_in_blocks no cambia."
+
+no_objetivos:
+  - >-
+    Optimizar la consolidación inter-capítulos de _summarize_hierarchical
+    (re-resumen final): es comportamiento de diseño de la fase 10, no un
+    bug.
+  - >-
+    Cachear resultados del summarizer: fuera de alcance.

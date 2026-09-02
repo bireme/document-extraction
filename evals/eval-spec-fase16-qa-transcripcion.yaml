@@ -1,0 +1,209 @@
+---
+id: FASE16-QA-TRANSCRIPCION
+titulo: >-
+  QA de transcripción medible: métricas OCR persistidas por página +
+  gates de calidad del transcript + caché versionada por hash
+issue: "https://github.com/idourra/pdf-summarizer/issues/13"
+descripcion: >
+  Objetivo central del producto: transcripciones del mayor nivel de
+  calidad para generar resúmenes de calidad. Brecha madre detectada en el
+  análisis 2026-09-02: la confianza OCR se calcula por página/región
+  (`parse_tsv_confidence`) y SE DESCARTA; la caché guarda solo
+  `ocr/<doc_id>.txt` plano; los QA gates validan solo el RESUMEN, nunca
+  el transcript. Un OCR basura pasa silencioso al resumidor (garbage in)
+  y la caché nunca se invalida al mejorar el pipeline (los transcripts
+  malos quedan congelados). Además `pages` se reconstruye con el hack
+  `text.count("=== pág")` y el umbral nativo/escaneado está triplicado.
+
+  Esta fase NO mejora el OCR: lo hace MEDIBLE. Es prerequisito de
+  F17/F18/F19 (sin métricas persistidas no hay evidencia de mejora).
+
+  Decisiones de diseño (a validar por el PO):
+  1. `ocr/<doc_id>.meta.json` junto a cada `.txt`, escrito por el
+     adaptador: `meta_version`, `ocr_pipeline_version` (constante del
+     paquete), `pdf_sha256`, `doc_id`, `pages`, `source_kind`,
+     `lang_ocr`, `pages_detail` (por página: `source`
+     nativo|tesseract|vlm, `conf` media Tesseract si aplica, `words`,
+     `chars`) y bloque `quality` agregado (conf media ponderada,
+     `paginas_vlm`, `paginas_vacias`).
+  2. Gates de transcript en DOMINIO puro (`transcript_qa.py`), sobre
+     texto + meta opcional: (a) `garbage_ratio` — proporción de
+     caracteres fuera del alfabeto esperado (letras latinas con
+     diacríticos, dígitos, puntuación y espacio) > umbral -> error;
+     (b) `stopword_ratio` — señal de idioma reutilizando
+     `classify.language_scores`; por debajo del umbral -> warning
+     (texto posiblemente ilegible); (c) `paginas_vacias`/perdidas
+     según meta -> error si > umbral, warning si > 0; (d) `conf_baja`
+     — confianza media OCR < umbral -> warning. Umbrales como
+     constantes del dominio con valores iniciales calibrados sobre el
+     set de control (`control.py`) y ajustables por parámetro.
+  3. Integración: `run_batch_pdfs` ejecuta el gate de transcript ANTES
+     de resumir; el veredicto viaja en `_qa.transcript` del registro
+     del documento, en `report.json` (versión 3.1, cambios ADITIVOS:
+     bloque `transcription_quality` por doc y agregado) y en
+     `events.jsonl` (`transcript_qa_completed`). Un transcript con
+     fallo severidad error NO bloquea el resumen (política actual:
+     aislar, no interrumpir) pero queda marcado y cuenta en métricas.
+  4. Caché versionada: se reutiliza `ocr/<doc_id>.txt` solo si existe
+     `meta.json` con `pdf_sha256` igual al del PDF actual y
+     `ocr_pipeline_version` igual a la corriente; si difieren ->
+     re-transcribir. Caché LEGACY (txt sin meta, corpus ya procesado):
+     se REUTILIZA (no forzar re-OCR masivo de corpus existentes) pero
+     se genera meta mínima `{"legacy": true}` con hash y gate warning
+     `transcript.legacy_cache`; flag `--retranscribe` fuerza re-OCR.
+  5. Unificación: umbral chars/página en un solo lugar del dominio
+     (`classify.DEFAULT_TEXT_PER_PAGE_THRESHOLD`), importado por los
+     adaptadores; eliminado el hack `text.count("=== pág")` (pages
+     sale de la meta).
+
+estado: COMPLETADA
+fecha: 2026-09-02
+resultado: |
+  8/8 criterios cumplidos (decisiones 1-5 validadas por el PO antes de
+  implementar).
+  - C1: transcript_qa.py en src/pdfsum/ (dominio auto-descubierto por el
+    test AST); arquitectura verde.
+  - C2: 12 tests (garbage error, legible pt/es sin fallos, ruido
+    alfabético warning, páginas vacías warning/error por ratio,
+    conf_baja, legacy_cache, sin-meta solo texto, marcadores de página
+    no cuentan como basura, corto sin veredicto).
+  - C3: meta.json con sha256/pipeline_version/pages_detail/quality;
+    HybridOcrTranscriber conserva conf/words por página (antes se
+    descartaba) y marca páginas sin imagen (chars=0); quality ponderada
+    por palabras verificada (73.33 en fixture 90x100+40x50).
+  - C4: 6 tests de caché (válida reutiliza, sha cambiado re-OCR,
+    pipeline_version distinta re-OCR, legacy reutiliza con marca y 0
+    llamadas, legacy+PDF cambiado re-OCR, --retranscribe fuerza);
+    hack text.count eliminado de pdf_batch (grep verificado).
+  - C5: _qa.transcript en registro, report 3.1 con transcription_quality
+    por doc y agregado, evento transcript_qa_completed; campos 3.0
+    intactos (solo se actualizó la aserción de version del e2e).
+  - C6: grep sin _TEXT_PER_PAGE en adapters; umbral único en classify.
+  - C7: E2E real samples/pdfs (OCR + VLM local): meta con pages_detail
+    coherente, conf_media 94.09 en el escaneado, 0 errores/0 warnings
+    (sin falsos positivos); 2ª pasada 100% cacheada.
+  - C8: suite 250 tests OK (3 skipped; +27 nuevos), arquitectura OK,
+    ruff check/format limpios; GUIA-USO y CHANGELOG actualizados.
+
+criterios:
+  - id: C1-dominio-puro-transcript-qa
+    tipo: architecture
+    descripcion: >
+      Nuevo módulo de DOMINIO `src/pdfsum/transcript_qa.py`
+      (`check_transcript(text, meta=None, lang=None) -> TranscriptQAReport`)
+      con los gates garbage_ratio / stopword_ratio / paginas /
+      conf_baja y umbrales como constantes. Puro: sin subprocess/IO/
+      red/hashlib-de-ficheros. Añadido a DOMAIN_MODULES del test de
+      arquitectura AST.
+    verificacion: >
+      módulo en src/pdfsum/ (dominio auto-descubierto por
+      _domain_modules) && uv run python tests/test_architecture.py
+
+  - id: C2-gates-detectan-transcripts-degradados
+    tipo: unit
+    descripcion: >
+      Tests con fixtures sintéticos: (a) texto con >umbral de
+      caracteres basura -> gate garbage error; (b) texto legible real
+      (pt/es/en) -> sin fallos; (c) meta con páginas vacías -> gate
+      paginas; (d) meta con conf media baja -> warning conf_baja;
+      (e) sin meta (solo texto) los gates de texto siguen funcionando.
+    verificacion: "tests/test_transcript_qa.py"
+
+  - id: C3-meta-json-por-transcripcion
+    tipo: unit
+    descripcion: >
+      Al transcribir (no cacheado), el adaptador escribe
+      `ocr/<doc_id>.meta.json` con meta_version, ocr_pipeline_version,
+      pdf_sha256, pages, source_kind, lang_ocr, pages_detail y quality.
+      `HybridOcrTranscriber` reporta por página fuente y confianza
+      (la que ya calcula y descarta). TranscriptResult transporta el
+      detalle sin romper su contrato actual (campo nuevo opcional).
+    verificacion: >
+      tests/test_ocr_meta.py (transcriber fake/mocked; sin binarios
+      reales en CI)
+
+  - id: C4-cache-versionada-por-hash
+    tipo: unit
+    descripcion: >
+      (a) Caché válida (meta con mismo sha256 y misma
+      ocr_pipeline_version) -> se reutiliza sin re-transcribir;
+      (b) PDF cambiado (sha distinto) -> re-transcribe y reescribe meta;
+      (c) ocr_pipeline_version distinta -> re-transcribe;
+      (d) caché legacy (txt sin meta) -> se reutiliza, genera meta
+      {"legacy": true} y produce warning transcript.legacy_cache;
+      (e) `--retranscribe` fuerza re-OCR aun con caché válida.
+      `pages` deja de calcularse con text.count("=== pág").
+    verificacion: "tests/test_ocr_cache.py + grep de ausencia del hack"
+
+  - id: C5-integrado-en-batch-y-report
+    tipo: integration
+    descripcion: >
+      `pdfsum run` sobre un lote fake: cada documento lleva
+      `_qa.transcript` en su registro; `report.json` es versión 3.1
+      con bloque `transcription_quality` por documento y agregado del
+      lote (conf media, docs con gates de transcript fallados,
+      páginas vlm/vacías); `events.jsonl` registra
+      `transcript_qa_completed`. Los campos 3.0 existentes NO cambian
+      (aditivo; contrato del PR #6 preservado).
+    verificacion: >
+      tests/test_batch_transcript_qa.py + tests de observabilidad
+      existentes verdes sin modificar sus aserciones de campos 3.0
+
+  - id: C6-umbral-unificado
+    tipo: unit
+    descripcion: >
+      El umbral chars/página vive solo en
+      `classify.DEFAULT_TEXT_PER_PAGE_THRESHOLD`; hybrid_ocr y
+      ocr_transcriber lo importan (no hay más constantes _TEXT_PER_PAGE
+      locales duplicadas).
+    verificacion: >
+      ! grep -rn '_TEXT_PER_PAGE = ' src/pdfsum/adapters/ &&
+      suite verde
+
+  - id: C7-e2e-set-de-control
+    tipo: metrics
+    descripcion: >
+      E2E real sobre los PDFs de muestra del repo (samples/pdfs, OCR
+      real local): meta.json generados con pages_detail coherente
+      (nº de entradas == pages), quality agregada presente, y los
+      transcripts legibles del set NO disparan gates de error
+      (calibración de umbrales sin falsos positivos sobre el corpus
+      bueno conocido).
+    verificacion: >
+      pdfsum run --in samples/pdfs --workspace /tmp/ws-f16 &&
+      inspección de ocr/*.meta.json + report.json 3.1
+
+  - id: C8-sin-regresion-docs
+    tipo: integration
+    descripcion: >
+      Suite completa + arquitectura + ruff check/format verdes;
+      GUIA-USO.md y CHANGELOG documentan meta.json, gates de
+      transcript, report 3.1, caché versionada y --retranscribe.
+    verificacion: "make check + revisión de docs en el PR"
+
+invariantes:
+  - >-
+    El dominio no importa adaptadores (ADR-001); hashing de ficheros e
+    IO en adaptadores.
+  - >-
+    report.json 3.1 es ADITIVO sobre 3.0 (no rompe consumidores del
+    contrato del PR #6).
+  - >-
+    Caché legacy se reutiliza por defecto: NUNCA re-OCR masivo
+    silencioso de corpus existentes.
+  - >-
+    Un gate de transcript en error no aborta el documento ni el lote
+    (política de aislamiento actual).
+  - "Sin dependencias nuevas (stdlib + Pillow ya presente)."
+
+no_objetivos:
+  - "Mejorar la precisión del OCR (preprocesado, deskew): es F18."
+  - >-
+    Decisión nativo/OCR por página y SourceKind.MIXTO: es F17 (aquí
+    solo se persiste lo que el pipeline actual ya sabe).
+  - >-
+    Verificación anti-alucinación del VLM: es F19 (aquí solo se
+    registra qué páginas usaron VLM).
+  - >-
+    Diccionarios morfológicos reales por idioma: la señal de idioma
+    reutiliza las stopwords de classify.py.

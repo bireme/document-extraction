@@ -7,6 +7,60 @@ from pdfsum.contract import DocType
 from pdfsum.pipeline import summarize_document
 
 
+class _CountingSummarizer(FakeSummarizer):
+    """Spy: cuenta las llamadas al puerto Summarizer (FIX-HIERARCHICAL C1)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.calls = 0
+        self.doc_ids: list[str] = []
+
+    def summarize(self, req):
+        self.calls += 1
+        self.doc_ids.append(req.doc_id)
+        return super().summarize(req)
+
+
+class TestCapituloLargoUnaSolaPasada(unittest.TestCase):
+    """FIX-HIERARCHICAL-DOBLE-RESUMEN: C1 y C2."""
+
+    def test_capitulo_largo_una_sola_pasada_de_bloques(self):
+        """C1: capítulo de N bloques -> N+1 llamadas al summarizer, no 2x."""
+        from pdfsum.chunking import split_blocks
+        from pdfsum.pipeline import _summarize_chapter
+
+        max_chars = 1000
+        text = "Párrafo de contenido del capítulo.\n\n" * 60  # > 1 bloque
+        n_blocks = len(split_blocks(text, max_chars=max_chars))
+        self.assertGreater(n_blocks, 1, "el fixture debe exceder un bloque")
+
+        spy = _CountingSummarizer()
+        secciones, meta = _summarize_chapter(
+            "doc#cap1", text, spy, "es", "B", max_chars=max_chars
+        )
+
+        # N bloques + 1 consolidación; el bug duplicaba: 2*(N+1).
+        self.assertEqual(spy.calls, n_blocks + 1)
+
+        # C2: contrato intacto (secciones dict no vacío, meta de bloques).
+        self.assertTrue(secciones)
+        self.assertIsInstance(secciones, dict)
+        self.assertEqual(meta["n_bloques"], n_blocks)
+        self.assertEqual(meta["excerpt_strategy"], "blocks")
+
+    def test_capitulo_corto_una_llamada(self):
+        """C2: capítulo que cabe en max_chars -> exactamente 1 llamada."""
+        from pdfsum.pipeline import _summarize_chapter
+
+        spy = _CountingSummarizer()
+        secciones, meta = _summarize_chapter(
+            "doc#cap1", "Texto corto.", spy, "es", "B", max_chars=1000
+        )
+        self.assertEqual(spy.calls, 1)
+        self.assertTrue(secciones)
+        self.assertEqual(meta["n_bloques"], 1)
+
+
 class TestPipelineHierarchical(unittest.TestCase):
     """Tests de integración para el pipeline jerárquico."""
 
