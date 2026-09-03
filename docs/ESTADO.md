@@ -1,6 +1,6 @@
 # Estado del producto pdfsum
 
-**Actualizado:** 2026-09-01 · **Versión:** 0.13.0 ·
+**Actualizado:** 2026-09-02 · **Versión:** 0.14.0 ·
 **Repo:** GitHub `idourra/pdf-summarizer` (rama → PR → CI → merge → tag)
 
 ## Roadmap y avance
@@ -24,6 +24,10 @@
 | 14 | Backends cloud (openai/openrouter/anthropic) | ✅ hecho | 0.13.0 | `FASE14-BACKENDS-CLOUD` |
 | 15 | Registros bibliográficos BIBFRAME (JSON-LD) | ✅ hecho | 0.13.0 | `FASE15-BIBFRAME` |
 | — | Observabilidad durable (events/infra/report 3.0) | ✅ hecho | 0.13.0 | PR #6/#9 |
+| 16 | QA de transcripción medible (meta OCR + gates + caché versionada) | ✅ hecho | 0.14.0 | `FASE16-QA-TRANSCRIPCION` 8/8 |
+| 17 | PDFs mixtos por página + limpieza de texto | ✅ hecho | 0.14.0 | `FASE17-MIXTOS-LIMPIEZA` 9/9 |
+| 18 | Preprocesado OCR medido por benchmark | ✅ hecho | 0.14.0 | `FASE18-PREPROCESADO-OCR` 9/9 |
+| 19 | Fallback VLM verificado (anti-alucinación) | ✅ hecho | 0.14.0 | `FASE19-VLM-VERIFICADO` 7/7 |
 
 **Roadmap completo + integración E2E.** El producto arranca desde la **fuente
 real (PDFs)** y cubre el ciclo completo hasta la catalogação, con
@@ -67,11 +71,13 @@ observabilidad durable del lote y salida bibliográfica BIBFRAME/LILACS.
 
 ## Pendientes / decisiones abiertas
 
-1. **Traspaso a la célula BIREME**: PR #7 (`docs/PLAN-TRASPASO-BIREME.md`),
+1. **EPIC F20 (#17)**: despliegue como servicio (API de procesamiento
+   asíncrona sobre la JobQueue existente) — única épica abierta.
+2. **Traspaso a la célula BIREME**: PR #7 (`docs/PLAN-TRASPASO-BIREME.md`),
    6 fases; requiere designar 2+ maintainers y validar cronograma.
-2. **Validación DeCS/MeSH real** de los descriptores candidatos del export
+3. **Validación DeCS/MeSH real** de los descriptores candidatos del export
    LILACS/BIBFRAME (hoy quedan marcados como candidatos/draft).
-3. Alcance a futuro: herramienta interna (CLI+servicio local) vs servicio
+4. Alcance a futuro: herramienta interna (CLI+servicio local) vs servicio
    con API multiusuario.
 
 Ver detalle en `docs/PROPUESTA-PRODUCTO.md` y `docs/PLAN-TRASPASO-BIREME.md`

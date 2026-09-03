@@ -28,7 +28,7 @@ from .queue import JobQueue
 from .review import ReviewRecord, approve, edit_sections, reject
 from .workspace import Workspace
 
-__version__ = "0.13.0"  # Release 0.13.0 (observabilidad, cloud, BIBFRAME, Docker)
+__version__ = "0.14.0"  # Release 0.14.0 (calidad de transcripción F16-F19)
 
 __all__ = [
     "CONTRACT_VERSION",
