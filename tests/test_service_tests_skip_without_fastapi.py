@@ -40,12 +40,8 @@ class TestServiceTestsSkipWithoutFastapi(unittest.TestCase):
 
         try:
             with mock.patch("builtins.__import__", side_effect=fake_import):
-                suite = unittest.TestSuite(
-                    loader.loadTestsFromName(n) for n in names
-                )
-                result = unittest.TextTestRunner(stream=stream, verbosity=0).run(
-                    suite
-                )
+                suite = unittest.TestSuite(loader.loadTestsFromName(n) for n in names)
+                result = unittest.TextTestRunner(stream=stream, verbosity=0).run(suite)
         finally:
             for key, mod in saved.items():
                 if mod is not None:
