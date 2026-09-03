@@ -5,7 +5,19 @@ semántico. Repositorio en GitHub (`idourra/pdf-summarizer`): flujo
 rama → PR → CI → merge; las versiones se marcan con tags `vX.Y.Z`
 (el tag dispara la publicación a PyPI vía `publish.yml`).
 
-## [Unreleased]
+## [0.14.0] — 2026-09-02 — Calidad de transcripción medible y verificada
+
+> Consolida el milestone "Calidad de transcripción" (fases 16–19 + fix,
+> PRs #18–#22, issues #12–#16). El pipeline OCR pasa a versión 4: las
+> cachés v1–v3 se re-transcriben automáticamente al próximo run
+> (los documentos mixtos recuperan páginas antes perdidas, +5% palabras
+> por el preprocesado, VLM verificado anti-alucinación).
+
+### Corregido — Estrategia hierarchical (fix #12)
+- `_summarize_chapter()` duplicaba TODAS las llamadas al LLM de cada
+  capítulo largo (dos pasadas idénticas de `summarize_in_blocks`):
+  ahora una sola pasada (evidencia del spy: 8 -> 4 llamadas).
+
 ### Añadido — Fallback VLM verificado, anti-alucinación (FASE19)
 - **Verificación de la salida del VLM** (dominio puro `vlm_verify.py`)
   antes de aceptarla en el transcript: vacío, cháchara/descripción
