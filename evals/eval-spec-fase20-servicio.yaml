@@ -1,0 +1,192 @@
+---
+id: FASE20-SERVICIO
+titulo: >-
+  Despliegue como servicio: API de procesamiento asíncrona (upload PDF ->
+  job -> resumen con QA) sobre la JobQueue existente
+issue: "https://github.com/idourra/pdf-summarizer/issues/17"
+descripcion: >
+  `pdfsum serve` solo consulta lotes ya procesados. Esta fase convierte
+  pdfsum en servicio: subir PDFs por HTTP y obtener resúmenes con QA,
+  reutilizando el dominio existente (JobQueue idempotente + puerto
+  JobStore, pipeline, QA gates, Workspace, observabilidad durable). El
+  dominio NO cambia: se añaden un adaptador de entrada (API) y un
+  runner de proceso (worker).
+
+  Decisiones de diseño (validar con el PO):
+  1. STACK: FastAPI + uvicorn como dependencia OPCIONAL
+     (`pdfsum[service]` en pyproject) — el core sigue stdlib-first; sin
+     el extra instalado, `pdfsum api` explica qué instalar. Se registra
+     en `docs/adr/ADR-002-fastapi-adaptador-entrada.md` (por qué no
+     http.server: multipart upload seguro, límites, OpenAPI gratis).
+  2. ENDPOINTS (adaptador `adapters/api_service.py`):
+     - `POST /api/documents` (multipart PDF) -> 202 {job_id, status};
+     - `GET  /api/jobs/{job_id}` -> estado (queued|running|done|failed),
+       fases/tiempos desde events.jsonl, y al terminar doc_id + enlaces;
+     - `GET  /api/summaries`, `/api/summaries/{doc_id}`, `/api/report`:
+       paridad con la API de consulta actual;
+     - `GET  /api/health` -> versión, pipeline OCR, backend resumidor,
+       profundidad de cola (sin secretos).
+  3. JOBS E IDEMPOTENCIA: job_id = sha256 del contenido del PDF
+     (mismo fichero re-subido -> MISMO job, sin reprocesar: coherente
+     con la caché OCR por hash). Cola durable con el FileJobStore
+     existente bajo el workspace del servicio; `doc_id` derivado del
+     hash corto + nombre saneado (sin path traversal posible).
+  4. WORKER: subcomando `pdfsum worker --workspace <ws>` (proceso
+     separado, sin FastAPI): consume la cola, ejecuta el flujo actual
+     (transcribe con caché v4 + QA transcript + resumen + QA + meta) y
+     escribe artefactos idénticos a `pdfsum run` (report 3.1,
+     events.jsonl). Interrupción -> el checkpoint durable ya existente
+     preserva lo confirmado; el job vuelve a la cola (reintentos del
+     JobQueue, máx. 2).
+  5. SEGURIDAD (cada punto con test):
+     (a) auth Bearer obligatoria: el servicio NO ARRANCA sin
+         `PDFSUM_API_TOKEN` en el entorno (sin modo abierto por
+         defecto); 401 sin/mal token en TODOS los endpoints;
+     (b) límite de tamaño de upload (def. 100 MB, configurable) -> 413;
+     (c) validación por MAGIC BYTES (%PDF-), no por extensión -> 415;
+     (d) doc_id/job_id saneados (regex estricta), imposible escapar del
+         workspace; nombres de fichero del cliente NUNCA usados como
+         path;
+     (e) API keys de backends solo por env (norma existente); /health
+         no expone secretos ni rutas absolutas.
+  6. DESPLIEGUE: `compose.yml` modo D (servicios `pdfsum-api` +
+     `pdfsum-worker` + ollama) con healthcheck sobre /api/health,
+     workspace compartido en volumen, token vía env `${PDFSUM_API_TOKEN}`.
+     Documentado en INSTALL.md §servicio y GUIA-USO.
+  7. Los comandos CLI actuales no cambian; la API de consulta legada
+     (`pdfsum serve`, http.server) se conserva y se marca como modo
+     local de solo lectura.
+
+estado: COMPLETADA
+fecha: 2026-09-03
+resultado: |
+  8/8 criterios cumplidos.
+
+  - Arquitectura: dominio intacto; fastapi/uvicorn prohibidos en el
+    dominio (FORBIDDEN ampliado en test_architecture) y solo aparecen
+    en adapters/api_service.py; `pdfsum` se importa sin fastapi.
+  - API: POST /api/documents crea job y es idempotente por contenido
+    (doc_id = sha12; el nombre del cliente solo se guarda como display);
+    GET /api/jobs/{job_id}, /api/summaries, /api/report, /api/health.
+  - Worker: `pdfsum worker` consume DirJobStore + inbox/<doc_id> y
+    ejecuta run_batch_pdfs con logs por job en jobs/<job_id>/ y copia el
+    último report a summaries/report.json.
+  - Seguridad verificada por tests: sin token no arranca; 401 sin/mal
+    token; 413 por tamaño; 415 por magic bytes; /health no expone
+    secretos.
+  - Resiliencia: interrupción (KeyboardInterrupt simulado) preserva
+    report.json con status interrupted, job queda failed y el siguiente
+    run del worker completa el job.
+  - Compose: modo service añadido en compose.yml (perfil service) con
+    pdfsum-api + pdfsum-worker y workspace ./service_ws.
+
+  Evidencia:
+    - 300 tests OK (3 skipped) incl. nuevos: test_api_service,
+      test_api_security, test_worker, test_service_optional_deps.
+    - ruff check/format OK; uv.lock actualizado con extras.
+    - ADR-002 + INSTALL.md (sección modo servicio) + GUIA-USO + CHANGELOG
+      actualizados.
+
+criterios:
+  - id: C1-arquitectura-dominio-intacto
+    tipo: architecture
+    descripcion: >
+      El dominio no importa fastapi/uvicorn ni el adaptador nuevo
+      (test AST verde con los módulos nuevos en adapters/); la lógica
+      de jobs sigue siendo el dominio queue.py sin cambios de contrato.
+      FastAPI solo aparece en adapters/api_service.py y es import
+      opcional (ImportError -> mensaje de instalación).
+    verificacion: >
+      uv run python tests/test_architecture.py && grep de imports
+
+  - id: C2-upload-crea-job-idempotente
+    tipo: unit
+    descripcion: >
+      Con TestClient: POST /api/documents con un PDF válido -> 202 y
+      job_id (sha256 del contenido); re-subir el MISMO contenido (otro
+      nombre de fichero) -> mismo job_id sin duplicar cola; PDF ya
+      procesado -> estado done inmediato con doc_id.
+    verificacion: "tests/test_api_service.py"
+
+  - id: C3-worker-procesa-cola
+    tipo: integration
+    descripcion: >
+      `pdfsum worker` (invocado como función, con fakes de
+      transcriber/summarizer) consume un job encolado por la API y
+      produce los artefactos estándar: summaries/<doc_id>.json con
+      _qa + _qa.transcript, ocr/*.meta.json, report 3.1 y events.jsonl;
+      GET /api/jobs/{id} pasa de queued a done y enlaza el resumen.
+    verificacion: "tests/test_worker.py"
+
+  - id: C4-seguridad-por-punto
+    tipo: unit
+    descripcion: >
+      (a) sin PDSUM_API_TOKEN en env el arranque falla con mensaje
+      claro; con token: 401 sin header y con token erróneo en todos
+      los endpoints; (b) upload > límite -> 413 sin escribir nada;
+      (c) contenido sin magic %PDF- -> 415 aunque la extensión sea
+      .pdf; (d) nombres maliciosos ('../../etc/passwd', nulls, etc.)
+      no influyen en rutas (doc_id = hash + saneado); (e) /api/health
+      sin token -> 401, con token no contiene valores de env ni rutas
+      absolutas.
+    verificacion: "tests/test_api_security.py (uno por punto)"
+
+  - id: C5-resiliencia-e-interrupcion
+    tipo: integration
+    descripcion: >
+      Worker interrumpido a mitad de lote (excepción inyectada):
+      report.json conserva el último checkpoint (contrato PR #6);
+      el job queda para reintento y un segundo worker lo completa
+      reutilizando la caché OCR (sin re-transcribir lo hecho).
+    verificacion: "tests/test_worker.py::test_interrupcion"
+
+  - id: C6-compose-modo-d
+    tipo: integration
+    descripcion: >
+      compose.yml levanta pdfsum-api + pdfsum-worker con healthcheck
+      /api/health verde, y un upload E2E real vía curl produce resumen
+      consultable (backend fake o ollama local). Verificación manual
+      documentada en el spec resultado (no en CI).
+    verificacion: "docker compose up + curl (evidencia en resultado)"
+
+  - id: C7-e2e-flujo-completo
+    tipo: integration
+    descripcion: >
+      TestClient E2E (sin docker): upload PDF de samples -> poll del
+      job -> resumen con _qa y _qa.transcript accesible por
+      /api/summaries/{doc_id}; upload duplicado no reprocesa
+      (transcription_cached true en el segundo report o mismo job).
+    verificacion: "tests/test_api_e2e.py"
+
+  - id: C8-sin-regresion-docs
+    tipo: integration
+    descripcion: >
+      Suite completa + arquitectura + ruff verdes; extra [service] en
+      pyproject sin engordar la instalación base (test: importar
+      pdfsum sin fastapi instalado funciona); ADR-002, INSTALL.md,
+      GUIA-USO.md y CHANGELOG actualizados; CI instala el extra para
+      correr los tests del servicio.
+    verificacion: "make check + revisión de docs en el PR"
+
+invariantes:
+  - "El dominio no importa adaptadores ni frameworks (ADR-001)."
+  - >-
+    FastAPI/uvicorn SOLO como extra opcional [service]; el core y la
+    CLI actual no lo requieren.
+  - >-
+    Sin token configurado no hay servicio (nunca un modo abierto por
+    defecto).
+  - >-
+    El worker produce artefactos idénticos a pdfsum run (mismos
+    contratos: report 3.1, meta v4, _qa).
+  - >-
+    API keys y token solo por variables de entorno; nunca en
+    respuestas ni logs.
+
+no_objetivos:
+  - >-
+    Multi-tenancy / usuarios múltiples con permisos (un token único
+    de servicio).
+  - "HTTPS/TLS terminación (se delega al reverse proxy del despliegue)."
+  - "UI web de revisión humana (fase futura; la API ya expone lo necesario)."
+  - "Escalado horizontal de workers (un worker; la cola lo permite a futuro)."

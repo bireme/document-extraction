@@ -16,6 +16,7 @@ WORKDIR /app
 
 COPY . /app
 
-RUN pip install --no-cache-dir .
+# Para el modo servicio (FASE20), la imagen incluye el extra opcional.
+RUN pip install --no-cache-dir '.[service]'
 
 CMD ["pdfsum", "--help"]

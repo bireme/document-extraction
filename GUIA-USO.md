@@ -74,6 +74,7 @@ curl http://127.0.0.1:8765/api/report
 |---|---|
 | **Resumir mis PDFs** | `pdfsum run --in ./pdfs --workspace ./data --lang por` |
 | Solo transcribir | `pdfsum transcribe --in ./pdfs --workspace ./data` |
+| Servicio (API + worker) | `PDFSUM_API_TOKEN=... pdfsum api --workspace ./service_ws` + `pdfsum worker --workspace ./service_ws` |
 | Resumir un texto ya transcrito | `pdfsum summarize --text doc.txt --pages 4 --out r.json` |
 | Re-resumir lote de .txt | `pdfsum batch --in ./textos --out ./resumenes` |
 | Export LILACS (borrador) | `pdfsum export --in ./data/summaries --out lilacs.json` |

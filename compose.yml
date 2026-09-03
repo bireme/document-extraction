@@ -1,3 +1,4 @@
+---
 services:
   # Ollama embebido, con GPU (opt-in). No arranca con `docker compose up`
   # por defecto: solo con `docker compose --profile gpu up`. Requiere
@@ -25,8 +26,6 @@ services:
       # Backend de resumen (FASE14): 'ollama' (default) usa lo de arriba;
       # con 'openai'/'openrouter'/'anthropic' Ollama deja de ser necesario
       # para resumir (sigue usandose solo para el fallback VLM de OCR).
-      # Las API keys NUNCA se hardcodean aqui: pasan del entorno del host
-      # (o de tu .env, ver .env.example) tal cual, vacias si no las defines.
       PDFSUM_SUMMARIZER_BACKEND: ${PDFSUM_SUMMARIZER_BACKEND:-}
       PDFSUM_OLLAMA_METRICS: ${PDFSUM_OLLAMA_METRICS:-1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -34,14 +33,62 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     extra_hosts:
       # Permite que host.docker.internal resuelva también en Linux
-      # (en Docker Desktop/macOS/Windows ya funciona sin esto).
-      - "host.docker.internal:host-gateway"
+      - host.docker.internal:host-gateway
     volumes:
       - ./input:/input:ro
       - ./output:/output
       - ./logs:/logs
-    # Sin depends_on: pdfsum no requiere el servicio `ollama` (perfil
-    # "gpu") para arrancar; el modo default apunta a un Ollama del host.
+
+  # Modo D (FASE20): servicio API + worker sobre un workspace compartido.
+  # Activación: `docker compose --profile service up`
+  pdfsum-api:
+    build:
+      context: .
+    profiles: ["service"]
+    environment:
+      PDFSUM_API_TOKEN: ${PDFSUM_API_TOKEN:-}
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+      PDFSUM_SUMMARIZER_BACKEND: ${PDFSUM_SUMMARIZER_BACKEND:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ./service_ws:/workspace
+    command:
+      - pdfsum
+      - api
+      - --workspace
+      - /workspace
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8766"
+    ports:
+      - "8766:8766"
+
+  pdfsum-worker:
+    build:
+      context: .
+    profiles: ["service"]
+    environment:
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+      PDFSUM_SUMMARIZER_BACKEND: ${PDFSUM_SUMMARIZER_BACKEND:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ./service_ws:/workspace
+    command:
+      - pdfsum
+      - worker
+      - --workspace
+      - /workspace
+      - --interval
+      - "1"
 
 volumes:
   ollama_models:

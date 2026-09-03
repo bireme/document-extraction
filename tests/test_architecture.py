@@ -17,12 +17,14 @@ DOMAIN_EXCEPTIONS = {"__init__.py", "cli.py"}
 # Nombres de import prohibidos en el dominio.
 FORBIDDEN = {
     "aiohttp",
+    "fastapi",
     "httpx",
     "ollama",
     "requests",
     "socket",
     "subprocess",
     "urllib",
+    "uvicorn",
 }
 FORBIDDEN_LOCAL = "adapters"
 
