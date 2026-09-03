@@ -18,8 +18,9 @@ class TestOptionalDeps(unittest.TestCase):
                 raise ImportError("simulado")
             return real_import(name, *args, **kwargs)
 
-        with tempfile.TemporaryDirectory() as td, patch(
-            "builtins.__import__", side_effect=fake_import
+        with (
+            tempfile.TemporaryDirectory() as td,
+            patch("builtins.__import__", side_effect=fake_import),
         ):
             with self.assertRaises(RuntimeError) as ctx:
                 api_service.create_app(Path(td) / "ws", token="t")
