@@ -6,6 +6,27 @@ rama → PR → CI → merge; las versiones se marcan con tags `vX.Y.Z`
 (el tag dispara la publicación a PyPI vía `publish.yml`).
 
 ## [Unreleased]
+### Añadido — Fallback VLM verificado, anti-alucinación (FASE19)
+- **Verificación de la salida del VLM** (dominio puro `vlm_verify.py`)
+  antes de aceptarla en el transcript: vacío, cháchara/descripción
+  ("a imagem mostra..."), solape léxico con las palabras que Tesseract
+  leyó en la misma región (base de contraste gratis del TSV del routing,
+  umbral 0.30), idioma fuera del pack OCR y explosión de longitud. Una
+  salida aceptada entra verbatim: la verificación nunca edita.
+- **Reintento y degradación registrada**: 1 reintento ante rechazo; si
+  falla, la región usa el texto Tesseract del routing (reconstruido del
+  TSV) y queda rastro triple: `pages_detail.vlm_rejected` + motivo,
+  evento `vlm_rechazado` y gate warning `vlm_rechazado` en
+  `_qa.transcript`/report. **Eliminado el "" silencioso** ante errores
+  del VLM (antes una excepción de ollama dejaba la región vacía sin
+  aviso).
+- Meta: `quality.paginas_vlm_rechazado`. Calibración E2E real (qwen3-vl,
+  6 páginas VLM del set de control BIREME): 6/6 aceptadas, 0 falsos
+  rechazos.
+### Cambiado
+- `OCR_PIPELINE_VERSION` -> "4" (el texto puede cambiar donde antes
+  entraba salida VLM sin verificar o vacía).
+
 ### Añadido — Preprocesado OCR medido por benchmark (FASE18)
 - **Cadena de preprocesado aceptada por medición** (13 páginas escaneadas
   reales BIREME, `benchmarks/RESULTADOS-F18.md`): render `-gray` (PGM sin

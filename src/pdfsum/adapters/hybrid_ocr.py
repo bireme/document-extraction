@@ -28,7 +28,14 @@ from ..classify import (
     route_pages,
 )
 from ..contract import PageOCR, SourceKind, TranscriptResult
-from ..ocr_routing import MIN_CONF, MIN_WORDS, parse_tsv_confidence, route_page
+from ..ocr_routing import (
+    MIN_CONF,
+    MIN_WORDS,
+    parse_tsv_confidence,
+    parse_tsv_lines,
+    parse_tsv_words,
+    route_page,
+)
 from ..segment import (
     SKEW_MIN_APPLY,
     detect_regions,
@@ -36,6 +43,7 @@ from ..segment import (
     sort_reading_order,
     valid_regions,
 )
+from ..vlm_verify import verify_vlm_output
 
 _logger = logging.getLogger(__name__)
 
@@ -185,6 +193,9 @@ class HybridOcrTranscriber:
             partes: list[str] = []
             confs: list[tuple[float, int]] = []  # (conf, words) por región
             non_text = 0
+            vlm_accepted = False
+            vlm_rejected = False
+            vlm_motivo: str | None = None
             for region in regs:
                 tmp = img.parent / f"_reg_{region.left}_{region.top}.png"
                 try:
@@ -193,7 +204,11 @@ class HybridOcrTranscriber:
                     ) as crop:
                         crop.save(tmp)
                         ink = _ink_fraction(crop)
-                    texto, conf, words = self._ocr_page(tmp)
+                    texto, conf, words, info = self._ocr_page(tmp)
+                    vlm_accepted = vlm_accepted or info["vlm"]
+                    if info["vlm_rejected"]:
+                        vlm_rejected = True
+                        vlm_motivo = vlm_motivo or info["motivo"]
                     if (
                         self.vlm is None
                         and words < _NON_TEXT_MAX_WORDS
@@ -211,13 +226,16 @@ class HybridOcrTranscriber:
                     tmp.unlink(missing_ok=True)
         total_words = sum(w for _, w in confs)
         conf_media = sum(c * w for c, w in confs) / total_words if total_words else 0.0
+        del fallback_before  # FASE19: el uso VLM se rastrea por región
         if metrics is not None:
             metrics.update(segment_timings)
             metrics.update(
                 {
                     "regiones": len(regs),
                     "ocr_segundos": time.perf_counter() - segmentation_finished,
-                    "fallback_vlm": self.vlm_used_pages > fallback_before,
+                    "fallback_vlm": vlm_accepted,
+                    "vlm_rechazado": vlm_rejected,
+                    "vlm_motivo": vlm_motivo,
                     "conf_media": conf_media,
                     "palabras": total_words,
                     "non_text_regions": non_text,
@@ -225,12 +243,13 @@ class HybridOcrTranscriber:
             )
         return "\n".join(p for p in partes if p.strip())
 
-    def _ocr_page(self, img: Path) -> tuple[str, float, int]:
-        """Tesseract con routing por confianza -> VLM si procede.
+    def _ocr_page(self, img: Path) -> tuple[str, float, int, dict]:
+        """Tesseract con routing por confianza -> VLM verificado si procede.
 
-        Devuelve (texto, confianza_tesseract, palabras): la confianza medida
-        se conserva SIEMPRE (FASE16), aunque la región termine en VLM.
+        Devuelve (texto, confianza_tesseract, palabras, info) donde info
+        registra el uso/rechazo del VLM (FASE19: nunca vacío silencioso).
         """
+        no_vlm = {"vlm": False, "vlm_rejected": False, "motivo": None}
         tsv = _run(
             ["tesseract", str(img), "stdout", "-l", self.lang, "--psm", "1", "tsv"]
         )
@@ -239,14 +258,35 @@ class HybridOcrTranscriber:
             text = _run(
                 ["tesseract", str(img), "stdout", "-l", self.lang, "--psm", "1"]
             )
-            return text, conf, words
-        # baja confianza: fallback VLM si hay adaptador
+            return text, conf, words, no_vlm
+        # baja confianza: fallback VLM verificado (1 reintento, FASE19)
         if self.vlm is not None:
-            self.vlm_used_pages += 1
-            return self.vlm.ocr_image(str(img), self.lang), conf, words
+            base_words = parse_tsv_words(tsv)
+            verdict = None
+            for _attempt in range(2):
+                try:
+                    candidate = self.vlm.ocr_image(str(img), self.lang)
+                except Exception:  # noqa: BLE001 - error del VLM = rechazo
+                    candidate = ""
+                verdict = verify_vlm_output(candidate, base_words, self.lang)
+                if verdict.accepted:
+                    self.vlm_used_pages += 1
+                    return (
+                        candidate,
+                        conf,
+                        words,
+                        {"vlm": True, "vlm_rejected": False, "motivo": None},
+                    )
+            # rechazado dos veces: degradar al texto Tesseract del routing
+            return (
+                parse_tsv_lines(tsv),
+                conf,
+                words,
+                {"vlm": False, "vlm_rejected": True, "motivo": verdict.reason},
+            )
         # sin VLM: degradar a Tesseract pese a baja confianza
         text = _run(["tesseract", str(img), "stdout", "-l", self.lang, "--psm", "1"])
-        return text, conf, words
+        return text, conf, words, no_vlm
 
     def _ocr_single_page(
         self, path: str, p: int, pages_total: int, td: str
@@ -303,6 +343,15 @@ class HybridOcrTranscriber:
             detail["deskew_angle"] = skew_angle
         if metrics.get("non_text_regions"):
             detail["non_text_regions"] = metrics["non_text_regions"]
+        if metrics.get("vlm_rechazado"):
+            detail["vlm_rejected"] = True
+            detail["vlm_motivo"] = metrics.get("vlm_motivo")
+            self._emit_event(
+                "vlm_rechazado",
+                doc_id=Path(path).stem,
+                pagina=p,
+                motivo=metrics.get("vlm_motivo"),
+            )
         self._emit_event(
             "ocr_pagina_completada",
             doc_id=Path(path).stem,

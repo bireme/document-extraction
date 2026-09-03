@@ -174,6 +174,11 @@ Copia tu configuración desde `.pdfsum-config.example.json` en el repo.
   puede tardar ~1–3 min con el VLM local; re-ejecutar no lo repite (cacheado).
 - **Nativos** se extraen directo; **escaneados** pasan por OCR con segmentación
   por columnas y fallback al modelo de visión en páginas difíciles.
+- **VLM verificado:** la salida del modelo de visión se verifica antes de
+  aceptarse (anti-alucinación: solape con lo que leyó Tesseract, idioma,
+  cháchara); si se rechaza dos veces, la región degrada al texto
+  Tesseract y queda marcada (gate `vlm_rechazado`, evento y meta) para
+  revisión humana. Nunca entra texto VLM sin verificar ni vacíos mudos.
 - **Preprocesado OCR:** las páginas escaneadas se renderizan en gris sin
   compresión y pasan por autocontraste + enderezado automático (deskew)
   antes del OCR — cadena aceptada por benchmark (+5% palabras, −13%

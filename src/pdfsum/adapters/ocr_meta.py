@@ -53,6 +53,7 @@ def _quality(pages_detail: list[dict] | None) -> dict:
     quality: dict = {
         "paginas_vlm": sum(1 for p in detail if p.get("source") == "vlm"),
         "paginas_vacias": sum(1 for p in detail if "chars" in p and not p.get("chars")),
+        "paginas_vlm_rechazado": sum(1 for p in detail if p.get("vlm_rejected")),
     }
     if conf_media is not None:
         quality["conf_media"] = round(conf_media, 2)

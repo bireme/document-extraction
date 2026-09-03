@@ -1,0 +1,165 @@
+---
+id: FASE19-VLM-VERIFICADO
+titulo: >-
+  Fallback VLM verificado: anti-alucinación, reintento y degradación
+  registrada (nunca vacío silencioso)
+issue: "https://github.com/idourra/pdf-summarizer/issues/16"
+descripcion: >
+  El fallback VLM es hoy de confianza ciega: lo que devuelva el modelo
+  de visión entra VERBATIM al transcript, y ante error devuelve ""
+  silencioso. Para una biblioteca médica es el riesgo más grave del
+  pipeline: una alucinación insertada es peor que una página en blanco,
+  porque nada la delata. Esta fase añade verificación por región,
+  reintento y degradación registrada.
+
+  Material de contraste GRATIS ya disponible: el TSV de la sonda de
+  confianza de Tesseract (que ya se ejecuta para el routing) contiene
+  las palabras que Tesseract leyó — sirven para medir solape léxico con
+  la salida del VLM sin ningún OCR adicional.
+
+  Decisiones de diseño (validar con el PO):
+  1. Verificación en DOMINIO puro (nuevo `vlm_verify.py`):
+     `verify_vlm_output(vlm_text, tess_words, lang) -> VlmVerdict`
+     con checks:
+     (a) VACÍO: texto en blanco -> rechazo;
+     (b) CHÁCHARA/DESCRIPCIÓN: marcadores de que el modelo conversa o
+         describe en vez de transcribir ("la imagen muestra", "a imagem
+         mostra", "the image shows", "i cannot", "no puedo", "esta
+         imagen contiene", etc.) -> rechazo;
+     (c) SOLAPE LÉXICO: fracción de palabras de Tesseract (>= 4 letras,
+         normalizadas sin acentos/caja) presentes en el texto del VLM;
+         por debajo del umbral -> rechazo. Solo se juzga si Tesseract
+         aportó >= 5 palabras útiles (si no, no hay base de contraste);
+     (d) IDIOMA: si el texto del VLM es largo (>= 40 tokens) y su idioma
+         detectado no es ninguno de los del pack OCR ni 'unknown' ->
+         rechazo;
+     (e) LONGITUD: explosión sospechosa (VLM > 3000 chars donde
+         Tesseract vio < 10 palabras) -> rechazo (rambling).
+  2. Umbral de solape calibrado sobre las páginas VLM REALES del set de
+     control (fixture mixto + escaneados BIREME con qwen3-vl local):
+     criterio duro = 0 falsos rechazos sobre salidas buenas conocidas.
+     Valor inicial propuesto: 0.30 (el texto de baja confianza de
+     Tesseract acierta parcialmente; el VLM correcto lo contiene).
+  3. Reintento y degradación (adaptador hybrid_ocr): 1 reintento del
+     VLM ante rechazo; si vuelve a fallar, la región usa el texto de
+     TESSERACT (que ya existe del routing) y se registra: pages_detail
+     de la página con `vlm_rejected: true` y motivo, evento
+     `vlm_rechazado` en events.jsonl, contador
+     `quality.paginas_vlm_rechazado` en la meta. NUNCA "" silencioso.
+  4. Gate de transcript (transcript_qa): meta con páginas VLM
+     rechazadas -> warning `vlm_rechazado` (visible en _qa.transcript
+     y report 3.1) para revisión humana.
+  5. `OCR_PIPELINE_VERSION` -> "4": el texto producido puede cambiar en
+     páginas donde antes entraba salida VLM no verificada o "" vacío.
+
+estado: COMPLETADA
+fecha: 2026-09-02
+resultado: |
+  7/7 criterios cumplidos.
+  - C1: vlm_verify.py dominio puro (AST verde); reintento/eventos en el
+    adaptador. parse_tsv_words/parse_tsv_lines nuevos en ocr_routing
+    (base de contraste y texto de degradación GRATIS del TSV existente).
+  - C2: 9 tests — vacío, 4 variantes de cháchara, alucinación sin
+    solape, idioma ajeno (fr) largo, explosión, transcripción buena
+    aceptada, sin base no juzga, solape robusto a acentos/caja.
+  - C3: spy PageOCR — rechazo+reintento aceptado usa el 2º texto sin
+    marca; doble rechazo degrada al texto Tesseract del TSV con
+    vlm_rejected+motivo; excepción de ollama y "" cuentan como rechazo
+    con texto de degradación no vacío (fin del "" silencioso).
+  - C4: batch — quality.paginas_vlm_rechazado en meta, evento
+    vlm_rechazado en events.jsonl, gate warning en _qa.transcript,
+    visible en transcription_quality.gates del report 3.1.
+  - C5: E2E real qwen3-vl sobre mixto + 2 escaneados BIREME: 6/6
+    páginas VLM aceptadas, 0 falsos rechazos con umbral 0.30 (sin
+    recalibración necesaria); conf y rastro por página en meta.
+  - C6: OCR_PIPELINE_VERSION == "4" justificado en código y CHANGELOG.
+  - C7: suite 290 tests OK (+14), arquitectura OK, ruff limpio;
+    GUIA-USO/CHANGELOG actualizados; tests F18 de regiones adaptados
+    solo en el fake de _ocr_page (firma con info), sin cambiar
+    aserciones.
+
+criterios:
+  - id: C1-dominio-puro-vlm-verify
+    tipo: architecture
+    descripcion: >
+      `vlm_verify.py` es dominio puro (sin subprocess/IO/red),
+      auto-descubierto por el test de arquitectura AST; el reintento y
+      la degradación viven en el adaptador.
+    verificacion: "uv run python tests/test_architecture.py"
+
+  - id: C2-checks-detectan-salidas-malas
+    tipo: unit
+    descripcion: >
+      Fixtures: (a) vacío -> rechazo; (b) cháchara ("A imagem mostra um
+      documento...") -> rechazo; (c) texto sin relación con las
+      palabras Tesseract (solape < umbral con base >= 5 palabras) ->
+      rechazo; (d) idioma ajeno al pack con texto largo -> rechazo;
+      (e) explosión de longitud -> rechazo; (f) transcripción BUENA
+      (contiene las palabras Tesseract, idioma correcto) -> ACEPTADA;
+      (g) sin base de contraste (< 5 palabras Tesseract) y texto
+      normal -> aceptada (no se juzga sin evidencia).
+    verificacion: "tests/test_vlm_verify.py"
+
+  - id: C3-reintento-y-degradacion-registrada
+    tipo: unit
+    descripcion: >
+      Con PageOCR espía: (a) 1er intento rechazado + 2º aceptado ->
+      texto del 2º, sin marca de rechazo; (b) ambos rechazados ->
+      la región usa el texto Tesseract del routing, pages_detail lleva
+      vlm_rejected true + motivo, y el contador de reintentos == 2;
+      (c) excepción/"" del adaptador VLM cuenta como rechazo (nunca
+      llega "" al transcript sin registro).
+    verificacion: "tests/test_hybrid_vlm_verify.py"
+
+  - id: C4-meta-eventos-y-gate
+    tipo: integration
+    descripcion: >
+      En run_batch_pdfs con VLM fake rechazable: evento `vlm_rechazado`
+      en events.jsonl; meta.json con quality.paginas_vlm_rechazado > 0;
+      gate warning `vlm_rechazado` en _qa.transcript y visible en
+      report 3.1 (transcription_quality.gates del documento).
+    verificacion: "tests/test_batch_vlm_verify.py"
+
+  - id: C5-calibracion-sin-falsos-rechazos
+    tipo: metrics
+    descripcion: >
+      E2E real con qwen3-vl local sobre el set de control (fixture
+      mixto + >= 2 escaneados BIREME): TODAS las páginas VLM buenas
+      conocidas quedan aceptadas (0 falsos rechazos con el umbral
+      0.30); las páginas y su veredicto quedan en la meta. Si aparece
+      un falso rechazo, se recalibra el umbral y se documenta aquí.
+    verificacion: "pdfsum run + inspección de ocr/*.meta.json"
+
+  - id: C6-version-pipeline-4
+    tipo: unit
+    descripcion: >
+      OCR_PIPELINE_VERSION == "4" con justificación en el código y
+      CHANGELOG (la verificación puede cambiar el texto producido).
+    verificacion: "grep"
+
+  - id: C7-sin-regresion-docs
+    tipo: integration
+    descripcion: >
+      Suite completa + arquitectura + ruff verdes; GUIA-USO y CHANGELOG
+      documentan la verificación, el reintento, la degradación y el
+      gate; los tests previos de hybrid_ocr/F16/F17/F18 sin cambios de
+      aserciones (solo fixtures si el formato lo exige).
+    verificacion: "make check + revisión de docs en el PR"
+
+invariantes:
+  - >-
+    El dominio no importa adaptadores (ADR-001): verificación pura,
+    reintento/eventos en el adaptador.
+  - "Una salida VLM aceptada entra al transcript sin modificar (verbatim)."
+  - >-
+    La degradación SIEMPRE deja rastro (pages_detail + evento + gate);
+    prohibido el vacío silencioso.
+  - "Sin dependencias nuevas; sin llamadas de red en tests (VLM fake)."
+  - >-
+    El routing por confianza de F7 no cambia (qué regiones van al VLM);
+    esta fase solo verifica lo que el VLM devuelve.
+
+no_objetivos:
+  - "Cambiar el modelo VLM o su prompt (queda como F20+ si hace falta)."
+  - "Verificación semántica profunda (comparación con embeddings)."
+  - "Reintentos > 1 o colas de re-proceso diferido."
