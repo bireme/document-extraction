@@ -546,7 +546,50 @@ backends cloud).
 
 ---
 
-## 11. Reproducibilidad: qué está fijado y qué no
+## 11. Modo servicio (FASE20)
+
+El modo servicio permite **subir PDFs por HTTP** y procesarlos de forma
+asíncrona (API encola, worker ejecuta) sobre un workspace compartido.
+
+Requiere el extra opcional:
+
+```bash
+pip install 'pdfsum[service]'
+export PDFSUM_API_TOKEN='...'
+```
+
+### 11.1 Correr local (sin Docker)
+
+En una terminal:
+
+```bash
+pdfsum api --workspace ./service_ws --host 0.0.0.0 --port 8766
+```
+
+En otra terminal:
+
+```bash
+pdfsum worker --workspace ./service_ws --interval 1
+```
+
+Probar:
+
+```bash
+curl -H "Authorization: Bearer $PDFSUM_API_TOKEN" http://127.0.0.1:8766/api/health
+curl -H "Authorization: Bearer $PDFSUM_API_TOKEN" -F file=@mi.pdf http://127.0.0.1:8766/api/documents
+```
+
+### 11.2 Docker Compose (modo D)
+
+```bash
+export PDFSUM_API_TOKEN='...'
+docker compose --profile service up --build
+```
+
+El workspace del servicio vive en `./service_ws/` (volumen compartido entre
+API y worker).
+
+## 12. Reproducibilidad: qué está fijado y qué no
 
 | Fijado (determinista) | No fijado (varía) |
 |---|---|

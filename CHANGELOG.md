@@ -5,6 +5,22 @@ semántico. Repositorio en GitHub (`idourra/pdf-summarizer`): flujo
 rama → PR → CI → merge; las versiones se marcan con tags `vX.Y.Z`
 (el tag dispara la publicación a PyPI vía `publish.yml`).
 
+## [Unreleased] — Servicio API + worker (FASE20)
+### Añadido
+- Nuevo modo servicio **asíncrono**: `pdfsum api` (FastAPI, extra opcional
+  `pdfsum[service]`) recibe PDFs (`POST /api/documents`) y encola jobs;
+  `pdfsum worker` consume la cola y ejecuta el flujo existente, generando
+  los mismos artefactos que `pdfsum run` (report 3.1, events.jsonl,
+  ocr/*.meta.json, summaries/*.json con `_qa`).
+- JobStore multi-proceso: `DirJobStore` (un JSON por job, escritura atómica)
+  evita el problema de `FileJobStore` (cacheado al init) en dos procesos.
+- Seguridad estricta: sin `PDFSUM_API_TOKEN` el servicio no arranca; auth
+  Bearer obligatoria en todos los endpoints; límite de tamaño (413) y
+  validación de PDF por magic bytes (415).
+- Compose modo D: `docker compose --profile service up` levanta API+worker
+  sobre un workspace compartido.
+- ADR-002: FastAPI como adaptador de entrada (extra opcional).
+
 ## [0.14.0] — 2026-09-02 — Calidad de transcripción medible y verificada
 
 > Consolida el milestone "Calidad de transcripción" (fases 16–19 + fix,

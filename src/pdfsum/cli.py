@@ -167,6 +167,63 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_api(args: argparse.Namespace) -> int:
+    """Arranca el servicio HTTP (FastAPI, extra opcional)."""
+    import os
+
+    from .adapters.api_service import MAX_UPLOAD_MB_DEFAULT, create_app
+
+    token = os.environ.get("PDFSUM_API_TOKEN", "")
+    if not token.strip():
+        print(
+            "ERROR: PDFSUM_API_TOKEN no configurado. "
+            "El servicio no arranca sin token (no hay modo abierto)."
+        )
+        return 2
+
+    try:
+        app = create_app(
+            args.workspace,
+            token=token,
+            max_upload_mb=args.max_upload_mb or MAX_UPLOAD_MB_DEFAULT,
+        )
+    except RuntimeError as exc:
+        print(str(exc))
+        return 2
+
+    try:
+        import uvicorn
+    except ImportError:
+        print("ERROR: falta uvicorn. Instala el extra: pip install 'pdfsum[service]'")
+        return 2
+
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    return 0
+
+
+def cmd_worker(args: argparse.Namespace) -> int:
+    """Worker del servicio: procesa jobs encolados en el workspace."""
+    from .adapters.service_worker import main_loop
+
+    backend, model = _resolve_backend_model(args.backend, args.model)
+    if not (args.fake or args.dry_run):
+        err = _preflight_resumen(model, backend)
+        if err is not None:
+            return err
+
+    transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
+    summarizer = _build_summarizer(args.fake or args.dry_run, backend, model)
+
+    main_loop(
+        args.workspace,
+        transcriber,
+        summarizer,
+        long_strategy=args.long_strategy,
+        interval_seconds=args.interval,
+    )
+    return 0
+
+
 def _build_transcriber(fake: bool, lang: str, vlm_model: str | None = None):
     """Transcriptor por defecto: híbrido nativo+Tesseract con fallback VLM.
 
@@ -435,6 +492,54 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8765)
     sv.set_defaults(func=cmd_serve)
+
+    api = sub.add_parser(
+        "api",
+        help="servicio HTTP (FastAPI, extra opcional) para subir PDFs y encolar jobs",
+    )
+    api.add_argument(
+        "--workspace",
+        required=True,
+        help="workspace del servicio (inbox/, ocr/, summaries/, service_jobs/)",
+    )
+    api.add_argument("--host", default="127.0.0.1")
+    api.add_argument("--port", type=int, default=8766)
+    api.add_argument(
+        "--max-upload-mb",
+        dest="max_upload_mb",
+        type=int,
+        default=None,
+        help="límite de tamaño por upload (def: 100MB)",
+    )
+    api.set_defaults(func=cmd_api)
+
+    w = sub.add_parser("worker", help="worker del servicio (consume la cola)")
+    w.add_argument(
+        "--workspace",
+        required=True,
+        help="workspace del servicio (mismo que el API)",
+    )
+    w.add_argument(
+        "--interval",
+        type=float,
+        default=1.0,
+        help="segundos entre polls de la cola (def 1.0)",
+    )
+    w.add_argument(
+        "--lang",
+        default=get_config_value("lang", "por+eng+spa"),
+        help="idioma(s) OCR Tesseract (def: por+eng+spa)",
+    )
+    _add_backend_model(w, add_vlm=True)
+    w.add_argument(
+        "--long-strategy",
+        dest="long_strategy",
+        default=get_config_value("long_strategy", "excerpt"),
+        choices=["excerpt", "blocks", "hierarchical"],
+    )
+    w.add_argument("--dry-run", action="store_true", help="resumidor fake")
+    w.add_argument("--fake", action="store_true", help="transcriber + resumidor fake")
+    w.set_defaults(func=cmd_worker)
 
     r = sub.add_parser("run", help="flujo completo desde PDFs (transcribe+resume)")
     r.add_argument("--in", dest="in_dir", required=True, help="directorio de PDFs")
