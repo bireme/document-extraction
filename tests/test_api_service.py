@@ -4,13 +4,20 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+try:
+    from fastapi.testclient import TestClient
+except ImportError:  # pragma: no cover
+    TestClient = None
 
 from pdfsum.adapters.api_service import create_app
 
 _PDF = b"%PDF-1.4\n%fake\n1 0 obj\n<<>>\nendobj\n%%EOF\n"
 
 
+@unittest.skipIf(
+    TestClient is None,
+    "FastAPI no instalado: instala el extra opcional pdfsum[service]",
+)
 class TestApiService(unittest.TestCase):
     def test_upload_crea_job_y_es_idempotente(self):
         with tempfile.TemporaryDirectory() as td:

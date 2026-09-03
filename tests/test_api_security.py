@@ -4,11 +4,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+try:
+    from fastapi.testclient import TestClient
+except ImportError:  # pragma: no cover
+    TestClient = None
 
 from pdfsum.adapters.api_service import create_app
 
 
+@unittest.skipIf(
+    TestClient is None,
+    "FastAPI no instalado: instala el extra opcional pdfsum[service]",
+)
 class TestApiSecurity(unittest.TestCase):
     def test_no_token_no_arranca(self):
         with tempfile.TemporaryDirectory() as td, self.assertRaises(ValueError):

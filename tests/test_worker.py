@@ -5,7 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+try:
+    from fastapi.testclient import TestClient
+except ImportError:  # pragma: no cover
+    TestClient = None
 
 from pdfsum.adapters.api_service import create_app
 from pdfsum.adapters.fake_summarizer import FakeSummarizer
@@ -21,6 +24,10 @@ class _InterruptingTranscriber(FakeTranscriber):
         raise KeyboardInterrupt("simulado")
 
 
+@unittest.skipIf(
+    TestClient is None,
+    "FastAPI no instalado: instala el extra opcional pdfsum[service]",
+)
 class TestWorker(unittest.TestCase):
     def _enqueue(self, ws: Path) -> str:
         app = create_app(ws, token="t")
