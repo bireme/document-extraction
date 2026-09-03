@@ -39,7 +39,16 @@ class _FakeVlm:
 class TestRegionNoTextual(unittest.TestCase):
     def _ocr(self, transcriber, img):
         # OCR pobre simulado: 2 palabras con confianza 20.
-        with patch.object(transcriber, "_ocr_page", return_value=("xx zz", 20.0, 2)):
+        with patch.object(
+            transcriber,
+            "_ocr_page",
+            return_value=(
+                "xx zz",
+                20.0,
+                2,
+                {"vlm": False, "vlm_rejected": False, "motivo": None},
+            ),
+        ):
             metrics = {}
             text = transcriber._ocr_regions(img, metrics)
         return text, metrics
@@ -68,7 +77,14 @@ class TestRegionNoTextual(unittest.TestCase):
             img = _page_with_figure(Path(td))
             tx = _make_transcriber(vlm=None)
             with patch.object(
-                tx, "_ocr_page", return_value=("texto normal de la región", 85.0, 30)
+                tx,
+                "_ocr_page",
+                return_value=(
+                    "texto normal de la región",
+                    85.0,
+                    30,
+                    {"vlm": False, "vlm_rejected": False, "motivo": None},
+                ),
             ):
                 metrics = {}
                 text = tx._ocr_regions(img, metrics)

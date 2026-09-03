@@ -141,6 +141,21 @@ def _gate_confidence(meta: dict, rep: TranscriptQAReport, min_conf: float) -> No
         )
 
 
+def _gate_vlm_rejected(meta: dict, rep: TranscriptQAReport) -> None:
+    """FASE19: páginas con salida VLM rechazada (degradadas a Tesseract)."""
+    rejected = (meta.get("quality") or {}).get("paginas_vlm_rechazado", 0)
+    if rejected:
+        pages = [
+            p["page"] for p in meta.get("pages_detail") or [] if p.get("vlm_rejected")
+        ]
+        rep.add(
+            "vlm_rechazado",
+            f"{rejected} página(s) con VLM rechazado (degradadas a "
+            f"Tesseract): {pages[:10]} — revisar transcripción",
+            severity="warning",
+        )
+
+
 def _gate_legacy(meta: dict, rep: TranscriptQAReport) -> None:
     if meta.get("legacy"):
         rep.add(
@@ -169,5 +184,6 @@ def check_transcript(
     if meta:
         _gate_pages(meta, rep, empty_pages_error_ratio)
         _gate_confidence(meta, rep, conf_min)
+        _gate_vlm_rejected(meta, rep)
         _gate_legacy(meta, rep)
     return rep
