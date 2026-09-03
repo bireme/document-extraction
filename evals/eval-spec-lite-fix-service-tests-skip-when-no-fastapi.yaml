@@ -1,0 +1,50 @@
+---
+id: FIX-SERVICE-TESTS-SKIP-WHEN-NO-FASTAPI
+titulo: "Fix: tests del modo servicio se omiten si FastAPI no está instalado"
+descripcion: >
+  Regresión detectada por guardrails (2026-09-03): `make test` falló en
+  entornos donde FastAPI no está instalado porque los tests del servicio
+  importaban `fastapi.testclient` a nivel de módulo, produciendo
+  ModuleNotFoundError.
+
+  Esto contradice el contrato de FASE20: FastAPI es un extra opcional
+  `pdfsum[service]` y el core debe testearse sin depender de ese extra.
+
+estado: COMPLETADA
+fecha: 2026-09-03
+resultado: |
+  3/3 criterios cumplidos.
+  - C1: nuevo test `test_service_tests_skip_without_fastapi` bloquea
+    `import fastapi` y verifica que los tests de servicio quedan
+    SKIPPED (no error). `make test` OK (301 ejecutadas).
+  - C2: test_api_service/test_api_security/test_worker usan import
+    condicional y @skipIf cuando FastAPI no está instalado.
+  - C3: CI sigue ejecutando tests del servicio cuando FastAPI está
+    presente (módulos no quedan todos skipped).
+
+criterios:
+  - id: C1-make-test-sin-fastapi
+    tipo: integration
+    descripcion: >
+      En un entorno donde `import fastapi` falla (simulado en tests),
+      `make test` NO falla: los tests del servicio se marcan como skipped
+      con un mensaje claro indicando instalar `pdfsum[service]`.
+    verificacion: >
+      Nuevo test `tests/test_service_tests_skip_without_fastapi.py`
+      ejecuta unittest discover con un import-hook que bloquea fastapi;
+      el resultado termina OK (skipped>0) y no ERROR.
+
+  - id: C2-tests-servicio-solo-saltan
+    tipo: unit
+    descripcion: >
+      `tests/test_api_service.py`, `tests/test_api_security.py` y
+      `tests/test_worker.py` ya no importan fastapi a nivel de módulo.
+      En ausencia de fastapi, se saltan con `unittest.skipIf`.
+    verificacion: "grep + suite"
+
+  - id: C3-ci-sigue-ejecutando-tests-servicio
+    tipo: integration
+    descripcion: >
+      En CI (donde sí se instala el dev group con fastapi), los tests del
+      servicio siguen ejecutándose (no quedan todos skipped).
+    verificacion: "gh pr checks <PR>"
