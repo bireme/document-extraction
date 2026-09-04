@@ -1,6 +1,6 @@
 # Estado del producto pdfsum
 
-**Actualizado:** 2026-09-02 · **Versión:** 0.14.0 ·
+**Actualizado:** 2026-09-03 · **Versión:** 0.14.0 (Unreleased: fase20) ·
 **Repo:** GitHub `idourra/pdf-summarizer` (rama → PR → CI → merge → tag)
 
 ## Roadmap y avance
@@ -28,6 +28,7 @@
 | 17 | PDFs mixtos por página + limpieza de texto | ✅ hecho | 0.14.0 | `FASE17-MIXTOS-LIMPIEZA` 9/9 |
 | 18 | Preprocesado OCR medido por benchmark | ✅ hecho | 0.14.0 | `FASE18-PREPROCESADO-OCR` 9/9 |
 | 19 | Fallback VLM verificado (anti-alucinación) | ✅ hecho | 0.14.0 | `FASE19-VLM-VERIFICADO` 7/7 |
+| 20 | Despliegue como servicio (API async `pdfsum api` + `pdfsum worker`, extra opcional FastAPI) | ✅ hecho | Unreleased | `FASE20-SERVICIO` (PR #24, #25) |
 
 **Roadmap completo + integración E2E.** El producto arranca desde la **fuente
 real (PDFs)** y cubre el ciclo completo hasta la catalogação, con
@@ -64,21 +65,27 @@ observabilidad durable del lote y salida bibliográfica BIBFRAME/LILACS.
    opt-in). `batch`/`run` devuelven `rc=1` si hay fallos de procesamiento.
 6. **Revisión humana**, **export LILACS** (descriptores candidatos, validación
    DeCS pendiente), **registros BIBFRAME 2.x JSON-LD** por documento
-   (`pdfsum bibframe`) y **API de consulta** local (`pdfsum serve`).
+   (`pdfsum bibframe`), **API de consulta** local de solo lectura
+   (`pdfsum serve`) y **modo servicio asíncrono** (`pdfsum api` + `pdfsum
+   worker`, extra opcional `pdfsum[service]`): sube PDFs por HTTP
+   (`POST /api/documents`), encola jobs, y el worker los procesa con el
+   mismo pipeline de `run` (fase20).
 7. **Distribución**: PyPI (`pip install pdfsum` / `uv`), Docker + Compose
    (modos local/GPU/cloud), wrapper `bin/pdfsum-docker`, CI completo
    (lint+format+tests+arquitectura+build) y publicación automática por tag.
 
 ## Pendientes / decisiones abiertas
 
-1. **EPIC F20 (#17)**: despliegue como servicio (API de procesamiento
-   asíncrona sobre la JobQueue existente) — única épica abierta.
+1. **Cortar versión para fase20**: `CHANGELOG.md` tiene la entrada bajo
+   `[Unreleased]` desde el merge de los PR #24/#25 — falta decidir tag
+   (`v0.15.0`, MINOR: nueva capacidad compatible) y publicar.
 2. **Traspaso a la célula BIREME**: PR #7 (`docs/PLAN-TRASPASO-BIREME.md`),
    6 fases; requiere designar 2+ maintainers y validar cronograma.
 3. **Validación DeCS/MeSH real** de los descriptores candidatos del export
    LILACS/BIBFRAME (hoy quedan marcados como candidatos/draft).
 4. Alcance a futuro: herramienta interna (CLI+servicio local) vs servicio
-   con API multiusuario.
+   con API multiusuario — el modo servicio (fase20) ya cubre el caso
+   multiusuario local; falta decidir si escala a multiusuario remoto.
 
 Ver detalle en `docs/PROPUESTA-PRODUCTO.md` y `docs/PLAN-TRASPASO-BIREME.md`
 (PR #7).

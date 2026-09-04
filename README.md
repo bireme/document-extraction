@@ -1,8 +1,10 @@
 # pdfsum — motor de resúmenes estructurados de PDF
 
-Producto derivado del piloto BIREME–INFOMED. **Versión actual: 0.11.0**
+Producto derivado del piloto BIREME–INFOMED. **Versión actual: 0.14.0**
 (flujo completo desde PDF: OCR híbrido con segmentación + resumen jerárquico
-con coexistencia de estrategias + QA + export LILACS + API).
+con coexistencia de estrategias + QA + export LILACS + API de consulta y
+modo servicio asíncrono; fase20 ya en `master`, pendiente de tag de
+release — ver `docs/ESTADO.md`).
 
 > 🚀 **Guía rápida de uso (1 página, con ejemplos ejecutables): [`GUIA-USO.md`](GUIA-USO.md)**
 
@@ -192,6 +194,15 @@ uv run pdfsum bibframe --in ./_resumenes --pdfs ./mis_pdfs --out ./_bibframe
 # API de consulta local (solo lectura) sobre el lote
 uv run pdfsum serve --batch-dir ./_resumenes --port 8765
 # GET /api/summaries | /api/summaries/<doc_id> | /api/report
+
+# Modo servicio (fase20): subir PDFs por HTTP, procesamiento asíncrono.
+# Requiere el extra opcional `pdfsum[service]` (FastAPI) y PDFSUM_API_TOKEN.
+uv run pdfsum api --workspace ./service_ws --port 8766     # terminal 1
+uv run pdfsum worker --workspace ./service_ws              # terminal 2
+curl -H "Authorization: Bearer $PDFSUM_API_TOKEN" \
+  -F file=@mi.pdf http://127.0.0.1:8766/api/documents        # -> 202 {job_id}
+# GET /api/jobs/<job_id> | /api/summaries | /api/report | /api/health
+# Detalle completo: INSTALL.md § 11 "Modo servicio (FASE20)"
 ```
 
 Salida: JSON con `doc_id`, `idioma_principal`, `tipo_documento`, `plantilla`,
