@@ -77,11 +77,15 @@ def parse_refined_abstracts(raw: str, context: str) -> list[Abstract]:
         body = _normalized(abstract.text)
         keywords = _normalized(abstract.keywords)
         header = abstract.header.strip().upper()
-        if not body or _HEADER_TO_LANG.get(header) != abstract.lang:
-            raise ValueError("Resumen vacío o idioma incompatible")
+        if not body:
+            raise ValueError("Resumen vacío")
+        if _HEADER_TO_LANG.get(header) != abstract.lang:
+            raise ValueError("Idioma incompatible con el encabezado")
         position = source.find(body, previous + 1)
-        if position < 0 or _KW_RE.search(body):
-            raise ValueError("Texto sin respaldo o con palabras clave mezcladas")
+        if position < 0:
+            raise ValueError("Texto del resumen sin respaldo en la transcripción")
+        if _KW_RE.search(body):
+            raise ValueError("Palabras clave mezcladas dentro del resumen")
         if header.casefold() not in source[:position].casefold():
             raise ValueError("Encabezado sin respaldo en la transcripción")
         if keywords and keywords not in source[position + len(body) :]:
