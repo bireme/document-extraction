@@ -323,9 +323,17 @@ def cmd_extract_abstracts(args: argparse.Namespace) -> int:
     ws = Workspace(args.workspace, logs_dir=args.logs_dir)
     transcriber = _build_transcriber(args.fake, args.lang)
     report = extract_abstracts_from_pdfs(
-        args.in_dir, ws, transcriber, llm, context_chars
+        args.in_dir,
+        ws,
+        transcriber,
+        llm,
+        context_chars,
+        backend="fake" if args.fake or args.dry_run else backend,
+        model=None if args.fake or args.dry_run else model,
     )
     print(
+        f"revisión_llm_exitosa={report['metrics']['revision_llm_exitosa']} "
+        f"fallback_determinista={report['metrics']['fallback_determinista']} | "
         f"extract-abstracts: {report['total']} PDFs | encontrados={report['found']} sin_resumen={report['not_found']} | salida={ws.abstracts_dir}"
     )
     return 0

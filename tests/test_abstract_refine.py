@@ -325,3 +325,151 @@ def test_cli_modos_offline(tmp_path, flag):
             == 0
         )
     preflight.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "raw,etapa,tipo,mensaje",
+    [
+        (
+            TimeoutError("conexión agotada"),
+            "llamada_llm",
+            "TimeoutError",
+            "conexión agotada",
+        ),
+        ("JSON roto", "validacion", "JSONDecodeError", "Expecting value"),
+        (
+            respuesta([Abstract("en", "RESUMEN", BODY)]),
+            "validacion",
+            "ValueError",
+            "Resumen vacío o idioma incompatible",
+        ),
+    ],
+)
+def test_eventos_fallo_y_metricas(tmp_path, caplog, raw, etapa, tipo, mensaje):
+    ws = Workspace(tmp_path / "salida", logs_dir=tmp_path / "logs")
+    for name in ("a", "b", "c"):
+        (tmp_path / f"{name}.pdf").touch()
+    llm = Mock(spec=TextLLM)
+    llm.complete_json.side_effect = [
+        raw,
+        respuesta(extract_abstracts(SOURCE)),
+        '{"abstracts": []}',
+    ]
+    report = extract_abstracts_from_pdfs(
+        str(tmp_path),
+        ws,
+        FakeTranscriber(SOURCE),
+        llm,
+        backend="ollama",
+        model="modelo-prueba",
+    )
+    assert report["metrics"] == {
+        "revision_llm_exitosa": 2,
+        "fallback_determinista": 1,
+        "sin_abstract": 1,
+    }
+    records = [
+        json.loads(line)
+        for line in (ws.logs_dir / "events.jsonl").read_text().splitlines()
+    ]
+    assert len({r["run_id"] for r in records}) == 1
+    assert all(r["timestamp"] for r in records)
+    events = [r for r in records if r.get("doc_id") == "a"]
+    start = next(r for r in events if r["event"] == "abstract_refine_started")
+    end = next(r for r in events if r["event"] == "abstract_refine_completed")
+    assert start["backend"] == "ollama"
+    assert start["model"] == "modelo-prueba"
+    assert start["candidate_count"] == 1
+    assert end["context_chars"] == len(SOURCE)
+    assert end["prompt_chars"] == len(llm.complete_json.call_args_list[0].args[0])
+    assert end["failure_phase"] == etapa
+    assert end["error_type"] == tipo
+    assert mensaje in end["error"]
+    assert mensaje in caplog.text
+    assert end["fallback"] is True
+    assert end["accepted_count"] == 0
+    assert end["final_count"] == 1
+    assert end["seconds"] >= 0
+    assert any(r["event"] == "phase_failed" and r["phase"] == etapa for r in events)
+    persisted = json.loads(ws.report_path.read_text())
+    assert persisted["metrics"] == report["metrics"]
+    assert "abstracts" not in persisted["documents"][0]
+    assert records[-1]["metrics"] == report["metrics"]
+    success = next(
+        r
+        for r in records
+        if r.get("doc_id") == "b" and r["event"] == "abstract_refine_completed"
+    )
+    assert success["accepted_count"] == success["final_count"] == 1
+    assert success["fallback"] is False
+    assert any(
+        r["event"] == "phase_completed"
+        and r.get("phase") == "llamada_llm"
+        and r["seconds"] >= 0
+        for r in records
+    )
+    assert set(json.loads(ws.abstract_path("a").read_text())) == {
+        "doc_id",
+        "status",
+        "source_kind",
+        "abstracts",
+    }
+    for path in (ws.report_path, ws.logs_dir / "events.jsonl"):
+        content = path.read_text()
+        assert BODY not in content
+        assert "JSON roto" not in content
+        assert "Eres un extractor" not in content
+
+
+@pytest.mark.parametrize("limit", [20, 20_000])
+def test_contexto_real_y_revision_exitosa(tmp_path, limit):
+    ws = Workspace(tmp_path / "salida")
+    (tmp_path / "a.pdf").touch()
+    llm = Mock(spec=TextLLM)
+    llm.complete_json.return_value = '{"abstracts": []}'
+    report = extract_abstracts_from_pdfs(
+        str(tmp_path), ws, FakeTranscriber(SOURCE), llm, limit
+    )
+    events = [
+        json.loads(line)
+        for line in (ws.report_path.parent / "events.jsonl").read_text().splitlines()
+    ]
+    end = next(r for r in events if r["event"] == "abstract_refine_completed")
+    assert end["context_chars"] == min(limit, len(SOURCE))
+    assert end["prompt_chars"] == len(llm.complete_json.call_args.args[0])
+    assert end["accepted_count"] == 0
+    assert end["fallback"] is False
+    assert "error" not in end
+    assert report["metrics"]["revision_llm_exitosa"] == 1
+    assert report["metrics"]["sin_abstract"] == 1
+
+
+def test_lote_vacio_registra_resumen(tmp_path):
+    ws = Workspace(tmp_path / "salida")
+    report = extract_abstracts_from_pdfs(
+        str(tmp_path), ws, FakeTranscriber(""), FakeSummarizer()
+    )
+    assert report["total"] == 0
+    assert all(value == 0 for value in report["metrics"].values())
+    assert json.loads(ws.report_path.read_text())["metrics"] == report["metrics"]
+
+
+def test_fallo_preparacion_conserva_cache(tmp_path):
+    ws = Workspace(tmp_path / "salida")
+    ws.ocr_dir.mkdir(parents=True)
+    ws.ocr_path("a").write_text(SOURCE)
+    (tmp_path / "a.pdf").touch()
+    transcriber = Mock()
+    llm = Mock(spec=TextLLM)
+    report = extract_abstracts_from_pdfs(str(tmp_path), ws, transcriber, llm, 0)
+    transcriber.transcribe.assert_not_called()
+    llm.complete_json.assert_not_called()
+    assert report["metrics"]["fallback_determinista"] == 1
+    events = [
+        json.loads(line)
+        for line in (ws.report_path.parent / "events.jsonl").read_text().splitlines()
+    ]
+    end = next(r for r in events if r["event"] == "abstract_refine_completed")
+    assert end["failure_phase"] == "preparacion_revision"
+    assert end["source_kind"] == "cached"
+    assert end["final_count"] == 1

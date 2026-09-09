@@ -197,3 +197,34 @@ Copia tu configuración desde `.pdfsum-config.example.json` en el repo.
   origen multilingües se preservan verbatim.
 - Si falta Ollama/modelo, los comandos se detienen con un mensaje claro de qué
   instalar (ver también `pdfsum doctor`).
+
+### Observabilidad de `extract-abstracts`
+
+El comando reutiliza `EventLog` y la escritura atómica de reportes de `run`.
+Los eventos se añaden a `events.jsonl` junto a `report.json`, en `--logs-dir`
+o, si no se configura, en `summaries/` dentro del workspace. Cada lote tiene
+su propio `run_id`; el reporte se actualiza después de cada documento.
+
+Los eventos `document_started`, `phase_started`, `phase_completed`,
+`phase_failed` y `document_completed` permiten seguir la transcripción,
+extracción determinística, preparación de la revisión, llamada al LLM,
+validación y resultado. `abstract_refine_started` y `abstract_refine_completed`
+registran backend, modelo, candidatos y resultado. `context_chars` mide los
+caracteres de la transcripción recortada que se envía; `prompt_chars` mide el
+prompt completo, incluidos instrucciones y candidatos. No son conteos de tokens.
+Los tiempos `seconds` usan un reloj monotónico. Si falla la revisión,
+`abstract_refine_fallback` incluye `error_type`, `error` con el mensaje de la
+excepción y `failure_phase`. El lote conserva los candidatos determinísticos.
+
+El reporte y la salida de la CLI incluyen documentos con revisión LLM exitosa,
+fallback determinístico y ningún abstract. Una revisión válida que devuelve
+una lista vacía cuenta como exitosa y como documento sin abstract; un fallback
+sin candidatos también cuenta como documento sin abstract. `accepted_count`
+cuenta abstracts aceptados por la revisión; `final_count` cuenta los que quedan
+tras aplicar el fallback, si hizo falta. Los modos `--fake` y `--dry-run`
+registran backend `fake`, sin atribuirles un modelo remoto.
+
+Los logs no guardan la transcripción, el prompt ni la respuesta completa del
+LLM. El reporte operativo tampoco duplica los abstracts: su contenido sigue
+en `abstracts/<doc_id>.json`, cuyo formato no cambia. El mensaje de excepción
+se conserva para diagnosticar los fallos; no se añade un volcado de contenido.

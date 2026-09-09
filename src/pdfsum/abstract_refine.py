@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import asdict
 
 from .abstracts import _HEADER_TO_LANG, _KW_RE
@@ -98,6 +99,8 @@ def refine_abstracts(
     candidates: list[Abstract],
     llm: TextLLM,
     context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
+    *,
+    event_sink: Callable[..., None] | None = None,
 ) -> list[Abstract]:
     """Revisa el inicio; el llamador registra fallos y conserva los candidatos."""
     if type(context_chars) is not int or context_chars <= 0:
@@ -116,9 +119,19 @@ def refine_abstracts(
         if _normalized(a.text) in source
         and _normalized(a.header).casefold() in source.casefold()
     ]
-    refined = parse_refined_abstracts(
-        llm.complete_json(build_refine_prompt(context, visible)), context
-    )
+    prompt = build_refine_prompt(context, visible)
+    if event_sink is not None:
+        event_sink(
+            "phase_started",
+            phase="llamada_llm",
+            context_chars=len(context),
+            prompt_chars=len(prompt),
+            visible_candidates=len(visible),
+        )
+    raw = llm.complete_json(prompt)
+    if event_sink is not None:
+        event_sink("phase_started", phase="validacion")
+    refined = parse_refined_abstracts(raw, context)
     for abstract in refined:
         if abstract.keywords:
             continue
