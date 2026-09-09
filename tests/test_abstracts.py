@@ -2,7 +2,9 @@
 
 import unittest
 
-from pdfsum.abstracts import abstract_langs, extract_abstracts
+import pytest
+
+from pdfsum.abstracts import _find_abstract_headers, abstract_langs, extract_abstracts
 
 _TRILINGUAL = """
 RESUMO: A reorientação da assistência psiquiátrica possibilitou serviços
@@ -19,6 +21,107 @@ profesionales de un CAPS sobre la acogida.
 """
 
 _NO_ABSTRACT = "Deixe de fumar. Ligue Disque Saúde. Ministério da Saúde."
+
+_BODY = "Objetivo: evaluar la percepción del personal sobre la atención comunitaria."
+
+
+@pytest.mark.parametrize(
+    "header,lang",
+    [
+        ("RESUMO", "pt"),
+        ("RESUMO:", "pt"),
+        ("RESUMO.", "pt"),
+        ("RESUMO -", "pt"),
+        ("RESUMO-", "pt"),
+        ("ABSTRACT", "en"),
+        ("RESUMEN", "es"),
+        ("RÉSUMÉ", "fr"),
+        ("RIASSUNTO", "it"),
+        ("ZUSAMMENFASSUNG", "de"),
+        ("  RESUMO :  ", "pt"),
+        ("\tRESUMO\t—\t", "pt"),
+        ("\u00a0resumo\u00a0–\u00a0", "pt"),
+    ],
+)
+def test_headers_estructurales(header, lang):
+    text = header + "\r\n" + _BODY
+    assert len(_find_abstract_headers(text)) == 1
+    blocks = extract_abstracts(text)
+    assert len(blocks) == 1
+    assert blocks[0].lang == lang
+    assert blocks[0].text == _BODY
+
+
+@pytest.mark.parametrize("header", ["RESUMO:", "ABSTRACT.", "RESUMEN -"])
+def test_header_y_texto_en_la_misma_linea(header):
+    blocks = extract_abstracts(header + " " + _BODY)
+    assert len(blocks) == 1
+    assert blocks[0].text == _BODY
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "BASE DE DADOS DE RESUMOS DE REVISÕES SOBRE EFETIVIDADE",
+        "INCLUI TAMBÉM RESUMOS",
+        "RESUMOS DE REVISÕES SISTEMÁTICAS PUBLICADAS NA LITERATURA",
+        "This database contains abstracts of systematic reviews",
+        "Os resumos foram selecionados...",
+        "Este resumo describe los resultados de la búsqueda.",
+        "El término abstract aparece dentro de esta oración.",
+        "RESUMO de las revisiones publicadas en la literatura",
+        "ABSTRACT describes a section of an academic paper",
+        "ABSTRACTS: revisiones de la literatura",
+        "RESUMOS: revisiones de la literatura",
+        "RESUMENES de la literatura",
+        "ABSTRACT-based",
+        "RESUMO_EDITORIAL",
+    ],
+)
+def test_palabras_normales_no_generan_headers(line):
+    text = line + "\n" + _BODY
+    assert _find_abstract_headers(text) == []
+    assert extract_abstracts(text) == []
+
+
+def test_regresion_documento_56335_10006001043():
+    # Fragmentos originales: las menciones describen bases de datos.
+    text = (
+        "PREPARADAS PELA COLABORAÇÃO COCHRANE. INCLUI TAMBÉM RESUMOS\n"
+        "BASE DE DADOS DE RESUMOS DE REVISÕES SOBRE EFETIVIDADE\n"
+        "RESUMOS DE REVISÕES SISTEMATICAS PUBLICADAS NA LITERATURA\n"
+    ) * 30
+    assert _find_abstract_headers(text) == []
+    assert extract_abstracts(text) == []
+
+
+def test_mencion_plural_no_corta_un_bloque_valido():
+    body = _BODY + "\nRESUMOS DE REVISÕES SISTEMÁTICAS PUBLICADAS NA LITERATURA"
+    blocks = extract_abstracts("RESUMO\n" + body + "\nABSTRACT\n" + _BODY)
+    assert [block.lang for block in blocks] == ["pt", "en"]
+    assert blocks[0].text == body.replace("\n", " ")
+
+
+def test_header_ambiguo_aislado_con_contexto():
+    # El comienzo en minúscula de la línea siguiente pertenece al cuerpo.
+    body = "se evaluó la percepción del personal sobre la atención comunitaria."
+    blocks = extract_abstracts("RESUME\n" + body + "\nMots-clés: salud")
+    assert len(blocks) == 1
+    assert blocks[0].lang == "fr"
+    assert blocks[0].text == body
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "RESUME\n" + _BODY,
+        "RESUME: se evaluó la atención comunitaria.\nMots-clés: salud",
+        "Introduction\nRESUME\n" + _BODY + "\nMots-clés: salud",
+        "La estrategia se\nresume a reorganizar la atención.\nMots-clés: salud",
+    ],
+)
+def test_header_ambiguo_conserva_filtros_de_contexto(text):
+    assert _find_abstract_headers(text) == []
 
 
 class TestAbstracts(unittest.TestCase):

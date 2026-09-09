@@ -23,8 +23,12 @@ _HEADERS = [
 ]
 _HEADER_TO_LANG = {h.upper(): lg for h, lg in _HEADERS}
 
+# El header ocupa la línea o lleva un separador antes del texto en esa línea.
+# El whitespace no cruza saltos de línea ni permite prefijos como RESUMOS.
 _HEADER_RE = re.compile(
-    r"(?im)^\s*(" + "|".join(re.escape(h) for h, _ in _HEADERS) + r")\s*[:.\-]?\s*"
+    r"(?im)^[^\S\r\n]*("
+    + "|".join(re.escape(h) for h, _ in _HEADERS)
+    + r")(?!\w)[^\S\r\n]*(?:[:.\-–—](?=\s|$)[^\S\r\n]*|(?=\r?$))"
 )
 _KW_RE = re.compile(
     r"(?i)\b("
