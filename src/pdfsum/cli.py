@@ -308,9 +308,11 @@ def cmd_extract_abstracts(args: argparse.Namespace) -> int:
     from .workspace import Workspace
 
     ws = Workspace(args.workspace, logs_dir=args.logs_dir)
-    transcriber = _build_transcriber(args.fake,args.lang)
-    report = extract_abstracts_from_pdfs(args.in_dir,ws,transcriber)
-    print(f"extract-abstracts: {report['total']} PDFs | encontrados={report['found']} sin_resumen={report['not_found']} | salida={ws.abstracts_dir}")
+    transcriber = _build_transcriber(args.fake, args.lang)
+    report = extract_abstracts_from_pdfs(args.in_dir, ws, transcriber)
+    print(
+        f"extract-abstracts: {report['total']} PDFs | encontrados={report['found']} sin_resumen={report['not_found']} | salida={ws.abstracts_dir}"
+    )
     return 0
 
 
@@ -610,13 +612,21 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("--fake", action="store_true")
     t.set_defaults(func=cmd_transcribe)
 
-
-    a = sub.add_parser("extract-abstracts",help="transcribir PDFs y extraer solamente resúmenes presentes")
-    a.add_argument("--in",dest="in_dir",required=True,help="directorio de PDFs")
-    a.add_argument("--workspace",required=True,help="directorio de artefactos")
-    a.add_argument("--logs-dir",default=None,help="directorio opcional para reportes")
-    a.add_argument("--lang",default=get_config_value("lang", "por+eng+spa"),help=("idioma(s) OCR Tesseract, combinables con '+' ""(default: por+eng+spa)"))
-    a.add_argument("--fake",action="store_true",help="usar transcriptor fake para pruebas")
+    a = sub.add_parser(
+        "extract-abstracts",
+        help="transcribir PDFs y extraer solamente resúmenes presentes",
+    )
+    a.add_argument("--in", dest="in_dir", required=True, help="directorio de PDFs")
+    a.add_argument("--workspace", required=True, help="directorio de artefactos")
+    a.add_argument("--logs-dir", default=None, help="directorio opcional para reportes")
+    a.add_argument(
+        "--lang",
+        default=get_config_value("lang", "por+eng+spa"),
+        help=("idioma(s) OCR Tesseract, combinables con '+' (default: por+eng+spa)"),
+    )
+    a.add_argument(
+        "--fake", action="store_true", help="usar transcriptor fake para pruebas"
+    )
     a.set_defaults(func=cmd_extract_abstracts)
 
     d = sub.add_parser("doctor", help="verificar dependencias de sistema/modelos")
