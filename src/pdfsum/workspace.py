@@ -8,6 +8,7 @@ Layout:
   <root>/
     ocr/<doc_id>.txt         transcripciones (artefacto intermedio cacheado)
     summaries/<doc_id>.json  resúmenes estructurados
+    abstracts/<doc_id>.json   resúmenes originales extraídos del documento
     <logs_dir>/report.json   reporte agregado del lote, si logs_dir fue definido
     <logs_dir>/events.jsonl  eventos durables por documento/fase
     <logs_dir>/infrastructure.jsonl  muestras de CPU/RAM/disco/temperatura/GPU
@@ -60,11 +61,18 @@ class Workspace:
     def summaries_dir(self) -> Path:
         return self.root / "summaries"
 
+    @property
+    def abstracts_dir(self) -> Path:
+        return self.root / "abstracts"
+
     def ocr_path(self, doc_id: str) -> Path:
         return self.ocr_dir / f"{_validate_doc_id(doc_id)}.txt"
 
     def summary_path(self, doc_id: str) -> Path:
         return self.summaries_dir / f"{_validate_doc_id(doc_id)}.json"
+
+    def abstract_path(self, doc_id: str) -> Path:
+        return self.abstracts_dir / f"{_validate_doc_id(doc_id)}.json"
 
     @property
     def report_path(self) -> Path:

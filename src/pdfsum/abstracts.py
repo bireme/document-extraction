@@ -54,9 +54,88 @@ _MIN_BODY = 40
 _MAX_BODY = 2500
 
 
+# Encabezados ambiguos que también pueden aparecer como palabras normales.
+_AMBIGUOUS_HEADERS = {"RESUME"}
+
+# Ventana usada para buscar palabras clave después de un encabezado ambiguo.
+_AMBIGUOUS_CONTEXT_WINDOW = 3500
+
+
+def _first_body_start(text: str) -> int | None:
+    """Devuelve la posición probable donde comienza el cuerpo principal."""
+    match = _BODY_START_RE.search(text)
+    return match.start() if match else None
+
+
+def _line_tail(text: str, match: re.Match[str]) -> str:
+    """Devuelve el contenido restante de la línea después del encabezado."""
+    line_end = text.find("\n", match.end())
+
+    if line_end == -1:
+        line_end = len(text)
+
+    return text[match.end() : line_end].strip()
+
+
+def _is_valid_ambiguous_header(
+    text: str,
+    match: re.Match[str],
+    body_start: int | None,
+) -> bool:
+    """Valida encabezados ambiguos como RESUME usando contexto estructural."""
+    # Si aparece después de la introducción, casi seguro pertenece al cuerpo.
+    if body_start is not None and match.start() > body_start:
+        return False
+
+    tail = _line_tail(text, match)
+
+    # Ejemplo de falso positivo causado por salto de línea:
+    #
+    #   la estrategia se
+    #   resume à reorganización...
+    #
+    # Después de RESUME continúa una frase en minúscula.
+    if tail and tail[0].islower():
+        return False
+
+    context_end = min(
+        len(text),
+        match.end() + _AMBIGUOUS_CONTEXT_WINDOW,
+    )
+    context = text[match.end() : context_end]
+
+    # RESUME sin acento solo se acepta si existe una señal estructural
+    # adicional típica de un resumen, como Mots-clés o Keywords.
+    return bool(_KW_RE.search(context))
+
+
+def _find_abstract_headers(text: str) -> list[re.Match[str]]:
+    """Devuelve solamente encabezados compatibles con bloques de resumen."""
+    candidates = list(_HEADER_RE.finditer(text))
+
+    if not candidates:
+        return []
+
+    body_start = _first_body_start(text)
+
+    matches: list[re.Match[str]] = []
+
+    for match in candidates:
+        header = match.group(1).upper()
+
+        if (header in _AMBIGUOUS_HEADERS) and (
+            not _is_valid_ambiguous_header(text, match, body_start)
+        ):
+            continue
+
+        matches.append(match)
+
+    return matches
+
+
 def extract_abstracts(text: str) -> list[Abstract]:
     """Devuelve bloques de resumen de origen verbatim (lista vacía si no hay)."""
-    matches = list(_HEADER_RE.finditer(text))
+    matches = _find_abstract_headers(text)
     out: list[Abstract] = []
     for i, m in enumerate(matches):
         header = m.group(1).upper()
