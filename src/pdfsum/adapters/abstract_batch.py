@@ -89,6 +89,9 @@ def extract_abstracts_from_pdfs(
 
         def next_phase(event: str, *, details=details, emit=emit, **fields) -> None:
             nonlocal phase, phase_started
+            if event == "abstract_refine_validation":
+                emit(event, **fields)
+                return
             emit(
                 "phase_completed",
                 phase=phase,

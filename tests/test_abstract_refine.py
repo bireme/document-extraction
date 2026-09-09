@@ -341,7 +341,7 @@ def test_cli_modos_offline(tmp_path, flag):
             respuesta([Abstract("en", "RESUMEN", BODY)]),
             "validacion",
             "ValueError",
-            "Resumen vacío o idioma incompatible",
+            "Idioma incompatible con el encabezado",
         ),
     ],
 )
@@ -473,3 +473,235 @@ def test_fallo_preparacion_conserva_cache(tmp_path):
     assert end["failure_phase"] == "preparacion_revision"
     assert end["source_kind"] == "cached"
     assert end["final_count"] == 1
+
+
+@pytest.mark.parametrize(
+    "original,corregido",
+    [
+        (
+            "Este estudio evaluó pacientes REVISTA DE SALUD VOL. 12 2020 y observó resultados favorables en la comunidad.",
+            "Este estudio evaluó pacientes y observó resultados favorables en la comunidad.",
+        ),
+        (
+            "Este estudio evaluó pacientes 23 y observó resultados favorables en la comunidad.",
+            "Este estudio evaluó pacientes y observó resultados favorables en la comunidad.",
+        ),
+        (
+            "Este estudio evaluó la c0munidad y observó resultados favorables entre todos los participantes.",
+            "Este estudio evaluó la comunidad y observó resultados favorables entre todos los participantes.",
+        ),
+        (
+            "Este estudio, describe los resultados.",
+            "Este estudio describe los resultados.",
+        ),
+        (
+            "Este   estudio\n describe los resultados.",
+            "Este estudio describe los resultados.",
+        ),
+    ],
+)
+def test_anclaje_aproximado_acepta_ruido(original, corregido):
+    expected = [Abstract("es", "RESUMEN", corregido)]
+    events = []
+    assert (
+        refine_abstracts(
+            "RESUMEN\n" + original,
+            [],
+            FakeSummarizer(respuesta(expected)),
+            event_sink=lambda event, **fields: events.append((event, fields)),
+        )
+        == expected
+    )
+    metric = next(
+        fields for event, fields in events if event == "abstract_refine_validation"
+    )
+    assert metric["coverage"] == 1
+    assert metric["supported_percent"] == 100
+    assert metric["evaluated_tokens"] > 0
+    assert metric["validation_method"] == (
+        "exact" if "   " in original else "approximate"
+    )
+    assert original not in json.dumps(events)
+    assert corregido not in json.dumps(events)
+
+
+@pytest.mark.parametrize(
+    "original,propuesta",
+    [
+        (
+            "La vacunación presentó buenos resultados entre los participantes.",
+            "La inmunización tuvo efectos positivos entre las personas estudiadas.",
+        ),
+        (
+            "La vacunación presentó buenos resultados entre los participantes.",
+            "La vacunación redujo la mortalidad en 75% entre los participantes.",
+        ),
+        (BODY, BODY + " Se concluye que la mortalidad desaparecerá."),
+        (
+            BODY,
+            BODY + " El hospital de La Habana incorporó tratamientos experimentales.",
+        ),
+        (
+            "La intervención no redujo la mortalidad en los pacientes.",
+            "La intervención redujo la mortalidad en los pacientes.",
+        ),
+        (
+            "Los pacientes recibieron 12 dosis durante el estudio comunitario.",
+            "Los pacientes recibieron 13 dosis durante el estudio comunitario.",
+        ),
+        (BODY, BODY.replace("resultados", "hallazgos")),
+        (BODY, "This study describes the results of a community intervention."),
+    ],
+)
+def test_rechaza_contenido_nuevo_aunque_sea_semanticamente_parecido(
+    original, propuesta
+):
+    events = []
+    with pytest.raises(ValueError, match="Texto del resumen sin respaldo"):
+        refine_abstracts(
+            "RESUMEN\n" + original,
+            [],
+            FakeSummarizer(respuesta([Abstract("es", "RESUMEN", propuesta)])),
+            event_sink=lambda event, **fields: events.append((event, fields)),
+        )
+    metric = events[-1][1]
+    assert metric["validation_method"] == "approximate"
+    assert (
+        metric["rejection_reason"]
+        == "Texto del resumen sin respaldo en la transcripción"
+    )
+    assert metric["rejection_detail"]
+    assert propuesta not in json.dumps(events)
+
+
+def test_recorte_grande_no_depende_del_candidato():
+    context = "RESUMEN\n" + BODY + "\nINTRODUCCIÓN\n" + "Texto posterior. " * 200
+    expected = [Abstract("es", "RESUMEN", BODY)]
+    assert (
+        refine_abstracts(
+            context,
+            [Abstract("es", "RESUMEN", context)],
+            FakeSummarizer(respuesta(expected)),
+        )
+        == expected
+    )
+
+
+def test_no_extrae_introduccion_ni_cruza_bloques():
+    for context, expected in [
+        (
+            "RESUMEN\n"
+            + BODY
+            + "\nINTRODUCCIÓN\nLa investigación estudió otra población.",
+            [Abstract("es", "RESUMEN", "La investigación estudió otra población.")],
+        ),
+        (
+            "RESUMEN\n" + BODY + "\nABSTRACT\nEnglish text.",
+            [
+                Abstract("en", "ABSTRACT", "English text."),
+                Abstract("es", "RESUMEN", BODY),
+            ],
+        ),
+        (
+            "RESUMEN\n" + BODY + "\nABSTRACT\nEnglish text.",
+            [Abstract("es", "RESUMEN", BODY + " English text.")],
+        ),
+    ]:
+        with pytest.raises(ValueError):
+            refine_abstracts(context, [], FakeSummarizer(respuesta(expected)))
+
+
+def test_keywords_se_recuperan_tras_anclaje_aproximado():
+    original = "Este estudio evaluó pacientes 23 y observó resultados favorables en la comunidad."
+    corrected = original.replace(" 23", "")
+    context = "RESUMEN\n" + original + "\nPalabras clave: salud; comunidad."
+    expected = [Abstract("es", "RESUMEN", corrected, "salud; comunidad.")]
+    assert (
+        refine_abstracts(
+            context,
+            extract_abstracts(context),
+            FakeSummarizer(respuesta([Abstract("es", "RESUMEN", corrected)])),
+        )
+        == expected
+    )
+
+
+def test_metricas_aproximadas_se_persisten_sin_texto(tmp_path):
+    context = "RESUMEN\nEste estudio evaluó pacientes 23 y observó resultados favorables en la comunidad."
+    corrected = context.split("\n")[1].replace(" 23", "")
+    (tmp_path / "a.pdf").touch()
+    ws = Workspace(tmp_path / "salida", logs_dir=tmp_path / "logs")
+    extract_abstracts_from_pdfs(
+        str(tmp_path),
+        ws,
+        FakeTranscriber(context),
+        FakeSummarizer(respuesta([Abstract("es", "RESUMEN", corrected)])),
+    )
+    content = (ws.logs_dir / "events.jsonl").read_text()
+    events = [json.loads(line) for line in content.splitlines()]
+    metric = next(e for e in events if e["event"] == "abstract_refine_validation")
+    assert metric["validation_method"] == "approximate"
+    assert metric["coverage"] == 1
+    assert corrected not in content
+    assert context not in content
+    assert (
+        sum(
+            e["event"] == "phase_completed" and e["phase"] == "validacion"
+            for e in events
+        )
+        == 1
+    )
+
+
+@pytest.mark.parametrize(
+    "abstract,context,motivo",
+    [
+        (Abstract("es", "RESUMEN", ""), SOURCE, "Resumen vacío"),
+        (
+            Abstract("en", "RESUMEN", BODY),
+            SOURCE,
+            "Idioma incompatible con el encabezado",
+        ),
+        (
+            Abstract("es", "RESUMEN", BODY + " Palabras clave: salud"),
+            SOURCE,
+            "Palabras clave mezcladas dentro del resumen",
+        ),
+        (Abstract("es", "RESUMEN", BODY), BODY, "Encabezado sin respaldo"),
+        (
+            Abstract("es", "RESUMEN", BODY, "inventadas"),
+            SOURCE,
+            "Palabras clave sin respaldo",
+        ),
+    ],
+)
+def test_motivos_de_rechazo_separados(abstract, context, motivo):
+    with pytest.raises(ValueError, match=motivo):
+        refine_abstracts(context, [], FakeSummarizer(respuesta([abstract])))
+
+
+def test_una_palabra_inventada_no_se_diluye_en_resumen_largo():
+    original = BODY * 40
+    propuesta = original + " Mortalidad."
+    with pytest.raises(ValueError, match="Texto del resumen sin respaldo"):
+        refine_abstracts(
+            "RESUMEN\n" + original,
+            [],
+            FakeSummarizer(respuesta([Abstract("es", "RESUMEN", propuesta)])),
+        )
+
+
+def test_rechaza_numero_decimal_o_porcentaje_modificado():
+    for original, propuesta in [("12,5", "12,6"), ("12%", "12"), ("-12", "12")]:
+        source = (
+            f"El resultado fue {original} entre todos los participantes del estudio."
+        )
+        output = (
+            f"El resultado fue {propuesta} entre todos los participantes del estudio."
+        )
+        with pytest.raises(ValueError, match="Texto del resumen sin respaldo"):
+            refine_abstracts(
+                "RESUMEN\n" + source,
+                [],
+                FakeSummarizer(respuesta([Abstract("es", "RESUMEN", output)])),
+            )
