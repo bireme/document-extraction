@@ -16,7 +16,8 @@ Formato esperado:
     "summarizer_backend": "ollama" | "openai" | "openrouter" | "anthropic",
     "cloud_model": "qwen/qwen-2.5-7b-instruct",
     "lang": "por+eng+spa",
-    "max_chars": 40000
+    "max_chars": 40000,
+    "abstract_refine_context_chars": 20000
   }
 
 NOTA: las API keys de backends cloud NUNCA se leen de este archivo (evita
@@ -28,6 +29,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TypeVar
+
+_T = TypeVar("_T")
 
 
 def load_config() -> dict:
@@ -48,7 +52,7 @@ def load_config() -> dict:
     return {}
 
 
-def get_config_value(key: str, default: str | None = None) -> str | None:
+def get_config_value(key: str, default: _T | None = None) -> _T | None:
     """Obtener un valor de configuración con fallback a default."""
     config = load_config()
     return config.get(key, default)

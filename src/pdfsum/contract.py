@@ -117,6 +117,13 @@ class SummarizeRequest:
 
 
 @runtime_checkable
+class TextLLM(Protocol):
+    """Puerto textual reutilizable; devuelve JSON sin interpretar su contenido."""
+
+    def complete_json(self, prompt: str) -> str: ...
+
+
+@runtime_checkable
 class Summarizer(Protocol):
     """PUERTO del resumidor. Los adaptadores (Ollama, cloud, fake) lo implementan.
 

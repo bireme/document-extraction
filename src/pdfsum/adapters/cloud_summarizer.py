@@ -51,7 +51,11 @@ class CloudSummarizer:
         self.api_key = api_key or os.getenv(ENV_API_KEY.get(provider, ""), "")
         self.timeout = timeout
 
-    def _call(self, prompt: str) -> str:
+    def complete_json(self, prompt: str) -> str:
+        """Solicita JSON por el mismo proveedor y modelo de la instancia."""
+        return self._call(prompt, json_mode=True)
+
+    def _call(self, prompt: str, *, json_mode: bool = False) -> str:
         if not self.api_key:
             env_var = ENV_API_KEY.get(self.provider, "<api_key explícita>")
             raise RuntimeError(
@@ -62,7 +66,8 @@ class CloudSummarizer:
             {
                 "model": self.model,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.2,
+                "temperature": 0 if json_mode else 0.2,
+                **({"response_format": {"type": "json_object"}} if json_mode else {}),
             }
         ).encode("utf-8")
         req = urllib.request.Request(

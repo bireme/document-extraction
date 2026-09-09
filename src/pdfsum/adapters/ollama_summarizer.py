@@ -33,13 +33,21 @@ class OllamaSummarizer:
         self.num_ctx = num_ctx
         self.endpoint = endpoint
 
-    def _call(self, prompt: str) -> str:
+    def complete_json(self, prompt: str) -> str:
+        """Reutiliza el transporte con salida JSON y temperatura determinista."""
+        return self._call(prompt, json_mode=True)
+
+    def _call(self, prompt: str, *, json_mode: bool = False) -> str:
         body = json.dumps(
             {
                 "model": self.model,
                 "prompt": prompt,
                 "stream": False,
-                "options": {"num_ctx": self.num_ctx, "temperature": 0.2},
+                "options": {
+                    "num_ctx": self.num_ctx,
+                    "temperature": 0 if json_mode else 0.2,
+                },
+                **({"format": "json"} if json_mode else {}),
             }
         ).encode("utf-8")
         r = urllib.request.Request(

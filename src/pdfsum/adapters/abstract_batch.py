@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
+from ..abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS, refine_abstracts
 from ..abstracts import extract_abstracts
-from ..contract import Transcriber
+from ..contract import TextLLM, Transcriber
 from ..workspace import Workspace
 
 
@@ -14,6 +16,8 @@ def extract_abstracts_from_pdfs(
     in_dir: str,
     workspace: Workspace,
     transcriber: Transcriber,
+    llm: TextLLM,
+    context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
 ) -> dict:
     """Transcribe los PDFs y extrae solamente los resúmenes de origen."""
 
@@ -43,6 +47,15 @@ def extract_abstracts_from_pdfs(
             )
 
         abstracts = extract_abstracts(text)
+        try:
+            abstracts = refine_abstracts(text, abstracts, llm, context_chars)
+        except Exception as exc:  # noqa: BLE001 — aislar fallos del LLM por documento
+            logging.getLogger(__name__).warning(
+                "Revisión de resúmenes fallida; se conserva la extracción: %s (%s)",
+                doc_id,
+                type(exc).__name__,
+                extra={"doc_id": doc_id, "event": "abstract_refine_fallback"},
+            )
 
         resultado = {
             "doc_id": doc_id,

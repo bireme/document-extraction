@@ -36,7 +36,11 @@ class AnthropicSummarizer:
         self.max_tokens = max_tokens
         self.timeout = timeout
 
-    def _call(self, prompt: str) -> str:
+    def complete_json(self, prompt: str) -> str:
+        """Solicita JSON mediante el prompt y valida fuera del transporte."""
+        return self._call(prompt, json_mode=True)
+
+    def _call(self, prompt: str, *, json_mode: bool = False) -> str:
         if not self.api_key:
             raise RuntimeError(
                 "falta API key para el backend 'anthropic'. "
@@ -47,6 +51,7 @@ class AnthropicSummarizer:
                 "model": self.model,
                 "max_tokens": self.max_tokens,
                 "messages": [{"role": "user", "content": prompt}],
+                **({"temperature": 0} if json_mode else {}),
             }
         ).encode("utf-8")
         req = urllib.request.Request(

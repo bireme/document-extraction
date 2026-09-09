@@ -304,12 +304,27 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
 
 def cmd_extract_abstracts(args: argparse.Namespace) -> int:
     """Transcribe PDFs y extrae solamente los resúmenes presentes."""
+    from .abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS
     from .adapters.abstract_batch import extract_abstracts_from_pdfs
     from .workspace import Workspace
 
+    backend, model = _resolve_backend_model(args.backend, args.model)
+    if not (args.fake or args.dry_run):
+        err = _preflight_resumen(model, backend)
+        if err is not None:
+            return err
+    context_chars = get_config_value(
+        "abstract_refine_context_chars", ABSTRACT_REFINE_CONTEXT_CHARS
+    )
+    if type(context_chars) is not int or context_chars <= 0:
+        print("abstract_refine_context_chars debe ser un entero positivo")
+        return 2
+    llm = _build_summarizer(args.fake or args.dry_run, backend, model)
     ws = Workspace(args.workspace, logs_dir=args.logs_dir)
     transcriber = _build_transcriber(args.fake, args.lang)
-    report = extract_abstracts_from_pdfs(args.in_dir, ws, transcriber)
+    report = extract_abstracts_from_pdfs(
+        args.in_dir, ws, transcriber, llm, context_chars
+    )
     print(
         f"extract-abstracts: {report['total']} PDFs | encontrados={report['found']} sin_resumen={report['not_found']} | salida={ws.abstracts_dir}"
     )
@@ -625,8 +640,10 @@ def build_parser() -> argparse.ArgumentParser:
         help=("idioma(s) OCR Tesseract, combinables con '+' (default: por+eng+spa)"),
     )
     a.add_argument(
-        "--fake", action="store_true", help="usar transcriptor fake para pruebas"
+        "--fake", action="store_true", help="usar transcriptor y LLM fake para pruebas"
     )
+    _add_backend_model(a)
+    a.add_argument("--dry-run", action="store_true", help="usar LLM fake (OCR real)")
     a.set_defaults(func=cmd_extract_abstracts)
 
     d = sub.add_parser("doctor", help="verificar dependencias de sistema/modelos")

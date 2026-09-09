@@ -22,5 +22,7 @@
   "lang": "por+eng+spa",
   "_lang_help": "Idiomas OCR (Tesseract), combinables con +. Ej: por+eng+spa+fra",
   
+  "abstract_refine_context_chars": 20000,
+  "_abstract_refine_context_chars_help": "Máximo de caracteres iniciales para revisar resúmenes existentes con el mismo backend/modelo.",
   "max_chars": 40000
 }
