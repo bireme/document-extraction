@@ -111,17 +111,14 @@ curl https://api-inference.huggingface.co/models/meta-llama/Llama-2-7b \
 **Cómo usaría** (compatible OpenAI API):
 ```python
 import os
+
 os.environ["GROQ_API_KEY"] = "gsk_..."
 
 # La clase OpenAI adapter funcionaría:
 client = OpenAI(
-    api_key=os.environ.get("GROQ_API_KEY"),
-    base_url="https://api.groq.com/openai/v1"
+    api_key=os.environ.get("GROQ_API_KEY"), base_url="https://api.groq.com/openai/v1"
 )
-response = client.chat.completions.create(
-    model="mixtral-8x7b-32768",
-    messages=[...]
-)
+response = client.chat.completions.create(model="mixtral-8x7b-32768", messages=[...])
 ```
 
 ---
@@ -161,16 +158,13 @@ response = client.chat.completions.create(
 **Cómo usaría** (compatible OpenAI API):
 ```python
 import os
+
 os.environ["TOGETHER_API_KEY"] = "sk-..."
 
 client = OpenAI(
-    api_key=os.environ.get("TOGETHER_API_KEY"),
-    base_url="https://api.together.xyz/v1"
+    api_key=os.environ.get("TOGETHER_API_KEY"), base_url="https://api.together.xyz/v1"
 )
-response = client.chat.completions.create(
-    model="mistral-7b-instruct",
-    messages=[...]
-)
+response = client.chat.completions.create(model="mistral-7b-instruct", messages=[...])
 ```
 
 ---

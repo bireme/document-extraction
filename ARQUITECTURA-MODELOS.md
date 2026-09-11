@@ -39,6 +39,7 @@ class Summarizer(Protocol):
         """Resume un texto, retorna {seccion: contenido}"""
         ...
 
+
 # PIPELINE (pipeline.py) — Depende del Protocol, no de implementación
 def summarize_document(
     doc_id: str,
@@ -50,11 +51,13 @@ def summarize_document(
     # Solo llama a summarizer.summarize(req)
     pass
 
+
 # ADAPTADOR A (adapters/ollama_summarizer.py)
 class OllamaSummarizer:
     def summarize(self, req: SummarizeRequest) -> dict[str, str]:
         # Lógica específica de Ollama HTTP
         pass
+
 
 # ADAPTADOR B (sería adapters/openai_summarizer.py si existiera)
 class OpenAISummarizer:
@@ -75,18 +78,20 @@ class OpenAISummarizer:
 
 ```python
 """Adaptador OpenAI del puerto Summarizer."""
+
 import json
 import os
 import re
 from ..contract import SummarizeRequest
 from ..templates import section_names, section_keys
 
+
 class OpenAISummarizer:
     def __init__(
         self,
         api_key: str | None = None,
         model: str = "gpt-4-turbo",
-        base_url: str = "https://api.openai.com/v1"
+        base_url: str = "https://api.openai.com/v1",
     ):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
@@ -106,33 +111,37 @@ class OpenAISummarizer:
         """Llamar OpenAI API, parsear respuesta, retornar secciones."""
         # 1. Construir prompt
         prompt = self._prompt(req)
-        
+
         # 2. Llamar OpenAI (usar requests o urllib)
         import urllib.request
-        body = json.dumps({
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": "Eres un catalogador..."},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.2,
-        }).encode("utf-8")
-        
+
+        body = json.dumps(
+            {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": "Eres un catalogador..."},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.2,
+            }
+        ).encode("utf-8")
+
         r = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=body,
             headers={
                 "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            }
+                "Content-Type": "application/json",
+            },
         )
-        
+
         with urllib.request.urlopen(r, timeout=600) as resp:
             result = json.loads(resp.read().decode("utf-8"))
             response_text = result["choices"][0]["message"]["content"]
-        
+
         # 3. Parsear como OllamaSummarizer hace
         from ..adapters.ollama_summarizer import _parse_sections
+
         return _parse_sections(response_text, req.template, req.lang)
 ```
 
@@ -144,20 +153,24 @@ class OpenAISummarizer:
 def _build_summarizer(dry_run: bool, model: str, backend: str = "ollama"):
     if dry_run:
         from .adapters.fake_summarizer import FakeSummarizer
+
         return FakeSummarizer()
-    
+
     if backend == "ollama":
         from .adapters.ollama_summarizer import OllamaSummarizer
+
         return OllamaSummarizer(model=model)
-    
+
     elif backend == "openai":
         from .adapters.openai_summarizer import OpenAISummarizer
+
         return OpenAISummarizer(model=model)
-    
+
     elif backend == "openrouter":
         from .adapters.openrouter_summarizer import OpenRouterSummarizer
+
         return OpenRouterSummarizer(model=model)
-    
+
     else:
         raise ValueError(f"Unknown backend: {backend}")
 ```
@@ -173,10 +186,12 @@ def get_summarizer_backend() -> str:
     # CLI flag > config file > env var > default
     return config.get("summarizer_backend", "ollama")
 
+
 def get_summarizer_model() -> str:
     """Obtener model de summarizer."""
     config = load_config()
     return config.get("model", "qwen2.5:7b")
+
 
 def get_summarizer_api_key() -> str | None:
     """Obtener API key (OpenAI, Anthropic, etc)."""
@@ -193,7 +208,7 @@ parser.add_argument(
     "--backend",
     choices=["ollama", "openai", "openrouter", "anthropic"],
     default="ollama",
-    help="Modelo backend (ollama, openai, etc)"
+    help="Modelo backend (ollama, openai, etc)",
 )
 ```
 

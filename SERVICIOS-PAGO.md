@@ -534,43 +534,46 @@ class OpenAICompatibleSummarizer:
         self,
         api_key: str,
         model: str = "gpt-4o",
-        base_url: str = "https://api.openai.com/v1"
+        base_url: str = "https://api.openai.com/v1",
     ):
         self.api_key = api_key
         self.model = model
         self.base_url = base_url
         # Compatible con OpenAI, OpenRouter, DeepSeek, etc.
-    
+
     def summarize(self, req: SummarizeRequest) -> dict[str, str]:
         import urllib.request
         import json
-        
+
         prompt = self._prompt(req)  # Mismo que OllamaSummarizer
-        
-        body = json.dumps({
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": "Eres un catalogador..."},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.2,
-        }).encode("utf-8")
-        
+
+        body = json.dumps(
+            {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": "Eres un catalogador..."},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.2,
+            }
+        ).encode("utf-8")
+
         r = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=body,
             headers={
                 "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            }
+                "Content-Type": "application/json",
+            },
         )
-        
+
         with urllib.request.urlopen(r, timeout=600) as resp:
             result = json.loads(resp.read().decode("utf-8"))
             response_text = result["choices"][0]["message"]["content"]
-        
+
         # Parsear como OllamaSummarizer
         from .ollama_summarizer import _parse_sections
+
         return _parse_sections(response_text, req.template, req.lang)
 ```
 
@@ -582,39 +585,41 @@ def _build_summarizer(
     dry_run: bool,
     backend: str = "ollama",
     model: str = "qwen2.5:7b",
-    api_key: str = None
+    api_key: str = None,
 ):
     if dry_run:
         from .adapters.fake_summarizer import FakeSummarizer
+
         return FakeSummarizer()
-    
+
     if backend == "ollama":
         from .adapters.ollama_summarizer import OllamaSummarizer
+
         return OllamaSummarizer(model=model)
-    
+
     elif backend in ["openai", "openrouter", "deepseek", "together"]:
         from .adapters.openai_compatible_summarizer import OpenAICompatibleSummarizer
-        
+
         base_urls = {
             "openai": "https://api.openai.com/v1",
             "openrouter": "https://openrouter.ai/api/v1",
             "deepseek": "https://api.deepseek.com",
-            "together": "https://api.together.xyz/v1"
+            "together": "https://api.together.xyz/v1",
         }
-        
+
         return OpenAICompatibleSummarizer(
             api_key=api_key or os.getenv(f"{backend.upper()}_API_KEY"),
             model=model,
-            base_url=base_urls[backend]
+            base_url=base_urls[backend],
         )
-    
+
     elif backend == "anthropic":
         from .adapters.anthropic_summarizer import AnthropicSummarizer
+
         return AnthropicSummarizer(
-            api_key=api_key or os.getenv("ANTHROPIC_API_KEY"),
-            model=model
+            api_key=api_key or os.getenv("ANTHROPIC_API_KEY"), model=model
         )
-    
+
     else:
         raise ValueError(f"Unknown backend: {backend}")
 ```
