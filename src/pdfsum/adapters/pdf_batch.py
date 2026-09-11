@@ -9,6 +9,7 @@ ocr/<doc_id>.txt, se reutiliza sin re-invocar al transcriber.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from uuid import uuid4
 
@@ -96,11 +97,12 @@ def transcribe_pdfs(
     *,
     pattern: str = "*.pdf",
     retranscribe: bool = False,
+    input_paths: Sequence[Path] | None = None,
 ) -> dict[str, dict]:
     """Transcribe todos los PDFs a ocr/<doc_id>.txt (+ meta.json, cacheado)."""
     workspace.ocr_dir.mkdir(parents=True, exist_ok=True)
     meta: dict[str, dict] = {}
-    for pdf in sorted(Path(in_dir).glob(pattern)):
+    for pdf in (sorted(Path(in_dir).glob(pattern)) if input_paths is None else input_paths):
         started = time.perf_counter()
         _, om, _ = _load_or_transcribe(
             pdf, workspace, transcriber, retranscribe=retranscribe
@@ -118,13 +120,15 @@ def run_batch_pdfs(
     *,
     long_strategy: str = "excerpt",
     retranscribe: bool = False,
+    input_paths: Sequence[Path] | None = None,
+    format_error: Callable[[Exception], str] = str,
 ) -> dict:
     """Flujo completo con eventos y checkpoints durables por documento."""
     workspace.summaries_dir.mkdir(parents=True, exist_ok=True)
     workspace.ocr_dir.mkdir(parents=True, exist_ok=True)
     workspace.report_path.parent.mkdir(parents=True, exist_ok=True)
 
-    pdfs = sorted(Path(in_dir).glob("*.pdf"))
+    pdfs = sorted(Path(in_dir).glob("*.pdf")) if input_paths is None else input_paths
     run_id = str(uuid4())
     started_at = utc_now()
     log_dir = workspace.report_path.parent
@@ -323,7 +327,7 @@ def run_batch_pdfs(
                     qa_ok=qa.is_ok,
                 )
             except Exception as exc:  # noqa: BLE001 - aislar el fallo por documento
-                error = f"{type(exc).__name__}: {exc}"[:2000]
+                error = f"{type(exc).__name__}: {format_error(exc)}"[:2000]
                 documents.append(
                     {
                         "doc_id": doc_id,

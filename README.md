@@ -304,3 +304,10 @@ make check    # lint + test
   (`evals/eval-spec-fase12-distribucion-moderna-uv.yaml`). Backend `hatchling`,
   `uv build` genera wheel/sdist, publicación en PyPI (`pip install pdfsum`).
 - Ver `docs/ESTADO.md` y `docs/PROPUESTA-PRODUCTO.md`.
+
+## Entradas y resultados externos
+
+El namespace `pdfsum external` permite conectar fuentes y destinos mediante
+adapters para `run`, `extract-abstracts`, `transcribe` y `summarize`. Consulte
+[la guía del flujo externo](docs/EXTERNAL.md) para contratos, tipos de entrada,
+configuración, limpieza y el diseño MongoDB pendiente del schema real.

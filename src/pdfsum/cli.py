@@ -60,6 +60,71 @@ def cmd_summarize(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_external(args: argparse.Namespace) -> int:
+    """Compone adapters externos y reutiliza los procesadores locales."""
+    from .abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS
+    from .adapters.external_http import HTTPMaterializer
+    from .adapters.external_processor import LocalInputProcessor
+    from .adapters.external_provider import build_external_provider
+    from .adapters.external_runner import execute_external
+    from .workspace import Workspace
+
+    try:
+        config = get_config_value("external", {})
+        if not isinstance(config, dict):
+            raise TypeError("La configuración external debe ser un objeto")
+        provider = args.provider or config.get("provider")
+        if not provider:
+            print("Falta --provider o external.provider en .pdfsum-config.json")
+            return 2
+        # Los errores de configuración de terceros también pueden incluir secretos.
+        try:
+            source, store = build_external_provider(provider, config)
+        except ValueError as exc:
+            if provider == "mongodb":
+                print(str(exc))
+                return 2
+            raise
+        command = args.external_command
+        backend, model = _resolve_backend_model(args.backend, args.model)
+        if command != "transcribe" and not (args.fake or args.dry_run):
+            error = _preflight_resumen(model, backend)
+            if error is not None:
+                return error
+        ws = Workspace(args.workspace, logs_dir=args.logs_dir)
+        transcriber = None if command == "summarize" else _build_transcriber(
+            args.fake, args.lang or get_config_value("lang", "por+eng+spa"),
+            vlm_model=args.vlm_model,
+        )
+        summarizer = None if command == "transcribe" else _build_summarizer(
+            args.fake or args.dry_run, backend, model,
+        )
+        context_chars = get_config_value(
+            "abstract_refine_context_chars", ABSTRACT_REFINE_CONTEXT_CHARS
+        )
+        if type(context_chars) is not int or context_chars <= 0:
+            raise ValueError("abstract_refine_context_chars debe ser positivo")
+        processor = LocalInputProcessor(
+            ws, transcriber=transcriber, summarizer=summarizer, lang=args.lang,
+            pages=args.pages, long_strategy=args.long_strategy,
+            retranscribe=args.retranscribe, context_chars=context_chars,
+        )
+        materializer = HTTPMaterializer(
+            timeout=args.download_timeout if args.download_timeout is not None
+            else config.get("download_timeout", 30),
+            max_bytes=config.get("max_download_bytes", 100_000_000),
+        )
+        totals = execute_external(command, source, materializer, processor, store,
+                                  ws, keep_artifacts=args.keep_artifacts)
+        print(f"external {command}: completados={totals['completed']} "
+              f"fallidos={totals['failed']}")
+        return 1 if totals["failed"] else 0
+    except Exception as exc:  # noqa: BLE001 — no exponer secretos del adapter
+        print(f"Falló el flujo externo ({type(exc).__name__}); "
+              "revise la configuración y los eventos del workspace")
+        return 2
+
+
 def cmd_batch(args: argparse.Namespace) -> int:
     from .adapters.batch_runner import run_batch
 
@@ -680,6 +745,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="transcriber+resumidor fake (prueba el arnés)",
     )
     v.set_defaults(func=cmd_verify)
+    external = sub.add_parser("external", help="procesar entradas externas")
+    commands = external.add_subparsers(dest="external_command", required=True)
+    for command in ("run", "extract-abstracts", "transcribe", "summarize"):
+        e = commands.add_parser(command, help=f"ejecutar {command} sobre entradas externas")
+        e.add_argument("--provider", help="provider configurado o módulo:fábrica")
+        e.add_argument("--workspace", required=True, help="directorio de artefactos")
+        e.add_argument("--logs-dir", help="directorio de observabilidad")
+        e.add_argument("--keep-artifacts", action="store_true",
+                       help="conservar descargas y resultados principales locales")
+        e.add_argument("--download-timeout", type=float, help="timeout HTTP en segundos")
+        e.add_argument("--fake", action="store_true", help="usar OCR y LLM fake")
+        e.add_argument("--dry-run", action="store_true", help="usar LLM fake; persiste resultados")
+        e.add_argument("--lang", default=None, help="idioma del OCR o del resumen")
+        e.add_argument("--pages", type=int, default=1, help="páginas del texto transcrito")
+        e.add_argument("--retranscribe", action="store_true", help="forzar OCR")
+        e.add_argument("--long-strategy", choices=["excerpt", "blocks", "hierarchical"],
+                       default=get_config_value("long_strategy", "excerpt"))
+        _add_backend_model(e, add_vlm=True)
+        e.set_defaults(func=cmd_external)
     return p
 
 

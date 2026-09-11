@@ -54,6 +54,11 @@ class Workspace:
         )
 
     @property
+    def downloads_dir(self) -> Path:
+        """Recursos materializados por el flujo externo."""
+        return self.root / "downloads"
+
+    @property
     def ocr_dir(self) -> Path:
         return self.root / "ocr"
 
