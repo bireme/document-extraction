@@ -113,7 +113,18 @@ def _anchor(body: str, region: str) -> tuple[int, int, str, float, int, str]:
     count = len(wanted)
     position = region.find(body)
     if position >= 0:
-        return position, position + len(body), "exact", 1.0, count, ""
+        end = position + len(body)
+        trailing = list(_TOKEN_RE.finditer(region[end:]))
+        if trailing and not _layout_noise(trailing):
+            return (
+                -1,
+                -1,
+                "exact",
+                1.0,
+                count,
+                "Omisión sustantiva al final del resumen",
+            )
+        return position, end, "exact", 1.0, count, ""
     if not count:
         return -1, -1, "approximate", 0.0, 0, "Sin palabras evaluables"
     source = list(_TOKEN_RE.finditer(region))

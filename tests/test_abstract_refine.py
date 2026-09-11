@@ -92,6 +92,98 @@ def test_recupera_resumen_mayor_del_limite_determinista():
     )
 
 
+def test_introduccion_con_dos_puntos_pertenece_al_resumo():
+    texto = "Introdução: " + BODY + " Objetivo: evaluar la intervención."
+    esperado = [Abstract("pt", "RESUMO", texto)]
+    assert (
+        refine_abstracts("RESUMO\n" + texto, [], FakeSummarizer(respuesta(esperado)))
+        == esperado
+    )
+
+
+@pytest.mark.parametrize("encabezado", ["INTRODUÇÃO", "INTRODUCTION", "INTRODUCCIÓN"])
+def test_introduccion_aislada_delimita_el_cuerpo(encabezado):
+    posterior = "La investigación estudió otra población."
+    contexto = "RESUMO\n" + BODY + "\n" + encabezado + "\n" + posterior
+    esperado = [Abstract("pt", "RESUMO", BODY)]
+    assert (
+        refine_abstracts(contexto, [], FakeSummarizer(respuesta(esperado))) == esperado
+    )
+    with pytest.raises(ValueError, match="Texto del resumen sin respaldo"):
+        refine_abstracts(
+            contexto,
+            [],
+            FakeSummarizer(respuesta([Abstract("pt", "RESUMO", posterior)])),
+        )
+
+
+@pytest.mark.parametrize(
+    "fragmentos,palabra",
+    [(["categoriza", "dos"], "categorizados"), (["vis", "cosity"], "viscosity")],
+)
+def test_union_exacta_de_fragmentos_no_consume_correcciones_ocr(fragmentos, palabra):
+    # Con dos palabras, una corrección aproximada superaría el límite del 10 %.
+    original = "Término " + "\n".join(fragmentos)
+    esperado = [Abstract("es", "RESUMEN", "Término " + palabra)]
+    eventos = []
+    assert (
+        refine_abstracts(
+            "RESUMEN\n" + original,
+            [],
+            FakeSummarizer(respuesta(esperado)),
+            event_sink=lambda evento, **campos: eventos.append((evento, campos)),
+        )
+        == esperado
+    )
+    metrica = next(
+        campos for evento, campos in eventos if evento == "abstract_refine_validation"
+    )
+    assert metrica["coverage"] == 1
+    assert metrica["supported_percent"] == 100
+    assert metrica["evaluated_tokens"] == 2
+    assert metrica["rejection_reason"] == ""
+
+
+def test_omite_afiliacion_y_contacto_con_continuacion_del_resumen():
+    continuacion = (
+        "Los participantes mantuvieron los beneficios durante el seguimiento."
+    )
+    contexto = (
+        "RESUMEN\n" + BODY + "\n"
+        "Instituto de Salud Comunitaria\n"
+        "Correo: contacto@instituto.org\nTeléfono: +34 912 345 678\n" + continuacion
+    )
+    esperado = [Abstract("es", "RESUMEN", BODY + " " + continuacion)]
+    assert (
+        refine_abstracts(contexto, [], FakeSummarizer(respuesta(esperado))) == esperado
+    )
+
+
+@pytest.mark.parametrize(
+    "seccion", ["Objetivo", "Metodología", "Resultados", "Conclusión"]
+)
+@pytest.mark.parametrize("cambia_puntuacion", [False, True])
+def test_rechaza_omision_sustantiva_al_final_del_resumen(seccion, cambia_puntuacion):
+    original = BODY.replace("estudio", "estudio,") if cambia_puntuacion else BODY
+    contexto = (
+        "RESUMEN\n" + original + "\n" + seccion + ": "
+        "La intervención mejoró la salud de los participantes."
+    )
+    with pytest.raises(ValueError, match="Texto del resumen sin respaldo"):
+        refine_abstracts(
+            contexto,
+            [],
+            FakeSummarizer(respuesta([Abstract("es", "RESUMEN", BODY)])),
+        )
+
+
+def test_palabras_clave_sin_respaldo_se_vacian_sin_rechazar_resumen():
+    propuesta = [Abstract("es", "RESUMEN", BODY, "astronomía; galaxias")]
+    assert refine_abstracts(SOURCE, [], FakeSummarizer(respuesta(propuesta))) == [
+        Abstract("es", "RESUMEN", BODY, "")
+    ]
+
+
 @pytest.mark.parametrize("limit", [20_000, 500])
 def test_contexto_y_candidatos_no_filtran_el_resto(limit):
     context = SOURCE + " " * limit + "RESUMEN\nSECRETO FUERA DEL CONTEXTO"
@@ -668,11 +760,6 @@ def test_metricas_aproximadas_se_persisten_sin_texto(tmp_path):
             "Palabras clave mezcladas dentro del resumen",
         ),
         (Abstract("es", "RESUMEN", BODY), BODY, "Encabezado sin respaldo"),
-        (
-            Abstract("es", "RESUMEN", BODY, "inventadas"),
-            SOURCE,
-            "Palabras clave sin respaldo",
-        ),
     ],
 )
 def test_motivos_de_rechazo_separados(abstract, context, motivo):
