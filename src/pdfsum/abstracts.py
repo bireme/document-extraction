@@ -32,13 +32,13 @@ _HEADER_RE = re.compile(
 )
 _KW_RE = re.compile(
     r"(?i)\b("
-    r"Palavras[-\s]*chave|"
-    r"Palabras[-\s]*llave|"
-    r"Palabras\s*clave|"
+    r"Palavras?[-\s]*chaves?|"
+    r"Palabras?[-\s]*llaves?|"
+    r"Palabras?\s*claves?|"
     r"Key[-\s]*words?|"
-    r"Mots[-\s]*cl[ée]s|"
-    r"Descritores|"
-    r"Descriptors"
+    r"Mots?[-\s]*cl[ée]s|"
+    r"Descritores?|"
+    r"Descriptors?"
     r")\b\s*[:.\-]?\s*"
 )
 _BODY_START_RE = re.compile(
