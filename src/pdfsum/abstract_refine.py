@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import asdict
 from difflib import SequenceMatcher
 
-from .abstracts import _BODY_START_RE, _HEADER_TO_LANG, _KW_RE, _find_abstract_headers
+from .abstracts import _HEADER_TO_LANG, _KW_RE, _find_abstract_headers
 from .contract import Abstract, TextLLM
 
 ABSTRACT_REFINE_CONTEXT_CHARS = 20_000
@@ -61,20 +61,50 @@ def _ocr_key(word: str) -> str:
 
 
 def _layout_noise(tokens: list[re.Match[str]]) -> bool:
-    """Permite cifras de página o rótulos editoriales, nunca prosa cualquiera."""
+    """Permite ruido editorial y bloques de afiliación, nunca prosa cualquiera."""
     words = [t.group() for t in tokens]
+
     if len(words) == 1 and words[0].isdigit():
         return True
+
     label = " ".join(words)
-    return (
+
+    editorial_label = (
         len(words) <= 40
         and bool(
             re.search(
-                r"(?i)\b(revista|journal|vol|issn|doi|página|page|copyright)\b", label
+                r"(?i)\b(revista|journal|vol|issn|doi|página|page|copyright)\b",
+                label,
             )
         )
         and all(w.isupper() or not w.isalpha() or w.isdigit() for w in words)
     )
+    if editorial_label:
+        return True
+
+    if re.search(
+        r"(?i)\b("
+        r"objetivo|objective|objectives|método|métodos|methods|"
+        r"metodologia|methodology|resultado|resultados|results|"
+        r"conclusão|conclusões|conclusion|conclusions"
+        r")\b",
+        label,
+    ):
+        return False
+
+    affiliation_block = len(words) <= 80 and bool(
+        re.search(
+            r"(?i)\b("
+            r"fundação|foundation|universidade|university|hospital|"
+            r"secretaria|instituto|institute|fiocruz|"
+            r"gmail|email|mail|telefone|phone|"
+            r"edu|gov|org|com|br"
+            r")\b",
+            label,
+        )
+    )
+
+    return affiliation_block
 
 
 def _anchor(body: str, region: str) -> tuple[int, int, str, float, int, str]:
@@ -106,22 +136,34 @@ def _anchor(body: str, region: str) -> tuple[int, int, str, float, int, str]:
                 supported += j - i
                 end = start + l
             elif tag == "insert":
-                if i == count:
-                    continue
                 if not _layout_noise(source[start + k : start + l]):
                     valid = False
                     reason = "Omisión interna sin indicios de ruido editorial"
-            elif tag == "replace" and j - i == l - k:
-                for output, original in zip(target[i:j], window[k:l]):
-                    if (
-                        len(output) >= 5
-                        and output.isalpha()
-                        and _ocr_key(output) == _ocr_key(original)
-                    ):
-                        supported += 1
-                        corrected += 1
-                    else:
-                        valid = False
+            elif tag == "replace":
+                output_tokens = target[i:j]
+                original_tokens = window[k:l]
+
+                # Acepta una palabra reconstruida a partir de fragmentos partidos.
+                if (
+                    len(output_tokens) == 1
+                    and len(original_tokens) > 1
+                    and output_tokens[0] == "".join(original_tokens)
+                ):
+                    supported += 1
+                elif len(output_tokens) == len(original_tokens):
+                    for output, original in zip(output_tokens, original_tokens):
+                        if (
+                            len(output) >= 5
+                            and output.isalpha()
+                            and _ocr_key(output) == _ocr_key(original)
+                        ):
+                            supported += 1
+                            corrected += 1
+                        else:
+                            valid = False
+                else:
+                    valid = False
+
                 end = start + l
             else:
                 valid = False
@@ -158,7 +200,8 @@ def parse_refined_abstracts(
     if not isinstance(data, dict) or not isinstance(data.get("abstracts"), list):
         raise TypeError("Falta la lista de resúmenes")
     headers = _find_abstract_headers(context)
-    introduction = _BODY_START_RE.search(context)
+    article_body_re = re.compile(r"(?im)^\s*(INTRODUÇÃO|INTRODUCTION|INTRODUCCIÓN)\s*$")
+    introduction = article_body_re.search(context)
     result = []
     previous = -1
     for item in data["abstracts"]:
@@ -230,7 +273,7 @@ def parse_refined_abstracts(
         if start < 0:
             reject("Texto del resumen sin respaldo en la transcripción", reason)
         if keywords and keywords not in region[end:]:
-            reject("Palabras clave sin respaldo")
+            abstract.keywords = ""
         if event_sink is not None:
             event_sink(
                 "abstract_refine_validation",
