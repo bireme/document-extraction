@@ -74,6 +74,7 @@ curl http://127.0.0.1:8765/api/report
 |---|---|
 | **Resumir mis PDFs** | `pdfsum run --in ./pdfs --workspace ./data --lang por` |
 | Solo transcribir | `pdfsum transcribe --in ./pdfs --workspace ./data` |
+| Extraer resúmenes existentes | `pdfsum extract-abstracts --in ./pdfs --workspace ./data` |
 | Servicio (API + worker) | `PDFSUM_API_TOKEN=... pdfsum api --workspace ./service_ws` + `pdfsum worker --workspace ./service_ws` |
 | Resumir un texto ya transcrito | `pdfsum summarize --text doc.txt --pages 4 --out r.json` |
 | Re-resumir lote de .txt | `pdfsum batch --in ./textos --out ./resumenes` |
@@ -197,6 +198,19 @@ Copia tu configuración desde `.pdfsum-config.example.json` en el repo.
   origen multilingües se preservan verbatim.
 - Si falta Ollama/modelo, los comandos se detienen con un mensaje claro de qué
   instalar (ver también `pdfsum doctor`).
+
+### Extraer resúmenes existentes
+
+`extract-abstracts` transcribe los PDFs y recupera los resúmenes ya presentes
+en los documentos, sin generar un resumen nuevo del artículo. La extracción
+determinística se revisa con el LLM configurado; si la revisión falla, se
+conserva automáticamente el resultado determinístico.
+
+```bash
+pdfsum extract-abstracts --in ./pdfs --workspace ./data
+```
+
+Los resultados se guardan en `abstracts/<doc_id>.json`.
 
 ### Observabilidad de `extract-abstracts`
 
