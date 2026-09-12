@@ -382,7 +382,10 @@ def test_external_cli_with_non_mongo_provider(tmp_path, command):
 
 
 def test_missing_mongodb_dependency_is_clear(tmp_path, capsys):
-    with patch("pdfsum.adapters.external_mongodb.find_spec", return_value=None):
+    with (
+        patch.dict(sys.modules, {"pymongo": None}),
+        patch.dict("os.environ", {"PDFSUM_MONGODB_URI": "mongodb://servidor"}),
+    ):
         assert (
             main(
                 [
@@ -393,6 +396,8 @@ def test_missing_mongodb_dependency_is_clear(tmp_path, capsys):
                     "--workspace",
                     str(tmp_path),
                     "--fake",
+                    "--ids",
+                    "79665",
                 ]
             )
             == 2
@@ -400,9 +405,8 @@ def test_missing_mongodb_dependency_is_clear(tmp_path, capsys):
     assert "dependencia opcional pymongo" in capsys.readouterr().out
 
 
-def test_mongodb_does_not_assume_schema(tmp_path, capsys):
+def test_mongodb_requires_explicit_selection(tmp_path, capsys):
     with (
-        patch("pdfsum.adapters.external_mongodb.find_spec", return_value=object()),
         patch.dict(
             "os.environ",
             {"PDFSUM_MONGODB_URI": "mongodb://usuario:clave@servidor/base"},
@@ -423,7 +427,7 @@ def test_mongodb_does_not_assume_schema(tmp_path, capsys):
             == 2
         )
     output = capsys.readouterr().out
-    assert "pendiente de schema" in output
+    assert "--ids o --ids-file" in output
     assert "clave" not in output
 
 
@@ -432,6 +436,8 @@ def test_generic_modules_do_not_import_pymongo():
 
     root = Path(__file__).parents[1] / "src/pdfsum"
     for file in [root / "external.py", *root.glob("adapters/external_*.py")]:
+        if file.name == "external_mongodb.py":
+            continue
         imports = [
             node
             for node in ast.walk(ast.parse(file.read_text()))

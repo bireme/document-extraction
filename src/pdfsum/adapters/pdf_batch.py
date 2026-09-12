@@ -102,7 +102,9 @@ def transcribe_pdfs(
     """Transcribe todos los PDFs a ocr/<doc_id>.txt (+ meta.json, cacheado)."""
     workspace.ocr_dir.mkdir(parents=True, exist_ok=True)
     meta: dict[str, dict] = {}
-    for pdf in (sorted(Path(in_dir).glob(pattern)) if input_paths is None else input_paths):
+    for pdf in (
+        sorted(Path(in_dir).glob(pattern)) if input_paths is None else input_paths
+    ):
         started = time.perf_counter()
         _, om, _ = _load_or_transcribe(
             pdf, workspace, transcriber, retranscribe=retranscribe

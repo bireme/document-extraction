@@ -31,6 +31,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Provider MongoDB opcional; puede definirse en .env.
+      PDFSUM_MONGODB_URI: ${PDFSUM_MONGODB_URI:-}
     extra_hosts:
       # Permite que host.docker.internal resuelva también en Linux
       - host.docker.internal:host-gateway

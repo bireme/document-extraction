@@ -16,7 +16,8 @@ WORKDIR /app
 
 COPY . /app
 
-# Para el modo servicio (FASE20), la imagen incluye el extra opcional.
-RUN pip install --no-cache-dir '.[service]'
+# Para el modo servicio (FASE20) y el provider MongoDB,
+# la imagen incluye los extras opcionales.
+RUN pip install --no-cache-dir '.[service,mongodb]'
 
 CMD ["pdfsum", "--help"]

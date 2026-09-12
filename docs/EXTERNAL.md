@@ -2,8 +2,8 @@
 
 El flujo externo conecta una fuente de entradas, un materializador, un procesador
 y un destino de resultados. El motor no conoce MongoDB ni importa `pymongo`.
-La primera iteración incluye infraestructura ejecutable con adapters inyectables;
-la conexión concreta a MongoDB está pendiente del schema real.
+Incluye adapters inyectables y un provider MongoDB con selección explícita por ID,
+fuente de solo lectura y una colección operacional separada.
 
 ## Comandos y resultados
 
@@ -81,6 +81,11 @@ hay charset y admite UTF-16 declarado explícitamente; normaliza a UTF-8 y recha
 controles binarios, codificaciones desconocidas y contenido PDF. No deduce el tipo
 de la extensión de la URL. Admite HTTP/HTTPS y rechaza credenciales en la autoridad
 de la URL; las URLs con query strings se usan para descargar sin registrarse.
+La política SSRF rechaza nombres locales y direcciones IPv4/IPv6 no globales,
+multicast y reservadas. Valida todas las IP resueltas antes de crear el socket y
+conecta directamente a una IP numérica validada, sin segunda resolución DNS.
+Conserva Host, SNI y verificación TLS; repite la política en cada redirect y
+mantiene los límites de urllib. Este transporte desactiva proxies automáticos.
 
 ## Artefactos e identidad local
 
@@ -132,35 +137,127 @@ provider debe definir exclusión de éxitos previos, recuperación de reservas,
 reintentos y la identidad de una ejecución (por ejemplo, comando y versión del
 recurso, si así se decide). No se promete ejecución exactamente una vez.
 
-## MongoDB: diseño pendiente de schema
+## MongoDB real
 
-MongoDB es el primer provider concreto previsto y tiene un punto de composición
-reservado (`--provider mongodb`). **Todavía no conecta ni lee/escribe documentos**.
-Informa si falta `pymongo`, la variable `PDFSUM_MONGODB_URI` o el schema. No se ha
-añadido esa dependencia porque todavía no se utiliza; al implementar la conexión
-se prevé un extra opcional `mongodb`, siguiendo el extra `service` del proyecto.
-Los comandos locales y la infraestructura genérica no necesitan esa dependencia.
-No se deben guardar URI ni secretos en archivos versionados.
+Instalación opcional (los comandos locales y otros providers no la necesitan):
 
-Antes de implementar `MongoInputSource` y `MongoResultStore` se necesita acordar:
+```bash
+pip install '.[mongodb]'
+```
 
-- Base de datos, colección de entrada y colección de salida; si son distintas o
-  se actualizará expresamente la misma colección.
-- Campo/ruta del ID y su tipo, campo/ruta de la URL, campo/ruta del tipo de entrada
-  y traducción de sus valores; o un tipo explícito configurado por fuente.
-- Filtro de pendientes por comando, orden/límite si aplica y criterio para excluir
-  resultados previos.
-- Forma de reservar, marcar procesamiento y confirmar, y recuperación/reintento
-  de entradas fallidas o interrumpidas.
-- Representación del resultado y errores, relación con el ID original, operación
-  de escritura (inserción, actualización o upsert) y claves de idempotencia.
+La URI se obtiene **exclusivamente** de `PDFSUM_MONGODB_URI`. No se admite una
+opción de URI en la CLI ni una URI en la configuración. No la guarde en archivos
+versionados ni la incluya en comandos compartidos. Los nombres no secretos se
+configuran dentro de `external`:
 
-Los nombres de opciones de mapeo, filtros y rutas concretas quedan pendientes.
-El adapter traducirá documentos a `ExternalInput` y envelopes a las operaciones
-acordadas. La selección y escritura permanecerán dentro del adapter, con fuente
-y destino independientes; no se actualizarán documentos de entrada por defecto.
-Las opciones no secretas podrán ir en `external` y la URI vendrá exclusivamente
-de `PDFSUM_MONGODB_URI`. No hay schema MongoDB implícito en los ejemplos anteriores.
+```json
+{
+  "external": {
+    "provider": "mongodb",
+    "database": "FIs_02_converted",
+    "source_collection": "mis",
+    "jobs_collection": "document_extraction_jobs"
+  }
+}
+```
+
+`--database`, `--source-collection` y `--jobs-collection` prevalecen sobre esas
+claves. Los valores del ejemplo son los predeterminados. Se rechaza usar como
+colección de jobs la fuente o `mis`. **mis permanece intacta**: solo se ejecutan
+lecturas por el campo funcional `id`; no se usa `_id` como identificador, no se
+actualizan documentos y no se crean índices en la fuente.
+
+Cada lanzamiento MongoDB exige `--ids` o `--ids-file`, mutuamente excluyentes.
+No toma IDs guardados en la configuración ni selecciona toda la colección.
+Los IDs son **enteros**, como `mis.id`: los tokens se validan y convierten a
+enteros BSON de 64 bits antes de conectar. Se eliminan duplicados conservando el
+orden; `0079665` y `79665` representan el mismo entero. Un archivo UTF-8 puede
+contener un ID por línea o varios separados por espacios. Un archivo vacío,
+inaccesible o con un token que no sea entero se rechaza antes de conectar.
+
+Estos son ejemplos de ejecución; escriben jobs y no constituyen una prueba de
+solo lectura. Incluso `--fake` y `--dry-run` descargan y escriben datos:
+
+```bash
+pdfsum external run --provider mongodb --workspace ./data --ids 79665 79662 79667
+pdfsum external extract-abstracts --provider mongodb --workspace ./data --ids-file ids.txt
+pdfsum external transcribe --provider mongodb --workspace ./data --ids 79665
+```
+
+### Selección del PDF
+
+Para `run`, `extract-abstracts` y `transcribe` se leen todos los valores
+`electronic_address[*]._u`. Solo se aceptan URLs explícitas HTTP/HTTPS cuyo path
+termine en `.pdf` (sin distinguir mayúsculas), con query string opcional.
+Se prefieren HTTPS y, entre candidatos equivalentes, el orden original.
+Se conserva la URL exacta: no se reparan esquemas ausentes, espacios, controles,
+puertos inválidos, `.pdf.`, `.pd` ni escapes malformados. No se siguen DOI o HTML
+para descubrir PDFs, ni se aceptan EPUB, imágenes o YouTube como recurso.
+
+La extensión solo selecciona el candidato; después, HTTPMaterializer aplica
+SSRF, límites y validación de contenido. Si la URL seleccionada falla, el job
+falla; no se prueban otros enlaces automáticamente. No se debilita la política
+para direcciones de redes internas.
+
+`pdfsum external summarize --provider mongodb` informa que `mis` no tiene una
+fuente identificada de texto transcrito y termina antes de conectar o crear jobs.
+El comando local y el soporte genérico de `summarize` continúan disponibles.
+
+### Jobs, reserva y resultados
+
+La primera iteración crea, si falta, la colección operacional mediante su índice
+único `id_command_unico` sobre `(id, command)`. Cada ID explícito se prepara con
+`update_one(..., {"$setOnInsert": ...}, upsert=True)` en estado `pending`.
+Un índice existente incompatible o datos duplicados producen un error de
+infraestructura; el adapter no modifica ni elimina esos datos para corregirlo.
+
+La reclamación usa `find_one_and_update` sin upsert, con el filtro:
+
+```python
+{"id": 79665, "command": "run", "status": {"$in": ["pending", "failed"]}}
+```
+
+La misma operación atómica establece `processing`, un `claim_token` aleatorio,
+`started_at` y `updated_at`, e incrementa `attempts`. Solo quien obtiene el
+documento puede procesarlo. El guardado exige ese token y el estado correspondiente;
+un intento anterior no puede sobrescribir una reserva nueva. Las escrituras de
+jobs usan confirmación mayoritaria, incluso si la URI solicita `w=0`.
+
+Los jobs incluyen `id` numérico, `command`, `status`, `created_at`, `updated_at`,
+`started_at`, `finished_at` al finalizar, `attempts` y `claim_token`. Las fechas
+se escriben en UTC. `completed` guarda exclusivamente `result`: JSON principal
+de `run` o `extract-abstracts`, o texto principal de `transcribe`. `failed` guarda
+un error estructurado con `phase`, `code` y `message` seguro. No se almacenan la
+URI, la URL de descarga ni mensajes originales de excepciones en esos errores.
+No se copian OCR auxiliar, logs, `report.json` o `events.jsonl` completos.
+
+Los jobs `completed` se omiten aunque se vuelvan a indicar sus IDs. Los `failed`
+son elegibles en un nuevo lanzamiento explícito; se reemplazan el error anterior
+y los tiempos del intento por los del nuevo intento. No hay reintentos infinitos
+ni reintentos internos del procesamiento. El estado `processing` **no caduca**:
+si un proceso se interrumpe, la recuperación debe decidirse operativamente tras
+verificar que el dueño anterior ya no trabaja. No hay recuperación automática ni
+promesa de ejecución exactamente una vez. Se conserva solo el último intento,
+además de su contador; no se mantiene un historial completo en MongoDB.
+
+ID inexistente, ausencia de `electronic_address` y ausencia de PDF generan
+`failed` con códigos `id_inexistente`, `sin_recurso` y `sin_pdf`, respectivamente,
+y el lote continúa. Estos fallos se persisten en la fuente/store compartida antes
+de entregar entradas al executor; la CLI suma `selection_failures` a los fallos
+del procesamiento. Los llamadores Python que compongan el adapter directamente
+deben sumar ese contador si necesitan el total del lote.
+
+Errores HTTP y de procesamiento siguen el flujo genérico y fallan solo ese job.
+Errores de lectura, índice, reclamación o persistencia en MongoDB son de
+infraestructura y detienen el lote con un mensaje sanitizado. El resultado debe
+caber en un documento BSON (límite MongoDB de 16 MiB); no se implementa GridFS ni
+fragmentación, y superar ese límite es un fallo de persistencia. La búsqueda por
+`mis.id` aprovecha los índices ya existentes; este adapter no crea uno en `mis`.
+`--keep-artifacts` conserva exactamente su comportamiento previo.
+
+Los tests sustituyen el driver, las colecciones, DNS y sockets; no necesitan un
+MongoDB real. La validación operativa con una instancia real queda separada de
+estos tests y requiere confirmar el comando y sus escrituras antes de ejecutarlo.
 
 ## Añadir otro adapter
 

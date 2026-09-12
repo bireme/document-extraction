@@ -213,7 +213,9 @@ def extract_abstracts_from_pdfs(
                 error=format_error(exc),
             )
             events.write(
-                "run_interrupted", error_type=type(exc).__name__, error=format_error(exc)
+                "run_interrupted",
+                error_type=type(exc).__name__,
+                error=format_error(exc),
             )
             raise
     events.write("run_completed", status="completed", metrics=metrics)
