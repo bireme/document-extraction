@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
 
@@ -25,6 +26,7 @@ def extract_abstracts_from_pdfs(
     backend: str | None = None,
     model: str | None = None,
     abstract_refine_debug_dir: str | Path | None = None,
+    format_error: Callable[[BaseException], str] = str,
 ) -> dict:
     """Transcribe y extrae con eventos y checkpoints del ejecutor de lotes."""
     workspace.ocr_dir.mkdir(parents=True, exist_ok=True)
@@ -153,7 +155,7 @@ def extract_abstracts_from_pdfs(
                 fallback = True
                 error = {
                     "error_type": type(exc).__name__,
-                    "error": str(exc),
+                    "error": format_error(exc),
                     "failure_phase": phase,
                 }
                 emit("abstract_refine_fallback", **details, **error, fallback=True)
@@ -162,7 +164,7 @@ def extract_abstracts_from_pdfs(
                     "%s (%s: %s), etapa=%s",
                     doc_id,
                     type(exc).__name__,
-                    str(exc),
+                    format_error(exc),
                     phase,
                     extra={
                         "doc_id": doc_id,
@@ -222,10 +224,12 @@ def extract_abstracts_from_pdfs(
                 "document_failed",
                 phase=phase,
                 error_type=type(exc).__name__,
-                error=str(exc),
+                error=format_error(exc),
             )
             events.write(
-                "run_interrupted", error_type=type(exc).__name__, error=str(exc)
+                "run_interrupted",
+                error_type=type(exc).__name__,
+                error=format_error(exc),
             )
             raise
     events.write("run_completed", status="completed", metrics=metrics)

@@ -8,6 +8,10 @@ release — ver `docs/ESTADO.md`).
 
 > 🚀 **Guía rápida de uso (1 página, con ejemplos ejecutables): [`GUIA-USO.md`](GUIA-USO.md)**
 
+**Extracción HTTP de resúmenes existentes:** `pdfsum extract-abstracts-api` recibe
+`id` + URL, descarga el PDF y devuelve el JSON del pipeline a OFI9. ServerIA no
+accede a MongoDB. Consulta [contrato, Docker y ejemplos](docs/EXTRACT-ABSTRACTS-API.md).
+
 ## Qué es
 
 Un módulo Python que convierte el texto de un documento (ya transcrito) en un

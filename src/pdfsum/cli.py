@@ -351,6 +351,56 @@ def cmd_extract_abstracts(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_extract_abstracts_api(args: argparse.Namespace) -> int:
+    """Inicia la extracción HTTP con las mismas fábricas y configuración del CLI."""
+    from .abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS
+    from .adapters.abstract_api import create_app, process_pdf
+    from .adapters.pdf_download import PDFDownloader
+
+    try:
+        import uvicorn
+    except ImportError:
+        print("Instala el extra opcional: pip install 'pdfsum[service]'")
+        return 2
+    backend, model = _resolve_backend_model(args.backend, args.model)
+    context_chars = get_config_value(
+        "abstract_refine_context_chars", ABSTRACT_REFINE_CONTEXT_CHARS
+    )
+    if type(context_chars) is not int or context_chars <= 0:
+        print("abstract_refine_context_chars debe ser un entero positivo")
+        return 2
+
+    def process(pdf, workspace):
+        # Cada solicitud tiene sus propios adaptadores y destino de eventos.
+        transcriber = _build_transcriber(False, args.lang, vlm_model=args.vlm_model)
+        llm = _build_summarizer(False, backend, model)
+        return process_pdf(
+            pdf,
+            workspace,
+            transcriber,
+            llm,
+            context_chars=context_chars,
+            backend=backend,
+            model=model,
+        )
+
+    try:
+        downloader = PDFDownloader(
+            timeout=args.download_timeout, max_bytes=args.max_download_bytes
+        )
+        app = create_app(
+            args.workspace,
+            logs_dir=args.logs_dir,
+            processor=process,
+            downloader=downloader,
+        )
+    except (ValueError, RuntimeError) as exc:
+        print(str(exc))
+        return 2
+    uvicorn.run(app, host=args.host, port=args.port, access_log=False)
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Verifica dependencias de sistema y modelos."""
     from .adapters.doctor import (
@@ -678,6 +728,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="guardar respuestas crudas de revisión para diagnóstico (datos sensibles)",
     )
     a.set_defaults(func=cmd_extract_abstracts)
+
+    remote = sub.add_parser(
+        "extract-abstracts-api",
+        help="servicio HTTP para extraer resúmenes de PDFs remotos",
+    )
+    remote.add_argument("--host", default="127.0.0.1")
+    remote.add_argument("--port", type=int, default=8766)
+    remote.add_argument(
+        "--workspace", required=True, help="directorio para ejecuciones temporales"
+    )
+    remote.add_argument(
+        "--logs-dir", default=None, help="directorio opcional para logs persistentes"
+    )
+    remote.add_argument("--lang", default=get_config_value("lang", "por+eng+spa"))
+    remote.add_argument(
+        "--download-timeout",
+        type=float,
+        default=30,
+        help="timeout del socket HTTP, en segundos",
+    )
+    remote.add_argument(
+        "--max-download-bytes",
+        type=int,
+        default=100_000_000,
+        help="tamaño máximo del PDF en bytes",
+    )
+    _add_backend_model(remote, add_vlm=True)
+    remote.set_defaults(func=cmd_extract_abstracts_api)
 
     d = sub.add_parser("doctor", help="verificar dependencias de sistema/modelos")
     _add_backend_model(d)
