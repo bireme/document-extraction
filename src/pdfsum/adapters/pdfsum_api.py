@@ -1,4 +1,4 @@
-"""API síncrona de extracción; la identidad externa nunca determina rutas."""
+"""API síncrona de comandos PDF; la identidad externa nunca determina rutas."""
 
 import json
 import logging
@@ -6,32 +6,74 @@ import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, get_args
 from uuid import uuid4
 
+from ..abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS
 from ..workspace import Workspace
 from .abstract_batch import extract_abstracts_from_pdfs
 from .observability import EventLog
+from .pdf_batch import run_batch_pdfs, transcribe_pdfs
 from .pdf_download import PDFDownloader, validate_pdf_url
 
+PROCESSING_ERROR = "Fallo del procesamiento; detalle omitido"
 
-def process_pdf(pdf: Path, workspace: Workspace, transcriber, llm, **options) -> dict:
-    """Ejecuta el mismo pipeline del CLI y lee su JSON principal sin transformarlo."""
-    extract_abstracts_from_pdfs(
-        str(pdf.parent),
-        workspace,
-        transcriber,
-        llm,
-        format_error=lambda exc: "Fallo del procesamiento; detalle omitido",
-        **options,
-    )
-    return json.loads(workspace.abstract_path(pdf.stem).read_text(encoding="utf-8"))
+PDFCommand = Literal["extract-abstracts", "transcribe", "run"]
+
+
+def process_pdf(
+    pdf: Path,
+    workspace: Workspace,
+    transcriber,
+    llm,
+    *,
+    command: PDFCommand,
+    context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
+    backend: str | None = None,
+    model: str | None = None,
+    long_strategy: str = "excerpt",
+) -> dict | str:
+    """Despacha funciones Python y devuelve el artefacto principal sin transformarlo."""
+
+    def safe_error(_exc):
+        return PROCESSING_ERROR
+
+    if command == "extract-abstracts":
+        extract_abstracts_from_pdfs(
+            str(pdf.parent),
+            workspace,
+            transcriber,
+            llm,
+            context_chars=context_chars,
+            backend=backend,
+            model=model,
+            format_error=safe_error,
+        )
+        output = workspace.abstract_path(pdf.stem)
+    elif command == "transcribe":
+        transcribe_pdfs(str(pdf.parent), workspace, transcriber)
+        return workspace.ocr_path(pdf.stem).read_text(encoding="utf-8")
+    elif command == "run":
+        report = run_batch_pdfs(
+            str(pdf.parent),
+            workspace,
+            transcriber,
+            llm,
+            long_strategy=long_strategy,
+            format_error=safe_error,
+        )
+        if report["progress"]["failed"]:
+            raise RuntimeError(PROCESSING_ERROR)
+        output = workspace.summary_path(pdf.stem)
+    else:
+        raise ValueError("Comando PDF no permitido")
+    return json.loads(output.read_text(encoding="utf-8"))
 
 
 def create_app(
     workspace: str | Path,
     *,
-    processor: Callable[[Path, Workspace], dict],
+    processor: Callable[[Path, Workspace, PDFCommand], dict | str],
     logs_dir: str | Path | None = None,
     downloader: PDFDownloader | None = None,
 ):
@@ -49,13 +91,14 @@ def create_app(
     root.mkdir(parents=True, exist_ok=True)
     downloader = downloader or PDFDownloader()
     logger = logging.getLogger(__name__)
-    app = FastAPI(title="Extracción de resúmenes existentes")
+    app = FastAPI(title="Procesamiento de PDFs")
 
-    def failure(identity, phase, error_type, message, code):
+    def failure(identity, command, phase, error_type, message, code):
         return JSONResponse(
             status_code=code,
             content={
                 "id": identity,
+                "command": command,
                 "status": "failed",
                 "phase": phase,
                 "error_type": error_type,
@@ -66,11 +109,15 @@ def create_app(
     @app.exception_handler(RequestValidationError)
     async def invalid_json(request, exc):
         identity = exc.body.get("id") if isinstance(exc.body, dict) else None
-        return failure(identity, "validation", "ValidationError", "JSON inválido", 422)
+        return failure(
+            identity, None, "validacion", "ValidationError", "JSON inválido", 422
+        )
 
-    @app.post("/api/extract-abstracts")
-    def extract(body: Any = Body(default=None)):  # noqa: B008 — declaración de FastAPI
+    @app.post("/api/pdfsum")
+    def process(body: Any = Body(default=None)):  # noqa: B008 — declaración de FastAPI
         identity = body.get("id") if isinstance(body, dict) else None
+        raw_command = body.get("command") if isinstance(body, dict) else None
+        command = raw_command if raw_command in get_args(PDFCommand) else None
         valid_id = (type(identity) is int and identity > 0) or (
             isinstance(identity, str)
             and 0 < len(identity) <= 256
@@ -80,17 +127,19 @@ def create_app(
         if not valid_id:
             return failure(
                 identity,
-                "validation",
+                command,
+                "validacion",
                 "ValidationError",
                 "id debe ser un entero positivo o texto no vacío de hasta 256 caracteres",
                 422,
             )
-        if set(body) != {"id", "url"}:
+        if set(body) != {"id", "command", "url"} or command is None:
             return failure(
                 identity,
-                "validation",
+                command,
+                "validacion",
                 "ValidationError",
-                "La solicitud debe contener solamente id y url",
+                "La solicitud debe contener id, command y url; command admite extract-abstracts, transcribe o run",
                 422,
             )
         try:
@@ -98,7 +147,8 @@ def create_app(
         except (ValueError, TypeError):
             return failure(
                 identity,
-                "validation",
+                command,
+                "validacion",
                 "ValidationError",
                 "URL HTTP inválida o destino no permitido",
                 422,
@@ -106,21 +156,23 @@ def create_app(
 
         run_id = uuid4().hex
         started = time.perf_counter()
-        phase = "processing"
+        phase = "procesamiento"
         temporary = None
         events = None
 
         def emit(event, **fields):
-            logger.info("Extracción HTTP: %s (%s)", event, run_id, extra=fields)
+            logger.info(
+                "Procesamiento HTTP: %s (%s, %s)", event, run_id, command, extra=fields
+            )
             if events is not None:
                 try:
-                    events.write(event, **fields)
+                    events.write(event, command=command, **fields)
                 except OSError:
                     logger.warning("No se pudo escribir el evento HTTP (%s)", run_id)
 
         try:
             temporary = tempfile.TemporaryDirectory(
-                prefix=f"abstract-{run_id}-", dir=root
+                prefix=f"pdfsum-{run_id}-", dir=root
             )
             execution = Path(temporary.name)
             logs = (
@@ -131,36 +183,43 @@ def create_app(
             inputs = execution / "input"
             inputs.mkdir()
             pdf = inputs / f"{run_id}.pdf"
-            phase = "download"
+            phase = "descarga"
             emit("phase_started", phase=phase)
             downloader.download(body["url"], pdf)
-            phase = "processing"
+            phase = "procesamiento"
             emit("phase_started", phase=phase)
-            result = processor(pdf, ws)
+            result = processor(pdf, ws, command)
             response = JSONResponse(
-                {"id": identity, "status": "completed", "result": result}
+                {
+                    "id": identity,
+                    "command": command,
+                    "status": "completed",
+                    "result": result,
+                }
             )
         except Exception:  # noqa: BLE001 — frontera HTTP sin detalles internos
-            error_type = "DownloadError" if phase == "download" else "ProcessingError"
+            error_type = "DownloadError" if phase == "descarga" else "ProcessingError"
             emit("phase_failed", phase=phase, error_type=error_type)
             response = failure(
                 identity,
+                command,
                 phase,
                 error_type,
                 "No se pudo descargar el PDF"
-                if phase == "download"
+                if phase == "descarga"
                 else "No se pudo procesar el PDF",
-                502 if phase == "download" else 500,
+                502 if phase == "descarga" else 500,
             )
         finally:
             if temporary is not None:
                 try:
                     temporary.cleanup()
                 except OSError:
-                    emit("phase_failed", phase="cleanup", error_type="CleanupError")
+                    emit("phase_failed", phase="limpieza", error_type="CleanupError")
                     response = failure(
                         identity,
-                        "cleanup",
+                        command,
+                        "limpieza",
                         "CleanupError",
                         "No se pudieron eliminar los archivos temporales",
                         500,
