@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Orquestador para ejecutar comandos PDF remoto y persistir resultados."""
+"""Orquestador para ejecutar comandos PDF remotos y persistir resultados."""
 
 from __future__ import annotations
 
