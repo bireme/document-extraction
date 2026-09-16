@@ -1,0 +1,16 @@
+services:
+  pdfsum-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pdfsum-worker
+    environment:
+      PDFSUM_MONGODB_URI: ${PDFSUM_MONGODB_URI}
+      PDFSUM_SERVER_URL: ${PDFSUM_SERVER_URL}
+    command:
+      - --command
+      - extract-abstracts
+      - --ids-file
+      - /config/ids.txt
+    volumes:
+      - ./ids.txt:/config/ids.txt:ro

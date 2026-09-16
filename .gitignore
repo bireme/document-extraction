@@ -1,0 +1,11 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+
+.coverage
+.pytest_cache/
+.hypothesis/
+.ruff_cache/
+
+ids.txt
