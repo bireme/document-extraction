@@ -1,12 +1,12 @@
-# API de extracción de resúmenes existentes
+# API de comandos PDF
 
 OFI9 selecciona los registros y obtiene `id` + URL desde MongoDB. ServerIA-stg
-recibe esos dos campos, descarga el PDF, ejecuta el pipeline existente de
-`extract-abstracts` y devuelve su JSON principal. OFI9 persiste la respuesta.
+recibe `id`, `command` y `url`, descarga el PDF y despacha el pipeline Python
+existente de `extract-abstracts`, `transcribe` o `run`. OFI9 persiste la respuesta.
 **ServerIA no accede a MongoDB ni utiliza `PDFSUM_MONGODB_URI`.**
 
 ```text
-OFI9 (selección) → ServerIA (descarga → OCR/VLM → extracción → revisión → JSON)
+OFI9 (selección) → ServerIA (descarga → dispatcher → pipeline → limpieza)
                 ← respuesta JSON
 OFI9 → MongoDB (persistencia)
 ```
@@ -17,7 +17,7 @@ El Dockerfile actual ya incluye FastAPI y Uvicorn mediante `pdfsum[service]`.
 Fuera de Docker: `pip install '.[service]'`.
 
 ```bash
-OLLAMA_HOST=http://ollama:11434 pdfsum extract-abstracts-api \
+OLLAMA_HOST=http://ollama:11434 pdfsum processing-api \
   --host 0.0.0.0 --port 8766 --workspace /output --logs-dir /logs \
   --backend ollama --model qwen2.5:7b --vlm-model qwen3-vl:8b-instruct \
   --lang por+eng+spa
@@ -33,7 +33,7 @@ En la composición externa, configura el servicio `pdfsum` así, conservando los
 volúmenes y la conexión a Ollama existentes:
 
 ```yaml
-command: ["pdfsum", "extract-abstracts-api", "--host", "0.0.0.0", "--port", "8766", "--workspace", "/output", "--logs-dir", "/logs"]
+command: ["pdfsum", "processing-api", "--host", "0.0.0.0", "--port", "8766", "--workspace", "/output", "--logs-dir", "/logs"]
 ports:
   - "8766:8766"
 environment:
@@ -44,17 +44,40 @@ No hace falta montar `/input`: ServerIA descarga el PDF. El servicio no incorpor
 autenticación; limita el acceso a OFI9 mediante la red/firewall o un proxy con
 TLS y autenticación. El host por defecto del CLI es `127.0.0.1`.
 
+El comando anterior `extract-abstracts-api` se sustituye por `processing-api`.
+El comando `pdfsum api` conserva su servicio asíncrono previo, sin cambios.
+`--long-strategy` admite `excerpt` (predeterminado), `blocks` y `hierarchical`
+y se aplica solamente a `run`. Backend/modelo se aplican a `run` y
+`extract-abstracts`; `transcribe` no crea un LLM de resumen. Idiomas y modelo VLM
+se aplican a los tres comandos. El contexto de revisión se aplica solo a abstracts.
+
 ## Contrato
 
-Único endpoint de procesamiento: `POST /api/extract-abstracts`.
+Único endpoint de procesamiento: `POST /api/pdfsum`.
 
 ```bash
-curl --fail-with-body http://serveria-stg:8766/api/extract-abstracts \
+curl --fail-with-body http://serveria-stg:8766/api/pdfsum \
   -H 'Content-Type: application/json' \
-  -d '{"id":79665,"url":"https://servidor.ejemplo/documento.pdf"}'
+  -d '{"id":79665,"command":"extract-abstracts","url":"https://servidor.ejemplo/documento.pdf"}'
 ```
 
-La solicitud debe contener exactamente `id` y `url`. `id` admite un entero
+```bash
+curl --fail-with-body http://serveria-stg:8766/api/pdfsum \
+  -H 'Content-Type: application/json' \
+  -d '{"id":79665,"command":"transcribe","url":"https://servidor.ejemplo/documento.pdf"}'
+
+curl --fail-with-body http://serveria-stg:8766/api/pdfsum \
+  -H 'Content-Type: application/json' \
+  -d '{"id":79665,"command":"run","url":"https://servidor.ejemplo/documento.pdf"}'
+```
+
+`command` es obligatorio y admite solamente `extract-abstracts`, `transcribe` y
+`run`. `summarize`, comandos de shell y valores desconocidos reciben HTTP 422
+antes de descargar. `summarize` requiere un contrato de texto que se decidirá
+posteriormente; esta API no descarga archivos de texto. El endpoint anterior
+`/api/extract-abstracts` fue eliminado.
+
+La solicitud debe contener exactamente `id`, `command` y `url`. `id` admite un entero
 positivo o texto no vacío de hasta 256 caracteres, sin caracteres de control.
 No se convierte su tipo ni se usa para construir rutas. `url` debe ser HTTP/HTTPS
 sin credenciales embebidas. El servicio no recibe opciones de procesamiento por
@@ -65,6 +88,7 @@ HTTP 200:
 ```json
 {
   "id": 79665,
+  "command": "extract-abstracts",
   "status": "completed",
   "result": {
     "doc_id": "referencia-interna-aleatoria",
@@ -77,19 +101,30 @@ HTTP 200:
 }
 ```
 
-`result` es el contenido exacto de `abstracts/<doc_id>.json`, sin otra
+Para `extract-abstracts`, `result` es el contenido exacto de `abstracts/<doc_id>.json`, sin otra
 representación ni contenido del reporte agregado. `result.doc_id` identifica la
 ejecución interna; `id` es la identidad de OFI9. Un documento sin resumen devuelve
 HTTP 200 con `result.status = "not_found"` y `abstracts = []`. Una falla de revisión
 LLM conserva la extracción determinista, igual que el CLI, y queda registrada.
+
+Para `transcribe`, `result` es una string con el contenido UTF-8 completo de
+`ocr/<doc_id>.txt`, incluidos sus saltos de línea. Para `run`, es el JSON exacto
+de `summaries/<doc_id>.json`, con los campos de resumen, metadatos y `_qa` que
+produce el pipeline. No se devuelve el reporte agregado del lote. Si `run`
+registra un documento fallido, la API devuelve un error de procesamiento.
+
+El dispatcher llama directamente `extract_abstracts_from_pdfs`, `transcribe_pdfs`
+o `run_batch_pdfs`; no invoca el CLI ni construye comandos de shell. La descarga,
+el aislamiento, los errores y la limpieza son comunes a los tres comandos.
 
 Errores:
 
 ```json
 {
   "id": 79665,
+  "command": "extract-abstracts",
   "status": "failed",
-  "phase": "download",
+  "phase": "descarga",
   "error_type": "DownloadError",
   "error": "No se pudo descargar el PDF"
 }
@@ -97,14 +132,16 @@ Errores:
 
 | HTTP | phase | error_type | Motivo |
 | --- | --- | --- | --- |
-| 422 | validation | ValidationError | Campos, identidad, JSON o URL inválidos; destino literal prohibido |
-| 502 | download | DownloadError | DNS/destino bloqueado, HTTP, timeout, tamaño o contenido inválido |
-| 500 | processing | ProcessingError | Preparación, transcripción o procesamiento fallidos |
-| 500 | cleanup | CleanupError | No se pudieron eliminar los temporales; revisar el disco |
+| 422 | validacion | ValidationError | Campos, identidad, JSON o URL inválidos; destino literal prohibido |
+| 502 | descarga | DownloadError | DNS/destino bloqueado, HTTP, timeout, tamaño o contenido inválido |
+| 500 | procesamiento | ProcessingError | Preparación, transcripción o procesamiento fallidos |
+| 500 | limpieza | CleanupError | No se pudieron eliminar los temporales; revisar el disco |
 
+Los errores incluyen `command` cuando es válido; si falta o no está permitido,
+devuelven `command: null` para no reflejar valores arbitrarios sensibles.
 Los errores preservan `id` cuando puede leerse del JSON. Si falta o el JSON no se
 puede interpretar, devuelven `id: null`. No incluyen excepciones originales,
-stack traces, URLs, prompts ni tokens. Un fallo de cleanup tiene prioridad sobre
+stack traces, URLs, prompts ni tokens. Un fallo de limpieza tiene prioridad sobre
 cualquier respuesta anterior y queda registrado.
 
 ## Descarga y aislamiento

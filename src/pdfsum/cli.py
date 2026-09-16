@@ -351,11 +351,11 @@ def cmd_extract_abstracts(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_extract_abstracts_api(args: argparse.Namespace) -> int:
-    """Inicia la extracción HTTP con las mismas fábricas y configuración del CLI."""
+def cmd_processing_api(args: argparse.Namespace) -> int:
+    """Inicia el procesamiento HTTP con las mismas fábricas y configuración del CLI."""
     from .abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS
-    from .adapters.abstract_api import create_app, process_pdf
     from .adapters.pdf_download import PDFDownloader
+    from .adapters.pdfsum_api import create_app, process_pdf
 
     try:
         import uvicorn
@@ -370,15 +370,21 @@ def cmd_extract_abstracts_api(args: argparse.Namespace) -> int:
         print("abstract_refine_context_chars debe ser un entero positivo")
         return 2
 
-    def process(pdf, workspace):
+    def process(pdf, workspace, command):
         # Cada solicitud tiene sus propios adaptadores y destino de eventos.
         transcriber = _build_transcriber(False, args.lang, vlm_model=args.vlm_model)
-        llm = _build_summarizer(False, backend, model)
+        llm = (
+            _build_summarizer(False, backend, model)
+            if command != "transcribe"
+            else None
+        )
         return process_pdf(
             pdf,
             workspace,
             transcriber,
             llm,
+            command=command,
+            long_strategy=args.long_strategy,
             context_chars=context_chars,
             backend=backend,
             model=model,
@@ -730,8 +736,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.set_defaults(func=cmd_extract_abstracts)
 
     remote = sub.add_parser(
-        "extract-abstracts-api",
-        help="servicio HTTP para extraer resúmenes de PDFs remotos",
+        "processing-api",
+        help="servicio HTTP para procesar PDFs remotos",
     )
     remote.add_argument("--host", default="127.0.0.1")
     remote.add_argument("--port", type=int, default=8766)
@@ -754,8 +760,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=100_000_000,
         help="tamaño máximo del PDF en bytes",
     )
+    remote.add_argument(
+        "--long-strategy",
+        choices=["excerpt", "blocks", "hierarchical"],
+        default="excerpt",
+    )
     _add_backend_model(remote, add_vlm=True)
-    remote.set_defaults(func=cmd_extract_abstracts_api)
+    remote.set_defaults(func=cmd_processing_api)
 
     d = sub.add_parser("doctor", help="verificar dependencias de sistema/modelos")
     _add_backend_model(d)

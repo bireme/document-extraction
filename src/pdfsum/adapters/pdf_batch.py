@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 from uuid import uuid4
@@ -124,6 +125,7 @@ def run_batch_pdfs(
     abstract_refine_context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
     long_strategy: str = "excerpt",
     retranscribe: bool = False,
+    format_error: Callable[[BaseException], str] | None = None,
 ) -> dict:
     """Flujo completo con eventos y checkpoints durables por documento."""
     workspace.summaries_dir.mkdir(parents=True, exist_ok=True)
@@ -356,7 +358,11 @@ def run_batch_pdfs(
                     qa_ok=qa.is_ok,
                 )
             except Exception as exc:  # noqa: BLE001 - aislar el fallo por documento
-                error = f"{type(exc).__name__}: {exc}"[:2000]
+                error = (
+                    format_error(exc)
+                    if format_error is not None
+                    else f"{type(exc).__name__}: {exc}"[:2000]
+                )
                 documents.append(
                     {
                         "doc_id": doc_id,

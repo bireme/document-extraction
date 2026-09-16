@@ -8,9 +8,11 @@ release — ver `docs/ESTADO.md`).
 
 > 🚀 **Guía rápida de uso (1 página, con ejemplos ejecutables): [`GUIA-USO.md`](GUIA-USO.md)**
 
-**Extracción HTTP de resúmenes existentes:** `pdfsum extract-abstracts-api` recibe
-`id` + URL, descarga el PDF y devuelve el JSON del pipeline a OFI9. ServerIA no
-accede a MongoDB. Consulta [contrato, Docker y ejemplos](docs/EXTRACT-ABSTRACTS-API.md).
+**Procesamiento HTTP de PDFs:** `pdfsum processing-api` recibe `id`, `command`
+y `url` en `POST /api/pdfsum`. Admite `extract-abstracts`, `transcribe` y `run`;
+`summarize` todavía no está soportado. ServerIA descarga el PDF y devuelve el
+resultado a OFI9 sin acceder a MongoDB. El servicio previo `pdfsum api` se conserva.
+Consulta [contrato, Docker y ejemplos](docs/PDFSUM-API.md).
 
 ## Qué es
 
