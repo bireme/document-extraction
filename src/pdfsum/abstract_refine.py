@@ -299,6 +299,13 @@ def parse_refined_abstracts(
     return result
 
 
+def validate_context_chars(value: int) -> int:
+    """Exige un límite positivo, sin aceptar booleanos ni conversiones implícitas."""
+    if type(value) is not int or value <= 0:
+        raise ValueError("abstract_refine_context_chars debe ser un entero positivo")
+    return value
+
+
 def refine_abstracts(
     text: str,
     candidates: list[Abstract],
@@ -308,8 +315,7 @@ def refine_abstracts(
     event_sink: Callable[..., None] | None = None,
 ) -> list[Abstract]:
     """Revisa el inicio; el llamador registra fallos y conserva los candidatos."""
-    if type(context_chars) is not int or context_chars <= 0:
-        raise ValueError("abstract_refine_context_chars debe ser un entero positivo")
+    validate_context_chars(context_chars)
     context = text[:context_chars]
     # No filtrar texto del resto del documento mediante los candidatos.
     source = _normalized(context)

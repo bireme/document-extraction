@@ -15,10 +15,12 @@ El flujo canonico arranca desde el PDF (la fuente): usar `run`.
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
-from .config import get_config_value
+from .abstract_extraction import extract_refined_abstracts
+from .config import get_config_value, resolve_abstract_refine_context_chars
 from .contract import SummaryResult
 from .pipeline import summarize_document
 
@@ -45,10 +47,20 @@ def cmd_summarize(args: argparse.Namespace) -> int:
     doc_id = args.doc_id or Path(args.text).stem
     backend, model = _resolve_backend_model(args.backend, args.model)
     summarizer = _build_summarizer(args.dry_run, backend, model)
+    extraction = extract_refined_abstracts(
+        text, summarizer, args.abstract_refine_context_chars
+    )
+    if extraction.error is not None:
+        logging.getLogger(__name__).warning(
+            "Revisión de resúmenes fallida; se conserva la extracción: %s (%s)",
+            doc_id,
+            extraction.error,
+        )
     result = summarize_document(
         doc_id=doc_id,
         text=text,
         summarizer=summarizer,
+        abstracts=extraction.abstracts,
         pages=args.pages,
         lang=args.lang,
     )
@@ -74,6 +86,8 @@ def cmd_batch(args: argparse.Namespace) -> int:
         out_dir=args.out_dir,
         summarizer=summarizer,
         max_retries=args.max_retries,
+        abstract_llm=summarizer,
+        abstract_refine_context_chars=args.abstract_refine_context_chars,
     )
     m = report["metrics"]
     processing_failures = report["progress"]["failed"]
@@ -219,6 +233,8 @@ def cmd_worker(args: argparse.Namespace) -> int:
         args.workspace,
         transcriber,
         summarizer,
+        abstract_llm=summarizer,
+        abstract_refine_context_chars=args.abstract_refine_context_chars,
         long_strategy=args.long_strategy,
         interval_seconds=args.interval,
     )
@@ -275,6 +291,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         ws,
         transcriber,
         summarizer,
+        abstract_llm=summarizer,
+        abstract_refine_context_chars=args.abstract_refine_context_chars,
         long_strategy=args.long_strategy,
         retranscribe=args.retranscribe,
     )
@@ -304,7 +322,6 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
 
 def cmd_extract_abstracts(args: argparse.Namespace) -> int:
     """Transcribe PDFs y extrae solamente los resúmenes presentes."""
-    from .abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS
     from .adapters.abstract_batch import extract_abstracts_from_pdfs
     from .workspace import Workspace
 
@@ -313,12 +330,6 @@ def cmd_extract_abstracts(args: argparse.Namespace) -> int:
         err = _preflight_resumen(model, backend)
         if err is not None:
             return err
-    context_chars = get_config_value(
-        "abstract_refine_context_chars", ABSTRACT_REFINE_CONTEXT_CHARS
-    )
-    if type(context_chars) is not int or context_chars <= 0:
-        print("abstract_refine_context_chars debe ser un entero positivo")
-        return 2
     llm = _build_summarizer(args.fake or args.dry_run, backend, model)
     ws = Workspace(args.workspace, logs_dir=args.logs_dir)
     transcriber = _build_transcriber(args.fake, args.lang)
@@ -327,7 +338,7 @@ def cmd_extract_abstracts(args: argparse.Namespace) -> int:
         ws,
         transcriber,
         llm,
-        context_chars,
+        args.abstract_refine_context_chars,
         backend="fake" if args.fake or args.dry_run else backend,
         model=None if args.fake or args.dry_run else model,
     )
@@ -410,7 +421,15 @@ def cmd_verify(args: argparse.Namespace) -> int:
     transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
     backend, model = _resolve_backend_model(args.backend, args.model)
     summarizer = _build_summarizer(args.fake or args.dry_run, backend, model)
-    run_batch_pdfs(pdfs, ws, transcriber, summarizer, long_strategy=args.long_strategy)
+    run_batch_pdfs(
+        pdfs,
+        ws,
+        transcriber,
+        summarizer,
+        abstract_llm=summarizer,
+        abstract_refine_context_chars=args.abstract_refine_context_chars,
+        long_strategy=args.long_strategy,
+    )
     # cargar resultados y evaluar contra el set de control
     results = {}
     for f in ws.summaries_dir.glob("*.json"):
@@ -686,6 +705,19 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+    if args.func in (
+        cmd_extract_abstracts,
+        cmd_run,
+        cmd_summarize,
+        cmd_batch,
+        cmd_verify,
+        cmd_worker,
+    ):
+        try:
+            args.abstract_refine_context_chars = resolve_abstract_refine_context_chars()
+        except ValueError as exc:
+            print(str(exc))
+            return 2
     return args.func(args)
 
 

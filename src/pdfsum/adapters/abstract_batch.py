@@ -7,8 +7,8 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-from ..abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS, refine_abstracts
-from ..abstracts import extract_abstracts
+from ..abstract_extraction import extract_refined_abstracts
+from ..abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS
 from ..contract import TextLLM, Transcriber
 from ..workspace import Workspace
 from .observability import EventLog, atomic_write_json
@@ -88,7 +88,7 @@ def extract_abstracts_from_pdfs(
             )
 
         def next_phase(event: str, *, details=details, emit=emit, **fields) -> None:
-            nonlocal phase, phase_started
+            nonlocal phase, phase_started, review_started
             if event == "abstract_refine_validation":
                 emit(event, **fields)
                 return
@@ -101,6 +101,9 @@ def extract_abstracts_from_pdfs(
             phase_started = time.perf_counter()
             details.update(fields)
             emit(event, phase=phase, **details)
+            if phase == "preparacion_revision":
+                review_started = time.perf_counter()
+                emit("abstract_refine_started", **details)
 
         emit("document_started")
         emit("phase_started", phase=phase)
@@ -125,18 +128,16 @@ def extract_abstracts_from_pdfs(
                 phase="extraccion_determinista",
                 source_kind=source_kind,
             )
-            abstracts = extract_abstracts(text)
-            details.update(backend=backend, model=model, candidate_count=len(abstracts))
-            next_phase("phase_started", phase="preparacion_revision")
+            details.update(backend=backend, model=model)
             review_started = time.perf_counter()
-            emit("abstract_refine_started", **details)
+            extraction = extract_refined_abstracts(
+                text, llm, context_chars, event_sink=next_phase
+            )
+            abstracts = extraction.abstracts
             fallback = False
             error = {}
-            try:
-                abstracts = refine_abstracts(
-                    text, abstracts, llm, context_chars, event_sink=next_phase
-                )
-            except Exception as exc:  # noqa: BLE001 — conservar la extracción
+            if extraction.error is not None:
+                exc = extraction.error
                 fallback = True
                 error = {
                     "error_type": type(exc).__name__,

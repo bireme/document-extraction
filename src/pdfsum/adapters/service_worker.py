@@ -18,7 +18,8 @@ import hashlib
 import time
 from pathlib import Path
 
-from ..contract import Summarizer, Transcriber
+from ..abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS
+from ..contract import Summarizer, TextLLM, Transcriber
 from ..queue import FAILED, PENDING, JobQueue
 from ..workspace import Workspace
 from .job_store import DirJobStore
@@ -35,6 +36,8 @@ def run_once(
     transcriber: Transcriber,
     summarizer: Summarizer,
     *,
+    abstract_llm: TextLLM | None = None,
+    abstract_refine_context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
     long_strategy: str = "excerpt",
     poll_states: set[str] | None = None,
     sleep_seconds: float = 0.0,
@@ -74,6 +77,8 @@ def run_once(
                 ws,
                 transcriber,
                 summarizer,
+                abstract_llm=abstract_llm,
+                abstract_refine_context_chars=abstract_refine_context_chars,
                 retranscribe=False,
                 long_strategy=long_strategy,
             )
@@ -106,6 +111,8 @@ def main_loop(
     transcriber: Transcriber,
     summarizer: Summarizer,
     *,
+    abstract_llm: TextLLM | None = None,
+    abstract_refine_context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
     long_strategy: str = "excerpt",
     interval_seconds: float = 1.0,
 ) -> None:
@@ -115,6 +122,8 @@ def main_loop(
             workspace_root,
             transcriber,
             summarizer,
+            abstract_llm=abstract_llm,
+            abstract_refine_context_chars=abstract_refine_context_chars,
             long_strategy=long_strategy,
         )
         time.sleep(interval_seconds)

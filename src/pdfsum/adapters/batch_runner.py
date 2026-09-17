@@ -7,11 +7,15 @@ report.json de lote. Hace IO (archivos), por eso vive fuera del dominio puro.
 
 from __future__ import annotations
 
+import logging
 import time
+from functools import partial
 from pathlib import Path
 from uuid import uuid4
 
-from ..contract import Summarizer, SummaryResult
+from ..abstract_extraction import extract_refined_abstracts
+from ..abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS
+from ..contract import Summarizer, SummaryResult, TextLLM
 from ..metrics import BatchItem, batch_metrics
 from ..pipeline import summarize_document
 from ..qa import check_result
@@ -30,6 +34,8 @@ def run_batch(
     out_dir: str,
     summarizer: Summarizer,
     *,
+    abstract_llm: TextLLM | None = None,
+    abstract_refine_context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
     pattern: str = "*.txt",
     max_retries: int = 2,
 ) -> dict:
@@ -97,14 +103,34 @@ def run_batch(
                 payload = txt.read_text(encoding="utf-8", errors="replace")
                 phases["lectura_texto"] = time.perf_counter() - t0
                 summary_seconds = 0.0
+                phases["abstracts"] = 0.0
                 summary_executed = False
 
-                def work(did: str, text: str) -> dict:
+                def work(did: str, text: str, *, phases=phases) -> dict:
                     nonlocal summary_executed, summary_seconds
                     summary_executed = True
                     started = time.perf_counter()
+                    monitor.set_context(doc_id=did, phase="abstracts")
+                    extraction = extract_refined_abstracts(
+                        text,
+                        abstract_llm,
+                        abstract_refine_context_chars,
+                        event_sink=partial(events.write, doc_id=did),
+                    )
+                    phases["abstracts"] += time.perf_counter() - started
+                    if extraction.error is not None:
+                        logging.getLogger(__name__).warning(
+                            "Revisión de resúmenes fallida; se conserva la extracción: %s (%s)",
+                            did,
+                            extraction.error,
+                        )
+                    monitor.set_context(doc_id=did, phase="resumen")
+                    started = time.perf_counter()
                     res = summarize_document(
-                        doc_id=did, text=text, summarizer=summarizer
+                        doc_id=did,
+                        text=text,
+                        summarizer=summarizer,
+                        abstracts=extraction.abstracts,
                     )
                     summary_seconds += time.perf_counter() - started
                     return res.to_dict()
@@ -114,7 +140,9 @@ def run_batch(
                 job = queue.submit(doc_id, payload, work)
                 queue_seconds = time.perf_counter() - t0
                 phases["resumen"] = summary_seconds
-                phases["cola"] = max(0.0, queue_seconds - summary_seconds)
+                phases["cola"] = max(
+                    0.0, queue_seconds - summary_seconds - phases["abstracts"]
+                )
 
                 if job.result is None:
                     documents.append(

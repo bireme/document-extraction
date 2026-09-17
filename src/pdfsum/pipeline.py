@@ -13,6 +13,7 @@ from .chunking import summarize_in_blocks
 from .classify import classify_type, detect_language, template_for
 from .consolidation import consolidate_sections
 from .contract import (
+    Abstract,
     DocType,
     Summarizer,
     SummarizeRequest,
@@ -119,6 +120,7 @@ def summarize_document(
     doc_type: DocType | None = None,
     max_chars: int = DEFAULT_MAX_CHARS,
     long_strategy: str = "excerpt",
+    abstracts: list[Abstract] | None = None,
 ) -> SummaryResult:
     """Produce el resumen estructurado de un documento ya transcrito.
 
@@ -130,7 +132,8 @@ def summarize_document(
           (cubre TODO el texto; útil para manuales largos completos).
         * long_strategy='hierarchical': resumen por capítulos + consolidación
           (detecta capítulos, resume cada uno, consolida intra/inter-capítulos).
-    - Extrae y preserva abstracts de origen verbatim (del texto COMPLETO).
+    - Preserva los abstracts inyectados, incluso una lista vacía; si faltan,
+      los extrae del texto completo sin revisión por LLM.
     """
     doc_lang = lang or detect_language(text)
     if doc_lang == "unknown":
@@ -160,8 +163,9 @@ def summarize_document(
             "excerpt_chars": len(exc.text),
         }
 
-    # Los abstracts se extraen del texto COMPLETO (no de la porción).
-    abstracts = extract_abstracts(text)
+    # Si no se inyectan, los abstracts se extraen del texto COMPLETO.
+    if abstracts is None:
+        abstracts = extract_abstracts(text)
 
     return SummaryResult(
         doc_id=doc_id,

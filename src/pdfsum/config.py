@@ -56,3 +56,12 @@ def get_config_value(key: str, default: _T | None = None) -> _T | None:
     """Obtener un valor de configuración con fallback a default."""
     config = load_config()
     return config.get(key, default)
+
+
+def resolve_abstract_refine_context_chars() -> int:
+    """Resuelve y valida el límite compartido por los comandos de procesamiento."""
+    from .abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS, validate_context_chars
+
+    return validate_context_chars(
+        get_config_value("abstract_refine_context_chars", ABSTRACT_REFINE_CONTEXT_CHARS)
+    )

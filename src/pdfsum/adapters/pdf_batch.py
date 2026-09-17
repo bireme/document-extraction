@@ -8,11 +8,15 @@ ocr/<doc_id>.txt, se reutiliza sin re-invocar al transcriber.
 
 from __future__ import annotations
 
+import logging
 import time
+from functools import partial
 from pathlib import Path
 from uuid import uuid4
 
-from ..contract import Summarizer, Transcriber
+from ..abstract_extraction import extract_refined_abstracts
+from ..abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS
+from ..contract import Summarizer, TextLLM, Transcriber
 from ..metrics import BatchItem, batch_metrics
 from ..pipeline import summarize_document
 from ..qa import check_result
@@ -116,6 +120,8 @@ def run_batch_pdfs(
     transcriber: Transcriber,
     summarizer: Summarizer,
     *,
+    abstract_llm: TextLLM | None = None,
+    abstract_refine_context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
     long_strategy: str = "excerpt",
     retranscribe: bool = False,
 ) -> dict:
@@ -244,6 +250,30 @@ def run_batch_pdfs(
                     gates=[f.gate for f in tqa.failures],
                 )
 
+                started = time.perf_counter()
+                monitor.set_context(doc_id=doc_id, phase="abstracts")
+                extraction = extract_refined_abstracts(
+                    text,
+                    abstract_llm,
+                    abstract_refine_context_chars,
+                    event_sink=partial(events.write, doc_id=doc_id),
+                )
+                phases["abstracts"] = time.perf_counter() - started
+                events.write(
+                    "phase_completed",
+                    doc_id=doc_id,
+                    phase="abstracts",
+                    seconds=round(phases["abstracts"], 6),
+                    refinement_succeeded=extraction.refinement_succeeded,
+                    fallback=extraction.error is not None,
+                )
+                if extraction.error is not None:
+                    logging.getLogger(__name__).warning(
+                        "Revisión de resúmenes fallida; se conserva la extracción: %s (%s)",
+                        doc_id,
+                        extraction.error,
+                    )
+
                 # FASE17: limpieza EN MEMORIA (el ocr/*.txt queda crudo).
                 cleaned = clean_text(text)
 
@@ -252,6 +282,7 @@ def run_batch_pdfs(
                 res = summarize_document(
                     doc_id=doc_id,
                     text=cleaned,
+                    abstracts=extraction.abstracts,
                     summarizer=summarizer,
                     pages=om["pages"],
                     long_strategy=long_strategy,
