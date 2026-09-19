@@ -2,6 +2,9 @@
 
 import json
 import logging
+import re
+import shutil
+import stat
 import tempfile
 import time
 from collections.abc import Callable
@@ -70,12 +73,51 @@ def process_pdf(
     return json.loads(output.read_text(encoding="utf-8"))
 
 
+class SelectionError(Exception):
+    """Error controlado al seleccionar un PDF local."""
+
+    def __init__(self, message: str, code: int):
+        super().__init__(message)
+        self.code = code
+
+
+def select_pdf(input_root: str | Path, folder: str, identity: int | str) -> Path:
+    """Busca un nombre literal sin convertir la identidad en una ruta o patrón."""
+    if (
+        not isinstance(folder, str)
+        or not re.fullmatch(r"[A-Za-z0-9_.-]+", folder)
+        or folder in {".", ".."}
+    ):
+        raise ValueError("Nombre de carpeta inválido")
+    directory = Path(input_root) / folder
+    if directory.is_symlink():
+        raise SelectionError("No se permiten enlaces simbólicos", 409)
+    try:
+        entries = list(directory.iterdir())
+    except (FileNotFoundError, NotADirectoryError):
+        raise SelectionError("No se encontró la carpeta solicitada", 404) from None
+    matches = []
+    for entry in entries:
+        if entry.name.startswith(f"{identity}_") and entry.name.endswith(".pdf"):
+            mode = entry.lstat().st_mode
+            if stat.S_ISLNK(mode):
+                raise SelectionError("No se permiten enlaces simbólicos", 409)
+            if stat.S_ISREG(mode):
+                matches.append(entry)
+    if not matches:
+        raise SelectionError("No se encontró un PDF para el id solicitado", 404)
+    if len(matches) > 1:
+        raise SelectionError("Hay más de un PDF para el id solicitado", 409)
+    return matches[0]
+
+
 def create_app(
     workspace: str | Path,
     *,
     processor: Callable[[Path, Workspace, PDFCommand], dict | str],
     logs_dir: str | Path | None = None,
     downloader: PDFDownloader | None = None,
+    input_root: str | Path = "/input",
 ):
     """Crea un servicio independiente, sin almacén de jobs ni acceso a bases de datos."""
     try:
@@ -133,24 +175,36 @@ def create_app(
                 "id debe ser un entero positivo o texto no vacío de hasta 256 caracteres",
                 422,
             )
-        if set(body) != {"id", "command", "url"} or command is None:
+        if (
+            set(body) not in ({"id", "command", "url"}, {"id", "command", "folder"})
+            or command is None
+        ):
             return failure(
                 identity,
                 command,
                 "validacion",
                 "ValidationError",
-                "La solicitud debe contener id, command y url; command admite extract-abstracts, transcribe o run",
+                "La solicitud debe contener id, command y exactamente una fuente: url o folder; command admite extract-abstracts, transcribe o run",
                 422,
             )
         try:
-            validate_pdf_url(body["url"])
+            if "url" in body:
+                validate_pdf_url(body["url"])
+            elif (
+                not isinstance(body["folder"], str)
+                or not re.fullmatch(r"[A-Za-z0-9_.-]+", body["folder"])
+                or body["folder"] in {".", ".."}
+            ):
+                raise ValueError("Nombre de carpeta inválido")
         except (ValueError, TypeError):
             return failure(
                 identity,
                 command,
                 "validacion",
                 "ValidationError",
-                "URL HTTP inválida o destino no permitido",
+                "URL HTTP inválida o destino no permitido"
+                if "url" in body
+                else "Nombre de carpeta inválido",
                 422,
             )
 
@@ -183,9 +237,13 @@ def create_app(
             inputs = execution / "input"
             inputs.mkdir()
             pdf = inputs / f"{run_id}.pdf"
-            phase = "descarga"
+            phase = "descarga" if "url" in body else "seleccion"
             emit("phase_started", phase=phase)
-            downloader.download(body["url"], pdf)
+            if "url" in body:
+                downloader.download(body["url"], pdf)
+            else:
+                original = select_pdf(input_root, body["folder"], identity)
+                shutil.copyfile(original, pdf)
             phase = "procesamiento"
             emit("phase_started", phase=phase)
             result = processor(pdf, ws, command)
@@ -197,8 +255,16 @@ def create_app(
                     "result": result,
                 }
             )
+        except SelectionError as exc:
+            emit("phase_failed", phase=phase, error_type="SelectionError")
+            response = failure(
+                identity, command, phase, "SelectionError", str(exc), exc.code
+            )
         except Exception:  # noqa: BLE001 — frontera HTTP sin detalles internos
-            error_type = "DownloadError" if phase == "descarga" else "ProcessingError"
+            error_type = {
+                "descarga": "DownloadError",
+                "seleccion": "SelectionError",
+            }.get(phase, "ProcessingError")
             emit("phase_failed", phase=phase, error_type=error_type)
             response = failure(
                 identity,
@@ -207,6 +273,8 @@ def create_app(
                 error_type,
                 "No se pudo descargar el PDF"
                 if phase == "descarga"
+                else "No se pudo leer o copiar el PDF seleccionado"
+                if phase == "seleccion"
                 else "No se pudo procesar el PDF",
                 502 if phase == "descarga" else 500,
             )

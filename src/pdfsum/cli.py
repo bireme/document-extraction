@@ -399,6 +399,7 @@ def cmd_processing_api(args: argparse.Namespace) -> int:
             logs_dir=args.logs_dir,
             processor=process,
             downloader=downloader,
+            input_root=args.input_root,
         )
     except (ValueError, RuntimeError) as exc:
         print(str(exc))
@@ -737,7 +738,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     remote = sub.add_parser(
         "processing-api",
-        help="servicio HTTP para procesar PDFs remotos",
+        help="servicio HTTP para procesar PDFs remotos o locales",
     )
     remote.add_argument("--host", default="127.0.0.1")
     remote.add_argument("--port", type=int, default=8766)
@@ -746,6 +747,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     remote.add_argument(
         "--logs-dir", default=None, help="directorio opcional para logs persistentes"
+    )
+    remote.add_argument(
+        "--input-root", default="/input", help="directorio raíz de los PDFs locales"
     )
     remote.add_argument("--lang", default=get_config_value("lang", "por+eng+spa"))
     remote.add_argument(

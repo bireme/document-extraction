@@ -32,6 +32,7 @@ class TestPDFSumAPI(unittest.TestCase):
         self.base = Path(temporary.name)
         self.root = self.base / "workspace"
         self.logs = self.base / "logs"
+        self.inputs = self.base / "entrada"
         self.download = Mock()
         self.download.download.side_effect = lambda url, path: path.write_bytes(
             b"%PDF-1.4\n%%EOF\n"
@@ -42,6 +43,7 @@ class TestPDFSumAPI(unittest.TestCase):
             processor=self.processor,
             logs_dir=self.logs,
             downloader=self.download,
+            input_root=self.inputs,
         )
         self.client = TestClient(self.app)
         self.payload = {
@@ -70,10 +72,175 @@ class TestPDFSumAPI(unittest.TestCase):
     def post(self, **changes):
         return self.client.post("/api/pdfsum", json={**self.payload, **changes})
 
+    def local_pdf(self):
+        original = self.inputs / "MS-all" / "79665_articulo.pdf"
+        original.parent.mkdir(parents=True, exist_ok=True)
+        original.write_bytes(b"%PDF-1.4\n%%EOF\n")
+        return original
+
+    def post_folder(self, **changes):
+        return self.client.post(
+            "/api/pdfsum",
+            json={
+                "id": 79665,
+                "command": "extract-abstracts",
+                "folder": "MS-all",
+                **changes,
+            },
+        )
+
+    def test_folder_isolation_original_and_commands(self):
+        original = self.local_pdf()
+        content = original.read_bytes()
+        other = original.with_name("56186_otro.pdf")
+        other.write_bytes(content)
+        sentinel = self.root / "conservar.txt"
+        sentinel.write_text("conservar")
+
+        def process(pdf, ws, command):
+            self.assertNotEqual(pdf, original)
+            self.assertEqual(pdf.parent.name, "input")
+            self.assertEqual(pdf.parent.parent, ws.root)
+            self.assertEqual(list(pdf.parent.iterdir()), [pdf])
+            self.assertEqual(pdf.read_bytes(), content)
+            pdf.write_bytes(content + b"\n")
+            return pdfsum_api.process_pdf(
+                pdf,
+                ws,
+                FakeTranscriber("Resumen\nTexto original."),
+                FakeSummarizer(),
+                command=command,
+            )
+
+        self.processor.side_effect = process
+        for command in ["extract-abstracts", "transcribe", "run"]:
+            with self.subTest(command=command):
+                response = self.post_folder(command=command)
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(original.read_bytes(), content)
+                self.assertEqual(other.read_bytes(), content)
+                self.assertEqual(list(self.root.iterdir()), [sentinel])
+        self.download.download.assert_not_called()
+
+    def test_folder_missing_and_ambiguous(self):
+        response = self.post_folder()
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["phase"], "seleccion")
+        original = self.local_pdf()
+        response = self.post_folder(id=75798)
+        self.assertEqual(response.status_code, 404)
+        original.with_name("79665_corregido.pdf").write_bytes(original.read_bytes())
+        response = self.post_folder()
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error_type"], "SelectionError")
+        self.assertFalse(list(self.root.iterdir()))
+        self.processor.assert_not_called()
+        self.download.download.assert_not_called()
+
+    def test_folder_validation_and_exclusive_sources(self):
+        for folder in [
+            "../MS-all",
+            "/input/MS-all",
+            "MS-all/subdir",
+            ".",
+            "..",
+            "MS-all\\subdir",
+            "",
+            None,
+            [],
+            4,
+            "lote\n",
+        ]:
+            with self.subTest(folder=folder):
+                response = self.post_folder(folder=folder)
+                self.assertEqual(response.status_code, 422)
+                self.assertEqual(response.json()["phase"], "validacion")
+        for changes in [{"url": self.payload["url"]}, {"extra": True}]:
+            self.assertEqual(self.post_folder(**changes).status_code, 422)
+        response = self.client.post("/api/pdfsum", json={"id": 79665, "command": "run"})
+        self.assertEqual(response.status_code, 422)
+        self.processor.assert_not_called()
+        self.download.download.assert_not_called()
+
+    def test_selection_literal_names_and_regular_files(self):
+        original = self.local_pdf()
+        for name in [
+            "179665_articulo.pdf",
+            "79665.pdf",
+            "79665_articulo.pdf.bak",
+            "79665_articulo.PDF",
+        ]:
+            original.with_name(name).write_bytes(b"otro")
+        original.with_name("79665_directorio.pdf").mkdir()
+        self.assertEqual(pdfsum_api.select_pdf(self.inputs, "MS-all", 79665), original)
+        for identity in ["*", "../79665", "[0-9]*"]:
+            with self.subTest(identity=identity):
+                self.assertEqual(self.post_folder(id=identity).status_code, 404)
+        for folder in ["MS-1-10", "lote_2026", "lote.2026"]:
+            original.parent.rename(self.inputs / folder)
+            self.assertEqual(self.post_folder(folder=folder).status_code, 200)
+            (self.inputs / folder).rename(original.parent)
+
+    def test_folder_symlinks_are_rejected(self):
+        original = self.local_pdf()
+        (self.inputs / "enlace").symlink_to(original.parent, target_is_directory=True)
+        self.assertEqual(self.post_folder(folder="enlace").status_code, 409)
+        original.with_name("75798_enlace.pdf").symlink_to(original)
+        self.assertEqual(self.post_folder(id=75798).status_code, 409)
+        self.processor.assert_not_called()
+
+    def test_folder_read_and_copy_errors_are_safe(self):
+        self.local_pdf()
+        for target in ["select_pdf", "shutil.copyfile"]:
+            with (
+                self.subTest(target=target),
+                patch(
+                    "pdfsum.adapters.pdfsum_api." + target,
+                    side_effect=PermissionError("/ruta/privada token=secreto"),
+                ),
+                self.assertLogs("pdfsum.adapters.pdfsum_api", level="INFO") as captured,
+            ):
+                response = self.post_folder()
+                self.assertEqual(response.status_code, 500)
+                self.assertEqual(response.json()["phase"], "seleccion")
+                self.assertNotIn("secreto", response.text + "".join(captured.output))
+                self.assertNotIn("/ruta/privada", response.text)
+                self.assertFalse(list(self.root.iterdir()))
+        self.processor.assert_not_called()
+        logs = "".join(p.read_text() for p in self.logs.rglob("*.jsonl"))
+        self.assertNotIn("secreto", logs)
+
+    def test_concurrent_folder_and_url_requests_are_isolated(self):
+        original = self.local_pdf()
+        content = original.read_bytes()
+        barrier = threading.Barrier(3)
+        paths = []
+
+        def process(pdf, ws, command):
+            paths.append(pdf)
+            barrier.wait(timeout=10)
+            self.assertEqual(list(pdf.parent.iterdir()), [pdf])
+            return self.process(pdf, ws, command)
+
+        self.processor.side_effect = process
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            responses = list(
+                executor.map(
+                    lambda local: self.post_folder() if local else self.post(),
+                    [True, True, False],
+                )
+            )
+        self.assertEqual([r.status_code for r in responses], [200, 200, 200])
+        self.assertEqual(len({p.parent for p in paths}), 3)
+        self.assertFalse(list(self.root.iterdir()))
+        self.assertEqual(original.read_bytes(), content)
+        self.download.download.assert_called_once()
+
     def test_success_preserves_result_identity_and_cleans(self):
         response = self.post()
         self.assertEqual(response.status_code, 200)
         data = response.json()
+        self.download.download.assert_called_once()
         self.assertEqual(data["id"], 79665)
         self.assertEqual(data["status"], "completed")
         self.assertEqual(data["result"]["abstracts"][0]["text"], "Texto original")
@@ -559,6 +726,8 @@ class TestPipelineReuse(unittest.TestCase):
                     "processing-api",
                     "--workspace",
                     td,
+                    "--input-root",
+                    td,
                     "--host",
                     "0.0.0.0",
                     "--backend",
@@ -573,6 +742,19 @@ class TestPipelineReuse(unittest.TestCase):
             )
             self.assertEqual(args.func(args), 0)
             app = serve.call_args.args[0]
+            local = Path(td) / "MS-all" / "1_articulo.pdf"
+            local.parent.mkdir()
+            local.write_bytes(b"%PDF-1.4\n%%EOF")
+            with patch(
+                "pdfsum.adapters.pdf_download.PDFDownloader.download"
+            ) as download:
+                response = TestClient(app).post(
+                    "/api/pdfsum",
+                    json={"id": 1, "command": "transcribe", "folder": "MS-all"},
+                )
+                self.assertEqual(response.status_code, 200)
+                download.assert_not_called()
+            transcriber.reset_mock()
             with patch("pdfsum.adapters.pdf_download.PDFDownloader.download"):
                 response = TestClient(app).post(
                     "/api/pdfsum",
