@@ -91,7 +91,8 @@ def load_ids(args: argparse.Namespace) -> list[int]:
         raise ValueError("Indique exactamente una selección: --ids o --ids-file")
     if args.ids_file:
         try:
-            values = open(args.ids_file, encoding="utf-8").read().split()
+            with open(args.ids_file, encoding="utf-8") as file:
+                values = file.read().split()
         except (OSError, UnicodeError):
             raise ValueError("No se pudo leer el archivo de IDs") from None
     else:
@@ -178,7 +179,9 @@ def claim_job(jobs, identifier: int, command: str, max_attempts: int):
     return document, token
 
 
-def save_completed(jobs, identifier: int, command: str, token: str, result: Any) -> None:
+def save_completed(
+    jobs, identifier: int, command: str, token: str, result: Any
+) -> None:
     now = utcnow()
     saved = jobs.update_one(
         {
@@ -239,35 +242,55 @@ def call_serveria(
     *,
     identifier: int,
     command: str,
-    url: str,
+    url: str | None = None,
+    folder: str | None = None,
     connect_timeout: float,
     read_timeout: float,
 ) -> dict[str, Any]:
     """Llama de forma síncrona al procesamiento remoto."""
+    request_body: dict[str, Any] = {
+        "id": identifier,
+        "command": command,
+    }
+
+    if url is not None:
+        request_body["url"] = url
+    elif folder is not None:
+        request_body["folder"] = folder
+    else:
+        raise RuntimeError("No se definió una fuente de PDF")
     response = session.post(
         endpoint,
-        json={"id": identifier, "command": command, "url": url},
+        json=request_body,
         timeout=(connect_timeout, read_timeout),
     )
     try:
         payload = response.json()
     except ValueError:
-        raise RuntimeError("Servidor remoto devolvió una respuesta que no es JSON") from None
+        raise RuntimeError(
+            "Servidor remoto devolvió una respuesta que no es JSON"
+        ) from None
 
     if not isinstance(payload, dict):
         raise RuntimeError("Servidor remoto devolvió un JSON inválido")
     if payload.get("id") != identifier or payload.get("command") != command:
-        raise RuntimeError("Servidor remoto devolvió una identidad o comando inesperado")
+        raise RuntimeError(
+            "Servidor remoto devolvió una identidad o comando inesperado"
+        )
 
     if response.status_code == 200 and payload.get("status") == "completed":
         if "result" not in payload:
-            raise RuntimeError("Servidor remoto no devolvió el resultado del procesamiento")
+            raise RuntimeError(
+                "Servidor remoto no devolvió el resultado del procesamiento"
+            )
         return payload
 
     if payload.get("status") == "failed":
         return payload
 
-    raise RuntimeError(f"Respuesta inesperada del servidor remoto (HTTP {response.status_code})")
+    raise RuntimeError(
+        f"Respuesta inesperada del servidor remoto (HTTP {response.status_code})"
+    )
 
 
 def process_one(
@@ -278,6 +301,8 @@ def process_one(
     identifier: int,
     command: str,
     *,
+    input_mode: str,
+    input_folder: str | None,
     max_attempts: int,
     connect_timeout: float,
     read_timeout: float,
@@ -286,24 +311,29 @@ def process_one(
     if job is None:
         current = jobs.find_one({"id": identifier, "command": command}, {"status": 1})
         return current.get("status", "omitido") if current else "omitido"
+    url = None
+    folder = None
 
-    try:
-        document = source.find_one(
-            {"id": identifier}, {"_id": 0, "id": 1, "electronic_address": 1}
-        )
-        url = select_pdf(document)
-    except SelectionError as exc:
-        save_failed(
-            jobs,
-            identifier,
-            command,
-            token,
-            phase="seleccion",
-            code=exc.code,
-            message=str(exc),
-        )
-        return "failed"
-
+    if input_mode == "url":
+        try:
+            document = source.find_one(
+                {"id": identifier},
+                {"_id": 0, "id": 1, "electronic_address": 1},
+            )
+            url = select_pdf(document)
+        except SelectionError as exc:
+            save_failed(
+                jobs,
+                identifier,
+                command,
+                token,
+                phase="seleccion",
+                code=exc.code,
+                message=str(exc),
+            )
+            return "failed"
+    else:
+        folder = input_folder
     try:
         payload = call_serveria(
             session,
@@ -311,6 +341,7 @@ def process_one(
             identifier=identifier,
             command=command,
             url=url,
+            folder=folder,
             connect_timeout=connect_timeout,
             read_timeout=read_timeout,
         )
@@ -343,7 +374,13 @@ def process_one(
 
     # Servidor remoto ya sanitiza los detalles; aun así solo se conservan campos controlados.
     phase = payload.get("phase")
-    if phase not in {"validacion", "descarga", "procesamiento", "limpieza"}:
+    if phase not in {
+        "validacion",
+        "seleccion",
+        "descarga",
+        "procesamiento",
+        "limpieza",
+    }:
         phase = "procesamiento"
     error_type = payload.get("error_type")
     if not isinstance(error_type, str) or not error_type:
@@ -376,6 +413,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--server-url",
         default=os.environ.get("PDFSUM_SERVER_URL"),
         help="base o endpoint del servidor remoto; también PDFSUM_SERVER_URL",
+    )
+    parser.add_argument(
+        "--input-mode",
+        choices=("url", "folder"),
+        default=os.environ.get("PDFSUM_INPUT_MODE", "url"),
+        help="origen del PDF: url o folder; también PDFSUM_INPUT_MODE",
+    )
+    parser.add_argument(
+        "--input-folder",
+        default=os.environ.get("PDFSUM_INPUT_FOLDER"),
+        help="carpeta remota usada cuando input-mode=folder; también PDFSUM_INPUT_FOLDER",
     )
     parser.add_argument("--database", default=DEFAULT_DATABASE)
     parser.add_argument("--source-collection", default=DEFAULT_SOURCE_COLLECTION)
@@ -425,6 +473,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.stale_after_minutes < 1:
         print("ERROR: --stale-after-minutes debe ser al menos 1", file=sys.stderr)
         return 2
+    if args.input_mode == "folder" and not args.input_folder:
+        print(
+            "ERROR: falta --input-folder o PDFSUM_INPUT_FOLDER",
+            file=sys.stderr,
+        )
+        return 2
 
     client = None
     try:
@@ -458,6 +512,8 @@ def main(argv: list[str] | None = None) -> int:
                     endpoint,
                     identifier,
                     args.command,
+                    input_mode=args.input_mode,
+                    input_folder=args.input_folder,
                     max_attempts=args.max_attempts,
                     connect_timeout=args.connect_timeout,
                     read_timeout=args.read_timeout,
@@ -465,7 +521,10 @@ def main(argv: list[str] | None = None) -> int:
                 totals[status] = totals.get(status, 0) + 1
                 print(f"id={identifier} command={args.command} status={status}")
 
-        print("resumen:", " ".join(f"{key}={value}" for key, value in sorted(totals.items())))
+        print(
+            "resumen:",
+            " ".join(f"{key}={value}" for key, value in sorted(totals.items())),
+        )
         return 1 if totals.get("failed", 0) else 0
 
     except PyMongoError:
