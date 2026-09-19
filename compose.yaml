@@ -7,6 +7,8 @@ services:
     environment:
       PDFSUM_MONGODB_URI: ${PDFSUM_MONGODB_URI}
       PDFSUM_SERVER_URL: ${PDFSUM_SERVER_URL}
+      PDFSUM_INPUT_MODE: ${PDFSUM_INPUT_MODE:-url}
+      PDFSUM_INPUT_FOLDER: ${PDFSUM_INPUT_FOLDER:-}
     command:
       - --command
       - extract-abstracts
