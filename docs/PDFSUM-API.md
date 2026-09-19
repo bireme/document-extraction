@@ -1,12 +1,13 @@
 # API de comandos PDF
 
 OFI9 selecciona los registros y obtiene `id` + URL desde MongoDB. ServerIA-stg
-recibe `id`, `command` y `url`, descarga el PDF y despacha el pipeline Python
+recibe `id`, `command` y una fuente (`url` o `folder`), prepara el PDF en un
+directorio temporal y despacha el pipeline Python
 existente de `extract-abstracts`, `transcribe` o `run`. OFI9 persiste la respuesta.
 **ServerIA no accede a MongoDB ni utiliza `PDFSUM_MONGODB_URI`.**
 
 ```text
-OFI9 (selección) → ServerIA (descarga → dispatcher → pipeline → limpieza)
+OFI9 (selección) → ServerIA (descarga o copia → dispatcher → pipeline → limpieza)
                 ← respuesta JSON
 OFI9 → MongoDB (persistencia)
 ```
@@ -40,8 +41,10 @@ environment:
   OLLAMA_HOST: http://ollama:11434
 ```
 
-No hace falta montar `/input`: ServerIA descarga el PDF. El servicio no incorpora
-autenticación; limita el acceso a OFI9 mediante la red/firewall o un proxy con
+Para usar solo URL no hace falta montar `/input`. Para archivos locales, monta
+el directorio de entrada, preferiblemente en modo de solo lectura.
+`--input-root` configura su ubicación y tiene `/input` como valor predeterminado.
+El servicio no incorpora autenticación; limita el acceso a OFI9 mediante la red/firewall o un proxy con
 TLS y autenticación. El host por defecto del CLI es `127.0.0.1`.
 
 El comando anterior `extract-abstracts-api` se sustituye por `processing-api`.
@@ -77,10 +80,43 @@ antes de descargar. `summarize` requiere un contrato de texto que se decidirá
 posteriormente; esta API no descarga archivos de texto. El endpoint anterior
 `/api/extract-abstracts` fue eliminado.
 
-La solicitud debe contener exactamente `id`, `command` y `url`. `id` admite un entero
-positivo o texto no vacío de hasta 256 caracteres, sin caracteres de control.
-No se convierte su tipo ni se usa para construir rutas. `url` debe ser HTTP/HTTPS
-sin credenciales embebidas. El servicio no recibe opciones de procesamiento por
+La solicitud debe contener `id`, `command` y exactamente una fuente: `url` o
+`folder`. Se rechazan ambas fuentes juntas, la ausencia de fuente y los campos
+adicionales. Los tres comandos admiten ambas fuentes.
+
+URL:
+
+```json
+{
+  "id": 75798,
+  "command": "extract-abstracts",
+  "url": "https://example.org/documento.pdf"
+}
+```
+
+Carpeta local:
+
+```json
+{
+  "id": 75798,
+  "command": "extract-abstracts",
+  "folder": "MS-all"
+}
+```
+
+La API busca `<input_root>/MS-all/75798_*.pdf`: el nombre debe comenzar
+literalmente con `75798_` y terminar con `.pdf`. Debe existir exactamente un
+archivo regular; varias coincidencias producen un error de ambigüedad.
+`folder` admite solamente letras ASCII, números, `_`, `-` y `.`, excepto los
+valores completos `.` y `..`. No admite rutas ni separadores. Se rechazan enlaces
+simbólicos de carpeta o de archivos coincidentes con HTTP 409.
+Solo se copia el PDF seleccionado a `<workspace-temporal>/input/<run_id>.pdf`;
+el pipeline recibe esa copia y el original permanece intacto.
+
+`id` admite un entero positivo o texto no vacío de hasta 256 caracteres, sin caracteres de control.
+No se convierte su tipo en la respuesta. Para archivos locales se compara como
+prefijo literal del nombre; nunca se interpreta como ruta ni patrón.
+`url` debe ser HTTP/HTTPS sin credenciales embebidas. El servicio no recibe opciones de procesamiento por
 solicitud: las configura el operador al iniciar el proceso.
 
 HTTP 200:
@@ -132,7 +168,10 @@ Errores:
 
 | HTTP | phase | error_type | Motivo |
 | --- | --- | --- | --- |
-| 422 | validacion | ValidationError | Campos, identidad, JSON o URL inválidos; destino literal prohibido |
+| 422 | validacion | ValidationError | Campos, identidad, JSON, URL o folder inválidos; destino literal prohibido |
+| 404 | seleccion | SelectionError | Carpeta o PDF del id inexistente |
+| 409 | seleccion | SelectionError | Varios PDFs coincidentes o enlace simbólico |
+| 500 | seleccion | SelectionError | Fallo inesperado de lectura o copia |
 | 502 | descarga | DownloadError | DNS/destino bloqueado, HTTP, timeout, tamaño o contenido inválido |
 | 500 | procesamiento | ProcessingError | Preparación, transcripción o procesamiento fallidos |
 | 500 | limpieza | CleanupError | No se pudieron eliminar los temporales; revisar el disco |

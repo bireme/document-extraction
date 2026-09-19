@@ -9,8 +9,11 @@ release — ver `docs/ESTADO.md`).
 > 🚀 **Guía rápida de uso (1 página, con ejemplos ejecutables): [`GUIA-USO.md`](GUIA-USO.md)**
 
 **Procesamiento HTTP de PDFs:** `pdfsum processing-api` recibe `id`, `command`
-y `url` en `POST /api/pdfsum`. Admite `extract-abstracts`, `transcribe` y `run`;
-`summarize` todavía no está soportado. ServerIA descarga el PDF y devuelve el
+y exactamente una fuente, `url` o `folder`, en `POST /api/pdfsum`.
+Para `folder`, busca `<input_root>/<folder>/<id>_*.pdf` y copia el único PDF
+coincidente a un directorio temporal; `--input-root` tiene `/input` como valor
+predeterminado. Admite `extract-abstracts`, `transcribe` y `run`;
+`summarize` todavía no está soportado. ServerIA prepara el PDF y devuelve el
 resultado a OFI9 sin acceder a MongoDB. El servicio previo `pdfsum api` se conserva.
 Consulta [contrato, Docker y ejemplos](docs/PDFSUM-API.md).
 
