@@ -193,9 +193,10 @@ def extract_abstracts_from_pdfs(
             }
             atomic_write_json(workspace.abstract_path(doc_id), resultado)
             documentos.append(resultado)
-            metrics[
-                "fallback_determinista" if fallback else "revision_llm_exitosa"
-            ] += 1
+            if extraction.refinement_attempted:
+                metrics[
+                        "fallback_determinista" if fallback else "revision_llm_exitosa"
+                        ] += 1
             metrics["sin_abstract"] += int(not abstracts)
             emit(
                 "document_completed",

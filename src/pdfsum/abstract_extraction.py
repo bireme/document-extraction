@@ -31,7 +31,7 @@ def extract_refined_abstracts(
     """Revisa incluso sin candidatos y conserva la extracción si falla el LLM."""
     candidates = extract_abstracts(text)
     count = len(candidates)
-    if llm is None:
+    if llm is None or count == 0:
         return AbstractExtractionResult(candidates, count, False, False)
     if event_sink is not None:
         event_sink("phase_started", phase="preparacion_revision", candidate_count=count)

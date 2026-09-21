@@ -47,14 +47,18 @@ def test_fallo_conserva_candidatos_y_excepcion():
     assert result.error is error
 
 
-def test_recupera_sin_candidatos():
-    expected = extract_abstracts(SOURCE)
-    llm = FakeSummarizer(json.dumps({"abstracts": [asdict(a) for a in expected]}))
+def test_sin_candidatos_no_revisa():
+    llm = Mock(spec=TextLLM)
+
     with patch("pdfsum.abstract_extraction.extract_abstracts", return_value=[]):
         result = extract_refined_abstracts(SOURCE, llm)
+
+    llm.complete_json.assert_not_called()
     assert result.candidate_count == 0
-    assert result.refinement_succeeded
-    assert result.abstracts == expected
+    assert result.abstracts == []
+    assert not result.refinement_attempted
+    assert not result.refinement_succeeded
+    assert result.error is None
 
 
 def test_sin_llm_no_revisa():
