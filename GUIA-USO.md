@@ -192,8 +192,8 @@ Copia tu configuración desde `.pdfsum-config.example.json` en el repo.
 - **Texto crudo vs limpio:** `ocr/*.txt` conserva el texto verbatim del
   origen (auditable). Antes de resumir se aplica en memoria una limpieza
   (des-hifenización de cortes de línea, encabezados/pies repetidos,
-  números de página); los abstracts se extraen del texto limpio — la
-  des-hifenización los acerca más al impreso original.
+  números de página). En `run`, los abstracts se extraen y revisan sobre la
+  transcripción cruda antes de limpiar el texto para generar el resumen.
 - **Idiomas:** el resumen sale en el idioma del documento; los abstracts de
   origen multilingües se preservan verbatim.
 - Si falta Ollama/modelo, los comandos se detienen con un mensaje claro de qué
@@ -203,8 +203,30 @@ Copia tu configuración desde `.pdfsum-config.example.json` en el repo.
 
 `extract-abstracts` transcribe los PDFs y recupera los resúmenes ya presentes
 en los documentos, sin generar un resumen nuevo del artículo. La extracción
-determinística se revisa con el LLM configurado; si la revisión falla, se
-conserva automáticamente el resultado determinístico.
+determinística aporta candidatos; el LLM localiza y refina los límites usando
+la transcripción como fuente de verdad. Puede recuperar texto anterior al
+encabezado o ausente de los candidatos. La validación busca respaldo en todo
+el contexto enviado, con preferencia por coincidencias contiguas. Admite
+espacios, guiones de fin de línea y correcciones OCR limitadas; rechaza cifras
+alteradas, traducciones, paráfrasis y contenido nuevo.
+
+También admite spans ordenados separados por bloques editoriales cortos, con
+señales de layout verificables. Cada laguna se valida: no basta con encontrar
+las palabras en distintas partes del documento. No se permite quitar prosa
+interna ni invertir frases. El texto posterior al span no tiene que formar
+parte del resumen. Las introducciones estructuradas con secciones de métodos
+siguen siendo válidas; un encabezado de resumen no legitima el cuerpo del artículo.
+
+`abstract_refine_context_chars` limita los caracteres iniciales disponibles
+para la revisión (20 000 por defecto); no permite recuperar contenido fuera
+de esa ventana. Se usa el mismo backend/modelo configurado, sin dependencias
+adicionales.
+
+Si falla la revisión, el fallback conserva candidatos sin contaminación
+editorial evidente y descarta los sospechosos (por ejemplo, rótulo inicial
+de artículo original o referencia editorial con año/volumen). Esto no
+certifica la calidad de los candidatos conservados. El fallo no es fatal para
+el documento. Sin LLM se mantiene la extracción determinística sin revisión.
 
 ```bash
 pdfsum extract-abstracts --in ./pdfs --workspace ./data
@@ -228,7 +250,17 @@ caracteres de la transcripción recortada que se envía; `prompt_chars` mide el
 prompt completo, incluidos instrucciones y candidatos. No son conteos de tokens.
 Los tiempos `seconds` usan un reloj monotónico. Si falla la revisión,
 `abstract_refine_fallback` incluye `error_type`, `error` con el mensaje de la
-excepción y `failure_phase`. El lote conserva los candidatos determinísticos.
+excepción y `failure_phase`. El fallback aplica el filtro conservador descrito
+arriba. Los eventos de validación incluyen cobertura, método, número de spans,
+lagunas, tokens/caracteres ignorados y motivos de aceptación de las lagunas.
+
+Cada documento de `report.json` incluye `abstract_extraction` con
+`refinement_attempted`, `refinement_succeeded`, `fallback`, `fallback_reason`,
+`failure_phase`, `error_type`, `candidate_count`, `final_count` y
+`discarded_candidates`. Los comandos `run` y `batch` también conservan ese
+bloque en `meta` del resultado; el cache de `batch` lo preserva. La fase permite
+distinguir errores operativos de la llamada al LLM de fallos de validación.
+Una ejecución exitosa del pipeline no implica una revisión exitosa del abstract.
 
 El reporte y la salida de la CLI incluyen documentos con revisión LLM exitosa,
 fallback determinístico y ningún abstract. Una revisión válida que devuelve

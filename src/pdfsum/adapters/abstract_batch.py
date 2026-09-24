@@ -134,6 +134,7 @@ def extract_abstracts_from_pdfs(
                 text, llm, context_chars, event_sink=next_phase
             )
             abstracts = extraction.abstracts
+            details["discarded_candidates"] = extraction.discarded_candidates
             fallback = False
             error = {}
             if extraction.error is not None:
@@ -146,7 +147,7 @@ def extract_abstracts_from_pdfs(
                 }
                 emit("abstract_refine_fallback", **details, **error, fallback=True)
                 logger.warning(
-                    "Revisión de resúmenes fallida; se conserva la extracción: "
+                    "Revisión de resúmenes fallida; se aplica fallback conservador: "
                     "%s (%s: %s), etapa=%s",
                     doc_id,
                     type(exc).__name__,
@@ -190,7 +191,9 @@ def extract_abstracts_from_pdfs(
                 ],
             }
             atomic_write_json(workspace.abstract_path(doc_id), resultado)
-            documentos.append(resultado)
+            documentos.append(
+                {**resultado, "abstract_extraction": extraction.diagnostics()}
+            )
             metrics[
                 "fallback_determinista" if fallback else "revision_llm_exitosa"
             ] += 1

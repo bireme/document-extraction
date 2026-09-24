@@ -163,18 +163,16 @@ def test_omite_afiliacion_y_contacto_con_continuacion_del_resumen():
     "seccion", ["Objetivo", "Metodología", "Resultados", "Conclusión"]
 )
 @pytest.mark.parametrize("cambia_puntuacion", [False, True])
-def test_rechaza_omision_sustantiva_al_final_del_resumen(seccion, cambia_puntuacion):
+def test_permite_terminar_antes_de_prosa_posterior(seccion, cambia_puntuacion):
     original = BODY.replace("estudio", "estudio,") if cambia_puntuacion else BODY
     contexto = (
         "RESUMEN\n" + original + "\n" + seccion + ": "
         "La intervención mejoró la salud de los participantes."
     )
-    with pytest.raises(ValueError, match="Texto del resumen sin respaldo"):
-        refine_abstracts(
-            contexto,
-            [],
-            FakeSummarizer(respuesta([Abstract("es", "RESUMEN", BODY)])),
-        )
+    esperado = [Abstract("es", "RESUMEN", BODY)]
+    assert (
+        refine_abstracts(contexto, [], FakeSummarizer(respuesta(esperado))) == esperado
+    )
 
 
 def test_palabras_clave_sin_respaldo_se_vacian_sin_rechazar_resumen():
@@ -485,6 +483,17 @@ def test_eventos_fallo_y_metricas(tmp_path, caplog, raw, etapa, tipo, mensaje):
     assert any(r["event"] == "phase_failed" and r["phase"] == etapa for r in events)
     persisted = json.loads(ws.report_path.read_text())
     assert persisted["metrics"] == report["metrics"]
+    diagnostico = persisted["documents"][0]["abstract_extraction"]
+    assert diagnostico["refinement_attempted"]
+    assert not diagnostico["refinement_succeeded"]
+    assert diagnostico["fallback"]
+    assert diagnostico["failure_phase"] == etapa
+    assert diagnostico["error_type"] == tipo
+    assert mensaje in diagnostico["fallback_reason"]
+    assert diagnostico["candidate_count"] == diagnostico["final_count"] == 1
+    assert persisted["documents"][1]["abstract_extraction"]["refinement_succeeded"]
+    assert persisted["documents"][2]["abstract_extraction"]["final_count"] == 0
+
     assert "abstracts" not in persisted["documents"][0]
     assert records[-1]["metrics"] == report["metrics"]
     success = next(
@@ -575,7 +584,7 @@ def test_fallo_preparacion_conserva_cache(tmp_path):
             "Este estudio evaluó pacientes y observó resultados favorables en la comunidad.",
         ),
         (
-            "Este estudio evaluó pacientes 23 y observó resultados favorables en la comunidad.",
+            "Este estudio evaluó pacientes\n23\ny observó resultados favorables en la comunidad.",
             "Este estudio evaluó pacientes y observó resultados favorables en la comunidad.",
         ),
         (
@@ -704,8 +713,8 @@ def test_no_extrae_introduccion_ni_cruza_bloques():
 
 
 def test_keywords_se_recuperan_tras_anclaje_aproximado():
-    original = "Este estudio evaluó pacientes 23 y observó resultados favorables en la comunidad."
-    corrected = original.replace(" 23", "")
+    original = "Este estudio evaluó pacientes\n23\ny observó resultados favorables en la comunidad."
+    corrected = original.replace("\n23\n", " ")
     context = "RESUMEN\n" + original + "\nPalabras clave: salud; comunidad."
     expected = [Abstract("es", "RESUMEN", corrected, "salud; comunidad.")]
     assert (
@@ -719,8 +728,8 @@ def test_keywords_se_recuperan_tras_anclaje_aproximado():
 
 
 def test_metricas_aproximadas_se_persisten_sin_texto(tmp_path):
-    context = "RESUMEN\nEste estudio evaluó pacientes 23 y observó resultados favorables en la comunidad."
-    corrected = context.split("\n")[1].replace(" 23", "")
+    context = "RESUMEN\nEste estudio evaluó pacientes\n23\ny observó resultados favorables en la comunidad."
+    corrected = context.split("\n", 1)[1].replace("\n23\n", " ")
     (tmp_path / "a.pdf").touch()
     ws = Workspace(tmp_path / "salida", logs_dir=tmp_path / "logs")
     extract_abstracts_from_pdfs(
@@ -792,3 +801,157 @@ def test_rechaza_numero_decimal_o_porcentaje_modificado():
                 [],
                 FakeSummarizer(respuesta([Abstract("es", "RESUMEN", output)])),
             )
+
+
+# Fragmentos multilingües de entrada: reproducen la transcripción, no mensajes.
+_ANTES = (
+    "This is the real English abstract. It describes methods, results and "
+    "conclusions from the clinical study."
+)
+_CUERPO = "This is the article introduction and must never become the abstract."
+_DESPLAZADO = (
+    "Título del artículo\n\n" + _ANTES + "\nKeywords: Example. Test.\n\n"
+    "Resumo\nEste é o resumo correto em português e possui conteúdo suficiente.\n"
+    "Palavras-chave: Exemplo. Teste.\n\nDOI: 10.1234/567\n\n"
+    "Abstract\n343\nArtigo Original • Original Paper\nJohn Doe*\nJane Doe**\n\n"
+    "INTRODUCTION\n\n" + _CUERPO
+)
+_PRIMERA = (
+    "The objective of this study was to evaluate the clinical status of patients."
+)
+_ULTIMA = "The results demonstrated significant improvement after treatment."
+
+
+def _revisar_fragmento(contexto, texto, lang="en", header="ABSTRACT"):
+    esperado = [Abstract(lang, header, texto)]
+    return refine_abstracts(
+        contexto, extract_abstracts(contexto), FakeSummarizer(respuesta(esperado))
+    )
+
+
+def test_resumen_antes_del_encabezado_desplazado():
+    assert _revisar_fragmento(_DESPLAZADO, _ANTES)[0].text == _ANTES
+    with pytest.raises(ValueError, match="Texto del resumen sin respaldo"):
+        _revisar_fragmento(_DESPLAZADO, _CUERPO)
+
+
+def test_metadatos_posteriores_no_son_omision_interna():
+    texto = "Este é o resumo correto e termina exatamente nesta frase."
+    contexto = (
+        "Resumo\n" + texto + "\n\n625\n"
+        "Nombre de la Revista - 2017;41(4):625-632\nAutor Uno*\nAutor Dos**\n\n"
+        "INTRODUÇÃO\nTexto do corpo do artigo."
+    )
+    assert _revisar_fragmento(contexto, texto, "pt", "RESUMO")[0].text == texto
+
+
+@pytest.mark.parametrize("separador", [": ", "\n"])
+def test_introduccion_estructurada_se_conserva(separador):
+    texto = (
+        "Introduction" + separador + "This study investigates clinical outcomes.\n"
+        "Methods: We analyzed patient records.\n"
+        "Results: The results showed improved outcomes.\n"
+        "Conclusion: We conclude that monitoring is useful."
+    )
+    contexto = "Abstract\n" + texto + "\n\nKeywords: Test."
+    assert _revisar_fragmento(contexto, texto)[0].text == texto
+    assert extract_abstracts(contexto)[0].text == " ".join(texto.split())
+
+
+def test_encabezado_con_metadatos_no_legitima_introduccion():
+    contexto = (
+        "Abstract\n343\nOriginal Paper\nJohn Doe*\nJane Doe**\n\n"
+        "INTRODUCTION\n\n" + _CUERPO
+    )
+    for texto in (_CUERPO, extract_abstracts(contexto)[0].text):
+        with pytest.raises(ValueError, match="Texto del resumen sin respaldo"):
+            _revisar_fragmento(contexto, texto)
+
+
+@pytest.mark.parametrize(
+    "original,propuesta",
+    [
+        ("The study included 100 patients.", "The study included 150 patients."),
+        (
+            "The objective was to evaluate blood pressure.",
+            "The study aimed to assess blood pressure.",
+        ),
+        (
+            "El estudio incluyó 23 pacientes y terminó en septiembre.",
+            "El estudio incluyó pacientes y terminó en septiembre.",
+        ),
+        (
+            "La intervención no mejoró la salud de la comunidad.",
+            "La intervención mejoró la salud de la comunidad.",
+        ),
+    ],
+)
+def test_datos_parafrasis_y_negacion_no_se_pueden_alterar(original, propuesta):
+    with pytest.raises(ValueError, match="Texto del resumen sin respaldo"):
+        _revisar_fragmento("Abstract\n" + original, propuesta)
+
+
+def test_guion_de_fin_de_linea():
+    original = "A forma-\ntação foi corrigida no documento original."
+    esperado = "A formatação foi corrigida no documento original."
+    assert _revisar_fragmento("Resumo\n" + original, esperado, "pt", "RESUMO")
+
+
+@pytest.mark.parametrize(
+    "ruido",
+    [
+        "343\nJournal Name - 2017;41(3):343-349\nTitle of the article",
+        "Title of the article\nJournal Name\n344",
+        "345\nRevista de Atención Clínica - 2018;12(2):345-350\nTítulo del artículo",
+    ],
+)
+def test_ruido_editorial_entre_spans_ordenados(ruido):
+    contexto = "Abstract\n" + _PRIMERA + "\n\n" + ruido + "\n\n" + _ULTIMA
+    assert _revisar_fragmento(contexto, _PRIMERA + " " + _ULTIMA)
+    with pytest.raises(ValueError, match="Texto del resumen sin respaldo"):
+        _revisar_fragmento(contexto, _ULTIMA + " " + _PRIMERA)
+
+
+@pytest.mark.parametrize(
+    "intermedio",
+    [
+        "Patients were followed for six months.\nAdverse events were also recorded.",
+        "Journal Name\nPatients were followed for six months\n344",
+        "343\nJournal Name\n" + "Texto distante del documento.\n" * 200,
+        "343\nJournal Name\nMETHODS\nParticipants were followed for six months.",
+        "343\nJournal Name\nABSTRACT\n",
+        "343\nJournal Name\nKeywords: Treatment.\n",
+    ],
+)
+def test_no_omite_prosa_ni_une_secciones_distantes(intermedio):
+    contexto = "Abstract\n" + _PRIMERA + "\n" + intermedio + "\n" + _ULTIMA
+    with pytest.raises(ValueError, match="Texto del resumen sin respaldo"):
+        _revisar_fragmento(contexto, _PRIMERA + " " + _ULTIMA)
+
+
+def test_ocr_excesivo_no_se_acepta():
+    original = "La c0munidad registró c0nclusiones sobre la c0bertura de tratamientos."
+    with pytest.raises(ValueError, match="Texto del resumen sin respaldo"):
+        _revisar_fragmento("Abstract\n" + original, original.replace("0", "o"))
+
+
+def test_metricas_de_lagunas_no_guardan_el_contenido():
+    contexto = "Abstract\n" + _PRIMERA + "\n343\nJournal Name\n" + _ULTIMA
+    eventos = []
+    esperado = [Abstract("en", "ABSTRACT", _PRIMERA + " " + _ULTIMA)]
+    assert (
+        refine_abstracts(
+            contexto,
+            [],
+            FakeSummarizer(respuesta(esperado)),
+            event_sink=lambda evento, **campos: eventos.append((evento, campos)),
+        )
+        == esperado
+    )
+    metrica = eventos[-1][1]
+    assert metrica["span_count"] == 2
+    assert metrica["ignored_gaps"] == 1
+    assert metrica["ignored_tokens"] == 3
+    assert metrica["ignored_chars"] > 0
+    assert len(metrica["gap_reasons"]) == 1
+    assert "Journal Name" not in json.dumps(eventos)

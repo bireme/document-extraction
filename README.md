@@ -22,7 +22,7 @@ src/pdfsum/
   contract.py    # DOMINIO: tipos + PUERTOS Summarizer/Transcriber + contrato JSON
   classify.py    # DOMINIO: origen (nativo/escaneado), idioma, tipo -> plantilla
   templates.py   # DOMINIO: plantillas A (artículo/IMRAD), B (manual), C (folleto)
-  abstracts.py   # DOMINIO: extracción verbatim de RESUMO/ABSTRACT/RESUMEN...
+  abstracts.py   # DOMINIO: candidatos verbatim de RESUMO/ABSTRACT/RESUMEN...
   excerpt.py     # DOMINIO: estrategia de porción por tipo (no corte ciego)
   pipeline.py    # DOMINIO: orquesta clasificación + porción + resumen + abstracts
   adapters/      # EXTERNO: Ollama, OCR (poppler+Tesseract), fakes para tests
@@ -304,3 +304,16 @@ make check    # lint + test
   (`evals/eval-spec-fase12-distribucion-moderna-uv.yaml`). Backend `hatchling`,
   `uv build` genera wheel/sdist, publicación en PyPI (`pip install pdfsum`).
 - Ver `docs/ESTADO.md` y `docs/PROPUESTA-PRODUCTO.md`.
+
+### Revisión extractiva de resúmenes de origen
+
+`pdfsum extract-abstracts --in ./pdfs --workspace ./data` recupera resúmenes
+existentes. Los candidatos determinísticos son pistas: la revisión puede
+localizar el texto en todo el contexto enviado, incluso antes del encabezado.
+La validación exige respaldo textual y solo admite saltos internos acotados
+por ruido editorial; no acepta paráfrasis, traducciones ni datos inventados.
+Si falla la revisión, el fallback excluye candidatos claramente contaminados.
+`report.json` distingue la ejecución del pipeline de la revisión mediante
+`abstract_extraction`, también disponible en `run` y `batch`.
+Véanse los límites, el fallback y los campos de diagnóstico en
+[la guía de uso](GUIA-USO.md#extraer-resúmenes-existentes).

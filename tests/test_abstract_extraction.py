@@ -277,3 +277,72 @@ def test_worker_procesa_revision_dentro_del_job(tmp_path):
         == SOURCE[:20]
     )
     assert store.get(key)["state"] == "done"
+
+
+@pytest.mark.parametrize("respuesta", [TimeoutError("Sin conexión"), "JSON inválido"])
+def test_fallback_descarta_contaminacion_y_conserva_buen_candidato(respuesta):
+    contexto = (
+        SOURCE + "\nPalabras clave: salud.\n\nAbstract\n343\nOriginal Paper\n"
+        "John Doe*\nINTRODUCTION\nThis is the introduction of the full article."
+    )
+    llm = Mock(spec=TextLLM)
+    if isinstance(respuesta, Exception):
+        llm.complete_json.side_effect = respuesta
+    else:
+        llm.complete_json.return_value = respuesta
+    result = extract_refined_abstracts(contexto, llm)
+    assert result.candidate_count == 2
+    assert len(result.abstracts) == 1
+    assert result.abstracts[0].lang == "es"
+    assert result.discarded_candidates == 1
+    diagnostico = result.diagnostics()
+    assert diagnostico["fallback"]
+    assert diagnostico["fallback_reason"]
+    assert diagnostico["failure_phase"] == (
+        "llamada_llm" if isinstance(respuesta, Exception) else "validacion"
+    )
+
+
+def test_fallback_puede_quedar_sin_resumen():
+    contexto = "Abstract\n625 Journal Name - 2017;41(4):625-632 John Doe John Doe"
+    llm = Mock(spec=TextLLM)
+    llm.complete_json.side_effect = TimeoutError("Sin conexión")
+    result = extract_refined_abstracts(contexto, llm)
+    assert result.abstracts == []
+    assert result.discarded_candidates == result.candidate_count == 1
+
+
+@pytest.mark.parametrize("revisar", [False, True])
+def test_report_pdf_distingue_ejecucion_y_revision(tmp_path, revisar):
+    (tmp_path / "doc.pdf").touch()
+    ws = Workspace(tmp_path / "salida")
+    llm = Mock(spec=TextLLM)
+    llm.complete_json.side_effect = TimeoutError("Revisión demorada")
+    report = run_batch_pdfs(
+        str(tmp_path),
+        ws,
+        FakeTranscriber(SOURCE),
+        FakeSummarizer(),
+        abstract_llm=llm if revisar else None,
+    )
+    assert report["status"] == "completed"
+    diagnostico = report["documents"][0]["abstract_extraction"]
+    assert diagnostico["refinement_attempted"] is revisar
+    assert diagnostico["fallback"] is revisar
+    assert not diagnostico["refinement_succeeded"]
+    assert diagnostico["candidate_count"] == diagnostico["final_count"] == 1
+    persistido = json.loads(ws.report_path.read_text())
+    assert persistido["documents"][0]["abstract_extraction"] == diagnostico
+    resultado = json.loads(ws.summary_path("doc").read_text())
+    assert resultado["meta"]["abstract_extraction"] == diagnostico
+
+
+def test_fallback_conserva_resumen_que_empieza_con_cifra_clinica():
+    contexto = (
+        "RESUMEN\n100 pacientes participaron en el estudio de atención comunitaria."
+    )
+    llm = Mock(spec=TextLLM)
+    llm.complete_json.side_effect = TimeoutError("Sin conexión")
+    resultado = extract_refined_abstracts(contexto, llm)
+    assert resultado.abstracts == extract_abstracts(contexto)
+    assert resultado.discarded_candidates == 0

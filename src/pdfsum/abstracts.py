@@ -137,6 +137,42 @@ def _find_abstract_headers(text: str) -> list[re.Match[str]]:
     return matches
 
 
+def article_body_ranges(text: str) -> list[tuple[int, int]]:
+    """Identifica introducciones aisladas, salvo resúmenes estructurados."""
+    headers = _find_abstract_headers(text)
+    ranges = []
+    for match in re.finditer(
+        r"(?im)^[^\S\n]*(?:INTRODUÇÃO|INTRODUCTION|INTRODUCCIÓN|BACKGROUND)[^\S\n]*$",
+        text,
+    ):
+        stop = next((h.start() for h in headers if h.start() > match.end()), len(text))
+        following = text[match.end() : stop]
+        keyword = _KW_RE.search(following)
+        structured = re.search(
+            r"(?im)^\s*(?:Methods|Métodos|Metodolog[íi]a|Méthodes|Metodi|Methoden)\s*:",
+            following[: keyword.start() if keyword else 2500],
+        )
+        preceding = next(
+            (h.end() for h in reversed(headers) if h.end() <= match.start()), 0
+        )
+        prefix = text[preceding : match.start()]
+        if not structured or _KW_RE.search(prefix) or suspicious_candidate(prefix):
+            ranges.append((match.start(), stop))
+    return ranges
+
+
+def suspicious_candidate(text: str) -> bool:
+    """Marca contaminación editorial inequívoca; no certifica los demás casos."""
+    return bool(
+        re.search(
+            r"(?i)^\s*(?:\d{1,4}\s+)?(?:original paper|artigo original|artículo original)\b|"
+            r"\b\d{4}\s*;\s*\d+\s*\(|"
+            r"\b(?:doi|issn)\s*:",
+            text,
+        )
+    )
+
+
 def extract_abstracts(text: str) -> list[Abstract]:
     """Devuelve bloques de resumen de origen verbatim (lista vacía si no hay)."""
     matches = _find_abstract_headers(text)

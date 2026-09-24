@@ -269,7 +269,7 @@ def run_batch_pdfs(
                 )
                 if extraction.error is not None:
                     logging.getLogger(__name__).warning(
-                        "Revisión de resúmenes fallida; se conserva la extracción: %s (%s)",
+                        "Revisión de resúmenes fallida; se aplica fallback conservador: %s (%s)",
                         doc_id,
                         extraction.error,
                     )
@@ -287,6 +287,7 @@ def run_batch_pdfs(
                     pages=om["pages"],
                     long_strategy=long_strategy,
                 )
+                res.meta["abstract_extraction"] = extraction.diagnostics()
                 res.meta["text_cleaned"] = True
                 res.meta["chars_crudo"] = len(text)
                 res.meta["chars_limpio"] = len(cleaned)
@@ -323,6 +324,7 @@ def run_batch_pdfs(
                         "tipo": res.tipo_documento,
                         "idioma": res.idioma_principal,
                         "qa_ok": qa.is_ok,
+                        "abstract_extraction": extraction.diagnostics(),
                         "source_kind": om["source_kind"],
                         "transcription_cached": om["cached"],
                         "transcription_quality": {

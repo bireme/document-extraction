@@ -120,7 +120,7 @@ def run_batch(
                     phases["abstracts"] += time.perf_counter() - started
                     if extraction.error is not None:
                         logging.getLogger(__name__).warning(
-                            "Revisión de resúmenes fallida; se conserva la extracción: %s (%s)",
+                            "Revisión de resúmenes fallida; se aplica fallback conservador: %s (%s)",
                             did,
                             extraction.error,
                         )
@@ -133,6 +133,7 @@ def run_batch(
                         abstracts=extraction.abstracts,
                     )
                     summary_seconds += time.perf_counter() - started
+                    res.meta["abstract_extraction"] = extraction.diagnostics()
                     return res.to_dict()
 
                 t0 = time.perf_counter()
@@ -196,6 +197,7 @@ def run_batch(
                         "tipo": res.tipo_documento,
                         "idioma": res.idioma_principal,
                         "qa_ok": qa.is_ok,
+                        "abstract_extraction": res.meta.get("abstract_extraction", {}),
                         "gates": [failure.gate for failure in qa.failures],
                         "cache_hit": item.cache_hit,
                         "attempts": job.attempts,

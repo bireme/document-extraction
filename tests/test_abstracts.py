@@ -145,3 +145,37 @@ class TestAbstracts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_encabezado_desplazado_sigue_siendo_una_pista():
+    texto = (
+        "Texto previo del resumen con extensión suficiente para la extracción.\n"
+        "Keywords: salud.\nAbstract\n343\nOriginal Paper\nAutor Uno\n"
+        "INTRODUCTION\nTexto del cuerpo con extensión suficiente para el candidato."
+    )
+    assert len(_find_abstract_headers(texto)) == 1
+    # El candidato no certifica los límites: la revisión decide su ubicación.
+    assert extract_abstracts(texto)[0].header == "ABSTRACT"
+
+
+def test_estructura_no_se_confunde_con_introduccion_del_articulo():
+    from pdfsum.abstracts import article_body_ranges
+
+    texto = (
+        "Abstract\nIntroduction\nTexto introductorio del resumen.\n"
+        "Methods: Se analizaron los datos.\nResults: Se observaron mejoras.\n"
+        "Keywords: salud.\nINTRODUCTION\nTexto del cuerpo del artículo."
+    )
+    limites = article_body_ranges(texto)
+    assert len(limites) == 1
+    assert texto[limites[0][0] :].startswith("INTRODUCTION")
+
+
+def test_metodos_del_articulo_no_validan_encabezado_desplazado():
+    from pdfsum.abstracts import article_body_ranges
+
+    texto = (
+        "Abstract\n343\nOriginal Paper\nAutor Uno\nINTRODUCTION\n"
+        "Texto del cuerpo del artículo.\nMethods: Se analizaron los datos."
+    )
+    assert article_body_ranges(texto)
