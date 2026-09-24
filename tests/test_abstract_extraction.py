@@ -346,3 +346,168 @@ def test_fallback_conserva_resumen_que_empieza_con_cifra_clinica():
     resultado = extract_refined_abstracts(contexto, llm)
     assert resultado.abstracts == extract_abstracts(contexto)
     assert resultado.discarded_candidates == 0
+
+
+# Transcripciones multilingües simuladas, sin excepciones por documento.
+_EN = "The study evaluated the health of patients and the results supported clinical monitoring."
+_PT = "O estudo avaliou a saúde dos pacientes com resultados importantes para a comunidade."
+_BILINGUE = (
+    _EN
+    + "\n\nKeywords: Health. Study.\n\nResumo\n"
+    + _PT
+    + "\n\nPalavras-chave: Saúde. Estudo.\n\nDOI: 10.1234/567\n\n"
+    "Abstract\n617\nArtigo Original\nAutores\n\nINTRODUCTION\nArticle body."
+)
+
+
+def _salida(lang, header, texto):
+    return json.dumps({"abstracts": [asdict(Abstract(lang, header, texto))]})
+
+
+def test_n_complementa_sin_modificar_resumen_validado():
+    llm = Mock(spec=TextLLM)
+    llm.complete_json.side_effect = [
+        _salida("pt", "RESUMO", _PT),
+        _salida("en", "ABSTRACT", _EN),
+    ]
+    result = extract_refined_abstracts(_BILINGUE, llm)
+    assert [a.text for a in result.abstracts] == [_EN, _PT]
+    assert llm.complete_json.call_count == 2
+    prompt = llm.complete_json.call_args.args[0]
+    datos = json.loads(prompt.splitlines()[-1])
+    assert datos["validated_abstracts"][0]["text"] == _PT
+    assert datos["missing_abstract_evidence"][0]["lang"] == "en"
+    diagnostico = result.diagnostics()
+    assert diagnostico["refinement_succeeded"]
+    assert diagnostico["completion_checked"]
+    assert diagnostico["completion_succeeded"]
+    assert diagnostico["completion_retry_attempted"]
+    assert diagnostico["completion_retry_succeeded"]
+    assert diagnostico["missing_abstract_evidence"] == []
+    assert not diagnostico["fallback"]
+
+
+@pytest.mark.parametrize(
+    "segunda",
+    [
+        _salida(
+            "en", "ABSTRACT", "The invented study recruited 150 imaginary patients."
+        ),
+        _salida("pt", "RESUMO", _PT),
+        '{"abstracts": []}',
+        "JSON inválido",
+        TimeoutError("Sin conexión"),
+    ],
+)
+def test_o_fallo_complementario_conserva_primera_revision(segunda):
+    llm = Mock(spec=TextLLM)
+    llm.complete_json.side_effect = [_salida("pt", "RESUMO", _PT), segunda]
+    result = extract_refined_abstracts(_BILINGUE, llm)
+    assert [a.text for a in result.abstracts] == [_PT]
+    assert llm.complete_json.call_count == 2
+    diagnostico = result.diagnostics()
+    assert diagnostico["refinement_succeeded"]
+    assert diagnostico["completion_checked"]
+    assert diagnostico["completion_retry_attempted"]
+    assert not diagnostico["completion_succeeded"]
+    assert not diagnostico["completion_retry_succeeded"]
+    assert diagnostico["missing_abstract_evidence"][0]["lang"] == "en"
+    assert not diagnostico["fallback"]
+    assert result.error is None
+
+
+@pytest.mark.parametrize("adaptador", ["abstracts", "pdf", "batch"])
+def test_completitud_parcial_se_persiste_en_report_y_meta(tmp_path, adaptador):
+    from pdfsum.adapters.abstract_batch import extract_abstracts_from_pdfs
+
+    (tmp_path / "doc.pdf").touch()
+    (tmp_path / "doc.txt").write_text(_BILINGUE)
+    ws = Workspace(tmp_path / "salida", logs_dir=tmp_path / "logs")
+    llm = Mock(spec=TextLLM)
+    llm.complete_json.side_effect = [
+        _salida("pt", "RESUMO", _PT),
+        TimeoutError("Sin conexión"),
+    ]
+    if adaptador == "abstracts":
+        report = extract_abstracts_from_pdfs(
+            str(tmp_path), ws, FakeTranscriber(_BILINGUE), llm
+        )
+    elif adaptador == "pdf":
+        report = run_batch_pdfs(
+            str(tmp_path),
+            ws,
+            FakeTranscriber(_BILINGUE),
+            FakeSummarizer(),
+            abstract_llm=llm,
+        )
+    else:
+        for _ in range(2):
+            report = run_batch(
+                str(tmp_path), str(ws.root), FakeSummarizer(), abstract_llm=llm
+            )
+        assert report["documents"][0]["cache_hit"]
+    diagnostico = report["documents"][0]["abstract_extraction"]
+    assert diagnostico["refinement_succeeded"]
+    assert not diagnostico["completion_succeeded"]
+    assert diagnostico["completion_retry_error_type"] == "TimeoutError"
+    assert diagnostico["completion_retry_failure_phase"] == "llamada_complementaria"
+    assert llm.complete_json.call_count == 2
+    assert _PT not in json.dumps(diagnostico)
+    if adaptador == "pdf":
+        persistido = json.loads(ws.summary_path("doc").read_text())
+        assert persistido["meta"]["abstract_extraction"] == diagnostico
+    elif adaptador == "batch":
+        persistido = json.loads((ws.root / "doc.json").read_text())
+        assert persistido["meta"]["abstract_extraction"] == diagnostico
+
+
+def test_p_keywords_del_cuerpo_no_activa_complemento():
+    texto = SOURCE + "\nINTRODUCTION\n" + _EN + "\nKeywords: Health. Study.\nAbstract\n"
+    llm = Mock(spec=TextLLM)
+    llm.complete_json.return_value = _salida("es", "RESUMEN", SOURCE.splitlines()[1])
+    result = extract_refined_abstracts(texto, llm)
+    llm.complete_json.assert_called_once()
+    assert result.diagnostics()["completion_succeeded"]
+    assert not result.diagnostics()["completion_retry_attempted"]
+
+
+def test_respuesta_vacia_valida_tambien_comprueba_completitud():
+    llm = Mock(spec=TextLLM)
+    llm.complete_json.side_effect = [
+        '{"abstracts": []}',
+        _salida("en", "ABSTRACT", _EN),
+    ]
+    result = extract_refined_abstracts(_BILINGUE, llm)
+    assert [a.text for a in result.abstracts] == [_EN]
+    assert not result.diagnostics()["completion_succeeded"]
+    assert result.diagnostics()["missing_abstract_evidence"][0]["lang"] == "pt"
+    assert llm.complete_json.call_count == 2
+
+
+def test_validacion_complementaria_registra_item_sin_texto():
+    llm = Mock(spec=TextLLM)
+    inventado = "The invented study recruited 150 imaginary patients."
+    llm.complete_json.side_effect = [
+        _salida("pt", "RESUMO", _PT),
+        _salida("en", "ABSTRACT", inventado),
+    ]
+    eventos = []
+    result = extract_refined_abstracts(
+        _BILINGUE,
+        llm,
+        event_sink=lambda evento, **campos: eventos.append((evento, campos)),
+    )
+    metricas = [
+        campos for evento, campos in eventos if evento == "abstract_refine_validation"
+    ]
+    assert [m["validation_attempt"] for m in metricas] == [1, 2]
+    assert [m["abstract_index"] for m in metricas] == [0, 0]
+    assert metricas[1]["abstract_lang"] == "en"
+    assert metricas[1]["abstract_header"] == "ABSTRACT"
+    assert metricas[1]["rejection_reason"]
+    assert metricas[1]["span_start"] is None
+    assert inventado not in json.dumps(eventos)
+    assert (
+        result.diagnostics()["completion_retry_failure_phase"]
+        == "validacion_complementaria"
+    )

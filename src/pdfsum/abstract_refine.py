@@ -13,7 +13,9 @@ from .abstracts import (
     _HEADER_TO_LANG,
     _KW_RE,
     _find_abstract_headers,
+    abstract_evidence,
     article_body_ranges,
+    suspicious_candidate,
 )
 from .contract import Abstract, TextLLM
 
@@ -255,6 +257,8 @@ def parse_refined_abstracts(
     *,
     event_sink: Callable[..., None] | None = None,
     spans: list[tuple[str, int, int]] | None = None,
+    occupied: list[tuple[str, int, int]] | None = None,
+    validation_attempt: int = 1,
 ) -> list[Abstract]:
     """Busca respaldo en todo el contexto, sin fijar el texto a su encabezado."""
     if not isinstance(raw, str) or len(raw) > len(context) * 6 + 4096:
@@ -266,27 +270,27 @@ def parse_refined_abstracts(
     headers = _find_abstract_headers(region)
     body_ranges = article_body_ranges(region)
     result = []
-    previous = 0
-    for item in data["abstracts"]:
-        if not isinstance(item, dict) or set(item) - {
-            "lang",
-            "header",
-            "text",
-            "keywords",
-        }:
-            raise ValueError("Campos de resumen inválidos")
-        if any(not isinstance(item.get(k), str) for k in ("lang", "header", "text")):
-            raise ValueError("Tipos de resumen inválidos")
-        if not isinstance(item.get("keywords", ""), str):
-            raise TypeError("Tipo de palabras clave inválido")
-        abstract = Abstract(**item)
-        body = _normalized(abstract.text)
-        keywords = _normalized(abstract.keywords)
-        header = abstract.header.strip().upper()
+    located = []
+    used = list(occupied or [])
+    for index, item in enumerate(data["abstracts"]):
+        # Solo etiquetas del contrato: un campo malicioso no debe filtrar prosa.
+        item_header = item.get("header") if isinstance(item, dict) else None
+        item_lang = item.get("lang") if isinstance(item, dict) else None
+        safe_header = (
+            item_header.strip().upper() if isinstance(item_header, str) else ""
+        )
         metric = {
+            "validation_attempt": validation_attempt,
+            "abstract_index": index,
+            "abstract_lang": item_lang
+            if item_lang in tuple(_HEADER_TO_LANG.values())
+            else "",
+            "abstract_header": safe_header if safe_header in _HEADER_TO_LANG else "",
+            "span_start": None,
+            "span_end": None,
             "validation_method": "exact",
             "coverage": 0.0,
-            "evaluated_tokens": len(_TOKEN_RE.findall(body)),
+            "evaluated_tokens": 0,
             "supported_percent": 0.0,
             "span_count": 1,
             "ignored_gaps": 0,
@@ -295,7 +299,9 @@ def parse_refined_abstracts(
             "gap_reasons": [],
         }
 
-        def reject(message: str, detail: str = "", *, metric=metric) -> None:
+        def reject(
+            message: str, detail: str = "", *, metric=metric, error_type=ValueError
+        ) -> None:
             if event_sink is not None:
                 event_sink(
                     "abstract_refine_validation",
@@ -304,8 +310,24 @@ def parse_refined_abstracts(
                     rejection_reason=message,
                     rejection_detail=detail,
                 )
-            raise ValueError(message)
+            raise error_type(message)
 
+        if not isinstance(item, dict) or set(item) - {
+            "lang",
+            "header",
+            "text",
+            "keywords",
+        }:
+            reject("Campos de resumen inválidos")
+        if any(not isinstance(item.get(k), str) for k in ("lang", "header", "text")):
+            reject("Tipos de resumen inválidos")
+        if not isinstance(item.get("keywords", ""), str):
+            reject("Tipo de palabras clave inválido", error_type=TypeError)
+        abstract = Abstract(**item)
+        body = _normalized(abstract.text)
+        keywords = _normalized(abstract.keywords)
+        header = abstract.header.strip().upper()
+        metric["evaluated_tokens"] = len(_TOKEN_RE.findall(body))
         if not body:
             reject("Resumen vacío")
         if _HEADER_TO_LANG.get(header) != abstract.lang:
@@ -316,11 +338,10 @@ def parse_refined_abstracts(
             reject("Encabezado sin respaldo en la transcripción")
         # Se busca en toda la fuente. Las secciones del cuerpo son una señal
         # contextual independiente de la posición del encabezado del resumen.
-        anchor = _anchor(body, region[previous:], metric)
+        anchor = _anchor(body, region, metric)
         start, end, method, coverage, count, reason = anchor
         if start >= 0:
-            start += previous
-            end += previous
+            metric.update(span_start=start, span_end=end)
             if any(start < stop and end > begin for begin, stop in body_ranges):
                 start = -1
                 reason = "El fragmento pertenece al cuerpo del artículo"
@@ -335,6 +356,8 @@ def parse_refined_abstracts(
         )
         if start < 0:
             reject("Texto del resumen sin respaldo en la transcripción", reason)
+        if any(start < stop and end > begin for _, begin, stop in used):
+            reject("Span de resumen reutilizado o superpuesto")
         tail = region[end:].lstrip(" .,:;!?\t\n")
         marker = _KW_RE.match(tail)
         if keywords and not (
@@ -347,11 +370,14 @@ def parse_refined_abstracts(
                 phase="validacion",
                 **metric,
                 rejection_reason="",
+                rejection_detail="",
             )
+        used.append((region, start, end))
+        located.append((start, end, abstract))
+    for start, end, abstract in sorted(located, key=lambda entry: entry[0]):
+        result.append(abstract)
         if spans is not None:
             spans.append((region, start, end))
-        previous = end
-        result.append(abstract)
     return result
 
 
@@ -369,6 +395,7 @@ def refine_abstracts(
     context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
     *,
     event_sink: Callable[..., None] | None = None,
+    diagnostics: dict | None = None,
 ) -> list[Abstract]:
     """Revisa el contexto inicial; el llamador decide el fallback y lo registra."""
     validate_context_chars(context_chars)
@@ -383,7 +410,8 @@ def refine_abstracts(
             a.keywords if _normalized(a.keywords) in source else "",
         )
         for a in candidates
-        if _normalized(a.text) in source
+        if not suspicious_candidate(a.text)
+        and _normalized(a.text) in source
         and _normalized(a.header).casefold() in source.casefold()
     ]
     prompt = build_refine_prompt(context, visible)
@@ -416,4 +444,81 @@ def refine_abstracts(
             ):
                 abstract.keywords = candidate.keywords
                 break
-    return refined
+    region = _source_text(context)
+    evidence = abstract_evidence(region)
+
+    def missing() -> list[dict]:
+        return [
+            item
+            for item in evidence
+            if not any(
+                abstract.lang == item["lang"]
+                and start < item["span_end"]
+                and end > item["span_start"]
+                for abstract, (_, start, end) in zip(refined, spans)
+            )
+        ]
+
+    pending = missing()
+    state = {
+        "completion_checked": True,
+        "completion_succeeded": not pending,
+        "completion_retry_attempted": bool(pending),
+        "completion_retry_succeeded": False,
+        "completion_retry_error_type": "",
+        "completion_retry_failure_phase": "",
+        "missing_abstract_evidence": pending,
+    }
+    if pending:
+        prompt = (
+            _INSTRUCTIONS
+            + "\nBusca solamente resúmenes posiblemente ausentes en las posiciones "
+            "indicadas del contexto normalizado. No modifiques ni repitas los "
+            "resúmenes ya validados. Usa exclusivamente la transcripción; no resumas "
+            "el cuerpo, no traduzcas, no parafrasees ni inventes contenido. "
+            "Devuelve solo texto existente, con el mismo contrato JSON.\n"
+            + json.dumps(
+                {
+                    "validated_abstracts": [asdict(a) for a in refined],
+                    "missing_abstract_evidence": pending,
+                    "transcription": region,
+                },
+                ensure_ascii=False,
+            )
+        )
+
+        def retry_emit(event: str, **fields) -> None:
+            if event_sink is not None:
+                event_sink(event, **{**fields, "validation_attempt": 2})
+
+        phase = "llamada_complementaria"
+        try:
+            retry_emit("phase_started", phase=phase, prompt_chars=len(prompt))
+            raw = llm.complete_json(prompt)
+            phase = "validacion_complementaria"
+            retry_emit("phase_started", phase=phase)
+            added_spans: list[tuple[str, int, int]] = []
+            added = parse_refined_abstracts(
+                raw,
+                context,
+                event_sink=retry_emit,
+                spans=added_spans,
+                occupied=spans,
+                validation_attempt=2,
+            )
+            refined.extend(added)
+            spans.extend(added_spans)
+        except Exception as exc:  # noqa: BLE001 — conserva la primera revisión válida
+            state["completion_retry_error_type"] = type(exc).__name__
+            state["completion_retry_failure_phase"] = phase
+        pending = missing()
+        state.update(
+            completion_succeeded=not pending,
+            completion_retry_succeeded=not pending,
+            missing_abstract_evidence=pending,
+        )
+    if diagnostics is not None:
+        diagnostics.update(state)
+    if event_sink is not None:
+        event_sink("abstract_refine_completion", **state)
+    return [a for a, span in sorted(zip(refined, spans), key=lambda pair: pair[1][1])]

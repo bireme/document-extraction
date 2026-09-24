@@ -179,3 +179,37 @@ def test_metodos_del_articulo_no_validan_encabezado_desplazado():
         "Texto del cuerpo del artículo.\nMethods: Se analizaron los datos."
     )
     assert article_body_ranges(texto)
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Abstract\nGuía breve.\nKeywords: salud.",
+        "Abstract\nINTRODUCTION\nThe study evaluated the health of patients and the results supported monitoring.\nKeywords: health.",
+        "Abstract\nThe study evaluated the health of patients and the results supported monitoring. Keywords: health.",
+        "Abstract\nNombre Apellido\nInstitución Departamento\nKeywords: health.",
+        "Abstract\nEste estudio evaluó la salud de los pacientes con resultados importantes para la comunidad.\nKeywords: health.",
+        "The study evaluated the health of patients and the results supported monitoring.\nKeywords: health.",
+    ],
+)
+def test_p_keywords_sin_evidencia_suficiente_no_genera_senal(texto):
+    from pdfsum.abstracts import abstract_evidence
+
+    assert abstract_evidence(texto) == []
+
+
+def test_q_senal_de_resumen_estructurado_antes_del_cuerpo():
+    from pdfsum.abstracts import abstract_evidence
+
+    texto = (
+        "Abstract\nIntroduction\nThe study evaluated the health of patients.\n"
+        "Methods: We analyzed the clinical records.\nResults: The results supported monitoring.\n"
+        "Conclusion: The intervention was effective.\n\nKeywords: health.\n"
+        "INTRODUCTION\nThe article discusses the history of clinical care."
+    )
+    evidencia = abstract_evidence(texto)
+    assert len(evidencia) == 1
+    assert evidencia[0]["lang"] == "en"
+    assert texto[evidencia[0]["span_start"] : evidencia[0]["span_end"]].startswith(
+        "Introduction"
+    )

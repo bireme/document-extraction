@@ -190,10 +190,13 @@ def test_contexto_y_candidatos_no_filtran_el_resto(limit):
     llm = Mock(spec=TextLLM)
     llm.complete_json.return_value = '{"abstracts": []}'
     assert refine_abstracts(context, candidates, llm, limit) == []
-    prompt = llm.complete_json.call_args.args[0]
+    prompt = llm.complete_json.call_args_list[0].args[0]
     data = json.loads(prompt.split("\n")[-1])
     assert data["transcription"] == context[:limit]
-    assert "SECRETO" not in prompt
+    assert llm.complete_json.call_count == 2
+    assert all(
+        "SECRETO" not in call.args[0] for call in llm.complete_json.call_args_list
+    )
 
 
 @pytest.mark.parametrize(
@@ -698,13 +701,6 @@ def test_no_extrae_introduccion_ni_cruza_bloques():
         ),
         (
             "RESUMEN\n" + BODY + "\nABSTRACT\nEnglish text.",
-            [
-                Abstract("en", "ABSTRACT", "English text."),
-                Abstract("es", "RESUMEN", BODY),
-            ],
-        ),
-        (
-            "RESUMEN\n" + BODY + "\nABSTRACT\nEnglish text.",
             [Abstract("es", "RESUMEN", BODY + " English text.")],
         ),
     ]:
@@ -948,10 +944,96 @@ def test_metricas_de_lagunas_no_guardan_el_contenido():
         )
         == esperado
     )
-    metrica = eventos[-1][1]
+    metrica = next(
+        campos for evento, campos in eventos if evento == "abstract_refine_validation"
+    )
     assert metrica["span_count"] == 2
     assert metrica["ignored_gaps"] == 1
     assert metrica["ignored_tokens"] == 3
     assert metrica["ignored_chars"] > 0
     assert len(metrica["gap_reasons"]) == 1
     assert "Journal Name" not in json.dumps(eventos)
+
+
+def test_candidatos_contaminados_no_entran_en_el_prompt():
+    esperado = Abstract("en", "ABSTRACT", _ANTES)
+    llm = Mock(spec=TextLLM)
+    llm.complete_json.return_value = respuesta([esperado])
+    assert (
+        refine_abstracts(_DESPLAZADO, extract_abstracts(_DESPLAZADO), llm)[0]
+        == esperado
+    )
+    datos = json.loads(llm.complete_json.call_args_list[0].args[0].splitlines()[-1])
+    assert datos["transcription"] == _DESPLAZADO
+    assert all("Original Paper" not in a["text"] for a in datos["candidates"])
+    llm.complete_json.return_value = respuesta([Abstract("en", "ABSTRACT", _CUERPO)])
+    with pytest.raises(ValueError, match="Texto del resumen sin respaldo"):
+        refine_abstracts(_DESPLAZADO, extract_abstracts(_DESPLAZADO), llm)
+
+
+def test_l_orden_invertido_se_ordena_por_la_fuente():
+    pt = Abstract(
+        "pt",
+        "RESUMO",
+        "Este é o resumo correto em português e possui conteúdo suficiente.",
+    )
+    en = Abstract("en", "ABSTRACT", _ANTES)
+    llm = Mock(spec=TextLLM)
+    llm.complete_json.return_value = respuesta([pt, en])
+    eventos = []
+    resultado = refine_abstracts(
+        _DESPLAZADO,
+        [],
+        llm,
+        event_sink=lambda evento, **campos: eventos.append((evento, campos)),
+    )
+    assert resultado == [en, pt]
+    llm.complete_json.assert_called_once()
+    metricas = [
+        campos for evento, campos in eventos if evento == "abstract_refine_validation"
+    ]
+    assert [m["abstract_index"] for m in metricas] == [0, 1]
+    assert [m["abstract_lang"] for m in metricas] == ["pt", "en"]
+    assert [m["abstract_header"] for m in metricas] == ["RESUMO", "ABSTRACT"]
+    assert metricas[1]["span_start"] < metricas[0]["span_start"]
+    assert all(m["coverage"] == 1 for m in metricas)
+
+
+@pytest.mark.parametrize(
+    "segundo",
+    [_ANTES, "It describes methods, results and conclusions from the clinical study."],
+)
+def test_m_no_reutiliza_spans_aunque_cambie_idioma(segundo):
+    llm = FakeSummarizer(
+        respuesta(
+            [Abstract("en", "ABSTRACT", _ANTES), Abstract("pt", "RESUMO", segundo)]
+        )
+    )
+    eventos = []
+    with pytest.raises(ValueError, match="reutilizado o superpuesto"):
+        refine_abstracts(
+            _DESPLAZADO,
+            [],
+            llm,
+            event_sink=lambda evento, **campos: eventos.append((evento, campos)),
+        )
+    metrica = eventos[-1][1]
+    assert metrica["abstract_index"] == 1
+    assert metrica["abstract_lang"] == "pt"
+    assert metrica["span_start"] is not None
+    assert _ANTES not in json.dumps(eventos)
+
+
+@pytest.mark.parametrize("item", [None, {"lang": "en", "header": _ANTES, "text": []}])
+def test_observabilidad_de_entrada_invalida_no_filtra_texto(item):
+    eventos = []
+    with pytest.raises(ValueError):
+        refine_abstracts(
+            _DESPLAZADO,
+            [],
+            FakeSummarizer(json.dumps({"abstracts": [item]})),
+            event_sink=lambda evento, **campos: eventos.append((evento, campos)),
+        )
+    assert eventos[-1][1]["abstract_index"] == 0
+    assert "abstract_header" in eventos[-1][1]
+    assert _ANTES not in json.dumps(eventos)

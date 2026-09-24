@@ -313,6 +313,13 @@ localizar el texto en todo el contexto enviado, incluso antes del encabezado.
 La validación exige respaldo textual y solo admite saltos internos acotados
 por ruido editorial; no acepta paráfrasis, traducciones ni datos inventados.
 Si falla la revisión, el fallback excluye candidatos claramente contaminados.
+Esos candidatos tampoco se presentan como pistas al LLM. Cada entrada se
+valida en todo el contexto, independientemente del orden del JSON; se rechazan
+spans reutilizados o superpuestos y se devuelve el orden de la transcripción.
+Después se buscan señales conservadoras de resúmenes ausentes antes de las
+palabras clave. Si las hay, se hace una única llamada complementaria con la
+misma validación. Si falla, se conservan los resúmenes ya validados y se
+registra la evidencia pendiente como resultado incompleto.
 `report.json` distingue la ejecución del pipeline de la revisión mediante
 `abstract_extraction`, también disponible en `run` y `batch`.
 Véanse los límites, el fallback y los campos de diagnóstico en

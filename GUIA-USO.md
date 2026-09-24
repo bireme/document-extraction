@@ -204,11 +204,18 @@ Copia tu configuración desde `.pdfsum-config.example.json` en el repo.
 `extract-abstracts` transcribe los PDFs y recupera los resúmenes ya presentes
 en los documentos, sin generar un resumen nuevo del artículo. La extracción
 determinística aporta candidatos; el LLM localiza y refina los límites usando
-la transcripción como fuente de verdad. Puede recuperar texto anterior al
+la transcripción como fuente de verdad. Los candidatos con contaminación
+editorial evidente se excluyen del prompt, pero se conserva la transcripción.
+Puede recuperar texto anterior al
 encabezado o ausente de los candidatos. La validación busca respaldo en todo
 el contexto enviado, con preferencia por coincidencias contiguas. Admite
 espacios, guiones de fin de línea y correcciones OCR limitadas; rechaza cifras
 alteradas, traducciones, paráfrasis y contenido nuevo.
+
+Cada entrada del JSON se busca independientemente en todo el contexto: el
+orden de respuesta no limita la búsqueda. Se rechazan spans duplicados o
+superpuestos, incluso entre idiomas distintos o entre las dos llamadas.
+Los resultados se ordenan por su posición real en la transcripción.
 
 También admite spans ordenados separados por bloques editoriales cortos, con
 señales de layout verificables. Cada laguna se valida: no basta con encontrar
@@ -221,6 +228,30 @@ siguen siendo válidas; un encabezado de resumen no legitima el cuerpo del artí
 para la revisión (20 000 por defecto); no permite recuperar contenido fuera
 de esa ventana. Se usa el mismo backend/modelo configurado, sin dependencias
 adicionales.
+
+Tras una respuesta válida, incluso vacía, se comprueba la completitud dentro
+de esa ventana. La heurística exige un marcador de palabras clave al inicio
+de una línea, antes del primer cuerpo de artículo reconocido, y un bloque
+inmediato de 40 a 6000 caracteres, al menos ocho palabras y puntuación final.
+Usa límites de párrafo/encabezado, descarta contaminación editorial y exige
+compatibilidad entre el idioma del marcador, las señales léxicas del bloque
+y un encabezado de resumen presente en el contexto, aunque esté desplazado.
+No compara los idiomas de los candidatos determinísticos ni extrae ese bloque
+automáticamente. Un marcador aislado o dentro del cuerpo no basta.
+
+Si queda evidencia sin un span validado del mismo idioma, se hace una sola
+llamada complementaria. El prompt identifica los resúmenes ya validados y
+pide únicamente los ausentes, sin modificar los anteriores, resumir el cuerpo,
+traducir ni parafrasear. La respuesta pasa por la misma validación extractiva.
+Si falla la llamada, el JSON o la validación, se conserva la primera revisión;
+si la evidencia sigue pendiente, el resultado se registra como incompleto.
+No se inicia otro ciclo ni se promueve un candidato sospechoso como reemplazo.
+
+Esta comprobación detecta evidencia de otro resumen, no certifica que cada
+resumen esté íntegro ni que todos los existentes hayan sido encontrados.
+Puede omitir bloques sin palabras clave, sin encabezado compatible, con idioma
+incierto o con layout que no satisfaga las señales conservadoras. No amplía
+los permisos para omitir prosa interna ni modifica los límites de ruido editorial.
 
 Si falla la revisión, el fallback conserva candidatos sin contaminación
 editorial evidente y descarta los sospechosos (por ejemplo, rótulo inicial
@@ -253,6 +284,14 @@ Los tiempos `seconds` usan un reloj monotónico. Si falla la revisión,
 excepción y `failure_phase`. El fallback aplica el filtro conservador descrito
 arriba. Los eventos de validación incluyen cobertura, método, número de spans,
 lagunas, tokens/caracteres ignorados y motivos de aceptación de las lagunas.
+`abstract_refine_validation` incluye `abstract_index` (desde cero, dentro de
+cada respuesta), `abstract_lang`, `abstract_header`, `validation_attempt`
+(1 o 2), `span_start` y `span_end`, tanto al aceptar como al rechazar una
+entrada. Solo se registran idiomas/encabezados admitidos por el contrato;
+los inválidos quedan vacíos. Los offsets corresponden al contexto normalizado
+(NFC, sin guiones de fin de línea y con espacios horizontales compactados),
+con extremo final exclusivo; son `null` si no se localizó el span. Los fallos
+del JSON completo no tienen índice de entrada. No se registra el abstract.
 
 Cada documento de `report.json` incluye `abstract_extraction` con
 `refinement_attempted`, `refinement_succeeded`, `fallback`, `fallback_reason`,
@@ -262,9 +301,25 @@ bloque en `meta` del resultado; el cache de `batch` lo preserva. La fase permite
 distinguir errores operativos de la llamada al LLM de fallos de validación.
 Una ejecución exitosa del pipeline no implica una revisión exitosa del abstract.
 
+El mismo bloque incluye `completion_checked`, `completion_succeeded`,
+`completion_retry_attempted`, `completion_retry_succeeded`,
+`completion_retry_error_type`, `completion_retry_failure_phase` y
+`missing_abstract_evidence`. El evento `abstract_refine_completion` publica
+estos campos sin contenido textual. La evidencia pendiente contiene solo
+`lang`, `span_start` y `span_end` en el contexto normalizado. Las fases del
+intento adicional son `llamada_complementaria` y `validacion_complementaria`.
+`completion_succeeded` significa que no queda evidencia detectada pendiente,
+no una garantía de exhaustividad. Sin revisión válida, `completion_checked`
+es falso. `completion_retry_succeeded` solo es verdadero si se intentó el
+complemento y resolvió toda la evidencia. Una respuesta complementaria vacía
+puede dejarlo falso sin error operativo. `refinement_succeeded=true` junto a
+`completion_succeeded=false` y `completion_checked=true` indica revisión
+válida pero incompleta; no activa el fallback de la primera llamada.
+
 El reporte y la salida de la CLI incluyen documentos con revisión LLM exitosa,
 fallback determinístico y ningún abstract. Una revisión válida que devuelve
-una lista vacía cuenta como exitosa y como documento sin abstract; un fallback
+una lista vacía y no recupera resúmenes en el complemento cuenta como exitosa
+y como documento sin abstract, con el diagnóstico de completitud aparte; un fallback
 sin candidatos también cuenta como documento sin abstract. `accepted_count`
 cuenta abstracts aceptados por la revisión; `final_count` cuenta los que quedan
 tras aplicar el fallback, si hizo falta. Los modos `--fake` y `--dry-run`

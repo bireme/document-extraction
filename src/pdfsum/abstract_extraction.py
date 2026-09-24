@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS, refine_abstracts
 from .abstracts import extract_abstracts, suspicious_candidate
@@ -21,6 +21,7 @@ class AbstractExtractionResult:
     error: Exception | None = None
     failure_phase: str = ""
     discarded_candidates: int = 0
+    completion: dict = field(default_factory=dict)
 
     def diagnostics(self) -> dict:
         """Separa el éxito operativo del respaldo de los resúmenes extraídos."""
@@ -34,6 +35,14 @@ class AbstractExtractionResult:
             "candidate_count": self.candidate_count,
             "final_count": len(self.abstracts),
             "discarded_candidates": self.discarded_candidates,
+            "completion_checked": False,
+            "completion_succeeded": False,
+            "completion_retry_attempted": False,
+            "completion_retry_succeeded": False,
+            "completion_retry_error_type": "",
+            "completion_retry_failure_phase": "",
+            "missing_abstract_evidence": [],
+            **self.completion,
         }
 
 
@@ -60,13 +69,19 @@ def extract_refined_abstracts(
         if event_sink is not None:
             event_sink(event, **fields)
 
+    completion = {}
     try:
         abstracts = refine_abstracts(
-            text, candidates, llm, context_chars, event_sink=emit
+            text,
+            candidates,
+            llm,
+            context_chars,
+            event_sink=emit,
+            diagnostics=completion,
         )
     except Exception as exc:  # noqa: BLE001 — el fallo de revisión no invalida el documento
         retained = [a for a in candidates if not suspicious_candidate(a.text)]
         return AbstractExtractionResult(
             retained, count, True, False, exc, phase, count - len(retained)
         )
-    return AbstractExtractionResult(abstracts, count, True, True)
+    return AbstractExtractionResult(abstracts, count, True, True, completion=completion)

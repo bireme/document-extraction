@@ -89,7 +89,7 @@ def extract_abstracts_from_pdfs(
 
         def next_phase(event: str, *, details=details, emit=emit, **fields) -> None:
             nonlocal phase, phase_started, review_started
-            if event == "abstract_refine_validation":
+            if event != "phase_started":
                 emit(event, **fields)
                 return
             emit(
@@ -135,6 +135,7 @@ def extract_abstracts_from_pdfs(
             )
             abstracts = extraction.abstracts
             details["discarded_candidates"] = extraction.discarded_candidates
+            details.update(extraction.completion)
             fallback = False
             error = {}
             if extraction.error is not None:

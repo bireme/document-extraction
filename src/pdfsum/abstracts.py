@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 
+from .classify import language_scores
 from .contract import Abstract
 
 # Encabezados de bloque de resumen -> idioma.
@@ -171,6 +172,60 @@ def suspicious_candidate(text: str) -> bool:
             text,
         )
     )
+
+
+def abstract_evidence(text: str) -> list[dict]:
+    """Señala bloques previos a palabras clave; no extrae ni certifica resúmenes."""
+    headers = _find_abstract_headers(text)
+    body_start = min((a for a, _ in article_body_ranges(text)), default=len(text))
+    evidence = []
+    for marker in _KW_RE.finditer(text):
+        line_start = text.rfind("\n", 0, marker.start()) + 1
+        if text[line_start : marker.start()].strip() or marker.start() >= body_start:
+            continue
+        label = marker.group(1).casefold()
+        lang = (
+            "en"
+            if label.startswith("key")
+            else "pt"
+            if label.startswith(("palavra", "descritor"))
+            else "es"
+            if label.startswith("palabra")
+            else "fr"
+            if label.startswith("mot")
+            else ""
+        )
+        if not lang or not any(
+            _HEADER_TO_LANG[h.group(1).upper()] == lang for h in headers
+        ):
+            continue
+        end = len(text[:line_start].rstrip())
+        # Un bloque inmediato y acotado evita arrastrar títulos y otras secciones.
+        boundaries = [m.end() for m in re.finditer(r"\n[ \t]*\n", text[:end])]
+        boundaries.extend(h.end() for h in headers if h.end() <= end)
+        start = max(boundaries, default=0)
+        while start < end and text[start].isspace():
+            start += 1
+        block = text[start:end]
+        words = re.findall(r"\b[^\W\d_]+\b", block)
+        scores = language_scores(block)
+        if (
+            not 40 <= len(block) <= 6000
+            or len(words) < 8
+            or not re.search(r"[.!?]$", block)
+            or suspicious_candidate(block)
+            or _KW_RE.search(block)
+            or not scores
+            or scores.get(lang, 0) < 10
+            or any(
+                score >= scores[lang]
+                for other, score in scores.items()
+                if other != lang
+            )
+        ):
+            continue
+        evidence.append({"lang": lang, "span_start": start, "span_end": end})
+    return evidence
 
 
 def extract_abstracts(text: str) -> list[Abstract]:
