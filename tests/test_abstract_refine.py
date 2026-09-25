@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from pdfsum.abstract_refine import refine_abstracts
+from pdfsum.abstract_refine import parse_refined_abstracts, refine_abstracts
 from pdfsum.abstracts import extract_abstracts
 from pdfsum.adapters.abstract_batch import extract_abstracts_from_pdfs
 from pdfsum.adapters.fake_summarizer import FakeSummarizer
@@ -1010,13 +1010,11 @@ def test_m_no_reutiliza_spans_aunque_cambie_idioma(segundo):
         )
     )
     eventos = []
-    with pytest.raises(ValueError, match="reutilizado o superpuesto"):
-        refine_abstracts(
-            _DESPLAZADO,
-            [],
-            llm,
-            event_sink=lambda evento, **campos: eventos.append((evento, campos)),
-        )
+    assert parse_refined_abstracts(
+        llm.complete_json(""),
+        _DESPLAZADO,
+        event_sink=lambda evento, **campos: eventos.append((evento, campos)),
+    ) == [Abstract("en", "ABSTRACT", _ANTES)]
     metrica = eventos[-1][1]
     assert metrica["abstract_index"] == 1
     assert metrica["abstract_lang"] == "pt"
@@ -1037,3 +1035,77 @@ def test_observabilidad_de_entrada_invalida_no_filtra_texto(item):
     assert eventos[-1][1]["abstract_index"] == 0
     assert "abstract_header" in eventos[-1][1]
     assert _ANTES not in json.dumps(eventos)
+
+
+@pytest.mark.parametrize("invertido", [False, True])
+@pytest.mark.parametrize(
+    "invalido",
+    [
+        None,
+        {"campo": "desconocido"},
+        {"lang": [], "header": {}, "text": 3},
+        asdict(Abstract("es", "RESUMEN", BODY, 123)),
+        asdict(Abstract("en", "RESUMEN", BODY)),
+        asdict(Abstract("es", "RESUMEN", "Contenido inventado sin respaldo.")),
+    ],
+)
+def test_rechazo_individual_no_reserva_spans(invalido, invertido):
+    valido = Abstract("es", "RESUMEN", BODY)
+    items = [asdict(valido), invalido]
+    if invertido:
+        items.reverse()
+    eventos, spans = [], []
+    assert parse_refined_abstracts(
+        json.dumps({"abstracts": items}),
+        SOURCE,
+        spans=spans,
+        event_sink=lambda evento, **campos: eventos.append(campos),
+    ) == [valido]
+    assert len(spans) == 1
+    assert len(eventos) == 2
+    assert [bool(e["rejection_reason"]) for e in eventos] == (
+        [True, False] if invertido else [False, True]
+    )
+    assert [e["abstract_index"] for e in eventos] == [0, 1]
+
+
+def test_todos_rechazados_conservan_primera_excepcion_y_diagnosticos():
+    eventos, spans = [], []
+    items = [asdict(Abstract("es", "RESUMEN", BODY, 123)), None]
+    with pytest.raises(TypeError, match="Tipo de palabras clave inválido"):
+        parse_refined_abstracts(
+            json.dumps({"abstracts": items}),
+            SOURCE,
+            spans=spans,
+            event_sink=lambda evento, **campos: eventos.append(campos),
+        )
+    assert spans == []
+    assert len(eventos) == 2
+    assert all(e["rejection_reason"] for e in eventos)
+
+
+@pytest.mark.parametrize("cruda", ["{", "[]", "{}", '{"abstracts": {}}'])
+def test_estructura_invalida_sigue_siendo_fatal(cruda):
+    with pytest.raises((ValueError, TypeError)):
+        parse_refined_abstracts(cruda, SOURCE)
+
+
+def test_lista_vacia_no_reserva_spans():
+    spans = []
+    assert parse_refined_abstracts('{"abstracts": []}', SOURCE, spans=spans) == []
+    assert spans == []
+
+
+@pytest.mark.parametrize("superpuesto", [False, True])
+def test_ordena_validos_y_continua_tras_overlap(superpuesto):
+    primero = Abstract("es", "RESUMEN", BODY)
+    segundo = Abstract("en", "ABSTRACT", "Otro resumen con resultados independientes.")
+    contexto = SOURCE + "\nABSTRACT\n" + segundo.text
+    items = [segundo, segundo, primero] if superpuesto else [segundo, primero]
+    spans = []
+    assert parse_refined_abstracts(respuesta(items), contexto, spans=spans) == [
+        primero,
+        segundo,
+    ]
+    assert len(spans) == 2
+    assert spans[0][1] < spans[1][1]

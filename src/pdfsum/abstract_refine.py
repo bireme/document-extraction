@@ -252,6 +252,10 @@ def _anchor(
     return best
 
 
+class _RejectedAbstract(Exception):
+    """Distingue un rechazo de contenido de un fallo ajeno a la validación."""
+
+
 def parse_refined_abstracts(
     raw: str,
     context: str,
@@ -273,6 +277,7 @@ def parse_refined_abstracts(
     result = []
     located = []
     used = list(occupied or [])
+    first_rejection = None
     for index, item in enumerate(data["abstracts"]):
         # Solo etiquetas del contrato: un campo malicioso no debe filtrar prosa.
         item_header = item.get("header") if isinstance(item, dict) else None
@@ -311,70 +316,78 @@ def parse_refined_abstracts(
                     rejection_reason=message,
                     rejection_detail=detail,
                 )
-            raise error_type(message)
+            raise _RejectedAbstract(error_type(message))
 
-        if not isinstance(item, dict) or set(item) - {
-            "lang",
-            "header",
-            "text",
-            "keywords",
-        }:
-            reject("Campos de resumen inválidos")
-        if any(not isinstance(item.get(k), str) for k in ("lang", "header", "text")):
-            reject("Tipos de resumen inválidos")
-        if not isinstance(item.get("keywords", ""), str):
-            reject("Tipo de palabras clave inválido", error_type=TypeError)
-        abstract = Abstract(**item)
-        body = _normalized(abstract.text)
-        keywords = _normalized(abstract.keywords)
-        header = abstract.header.strip().upper()
-        metric["evaluated_tokens"] = len(_TOKEN_RE.findall(body))
-        if not body:
-            reject("Resumen vacío")
-        if _HEADER_TO_LANG.get(header) != abstract.lang:
-            reject("Idioma incompatible con el encabezado")
-        if _KW_RE.search(body):
-            reject("Palabras clave mezcladas dentro del resumen")
-        if not any(match.group(1).upper() == header for match in headers):
-            reject("Encabezado sin respaldo en la transcripción")
-        # Se busca en toda la fuente. Las secciones del cuerpo son una señal
-        # contextual independiente de la posición del encabezado del resumen.
-        anchor = _anchor(body, region, metric)
-        start, end, method, coverage, count, reason = anchor
-        if start >= 0:
-            metric.update(span_start=start, span_end=end)
-            if any(start < stop and end > begin for begin, stop in body_ranges):
-                start = -1
-                reason = "El fragmento pertenece al cuerpo del artículo"
-            elif any(start <= match.start() < end for match in headers):
-                start = -1
-                reason = "El fragmento cruza encabezados de resúmenes"
-        metric.update(
-            validation_method=method,
-            coverage=coverage,
-            evaluated_tokens=count,
-            supported_percent=round(100 * coverage, 2),
-        )
-        if start < 0:
-            reject("Texto del resumen sin respaldo en la transcripción", reason)
-        if any(start < stop and end > begin for _, begin, stop in used):
-            reject("Span de resumen reutilizado o superpuesto")
-        tail = region[end:].lstrip(" .,:;!?\t\n")
-        marker = _KW_RE.match(tail)
-        if keywords and not (
-            marker and _normalized(tail[marker.end() :]).startswith(keywords)
-        ):
-            abstract.keywords = ""
-        if event_sink is not None:
-            event_sink(
-                "abstract_refine_validation",
-                phase="validacion",
-                **metric,
-                rejection_reason="",
-                rejection_detail="",
+        try:
+            if not isinstance(item, dict) or set(item) - {
+                "lang",
+                "header",
+                "text",
+                "keywords",
+            }:
+                reject("Campos de resumen inválidos")
+            if any(
+                not isinstance(item.get(k), str) for k in ("lang", "header", "text")
+            ):
+                reject("Tipos de resumen inválidos")
+            if not isinstance(item.get("keywords", ""), str):
+                reject("Tipo de palabras clave inválido", error_type=TypeError)
+            abstract = Abstract(**item)
+            body = _normalized(abstract.text)
+            keywords = _normalized(abstract.keywords)
+            header = abstract.header.strip().upper()
+            metric["evaluated_tokens"] = len(_TOKEN_RE.findall(body))
+            if not body:
+                reject("Resumen vacío")
+            if _HEADER_TO_LANG.get(header) != abstract.lang:
+                reject("Idioma incompatible con el encabezado")
+            if _KW_RE.search(body):
+                reject("Palabras clave mezcladas dentro del resumen")
+            if not any(match.group(1).upper() == header for match in headers):
+                reject("Encabezado sin respaldo en la transcripción")
+            # Se busca en toda la fuente. Las secciones del cuerpo son una señal
+            # contextual independiente de la posición del encabezado del resumen.
+            anchor = _anchor(body, region, metric)
+            start, end, method, coverage, count, reason = anchor
+            if start >= 0:
+                metric.update(span_start=start, span_end=end)
+                if any(start < stop and end > begin for begin, stop in body_ranges):
+                    start = -1
+                    reason = "El fragmento pertenece al cuerpo del artículo"
+                elif any(start <= match.start() < end for match in headers):
+                    start = -1
+                    reason = "El fragmento cruza encabezados de resúmenes"
+            metric.update(
+                validation_method=method,
+                coverage=coverage,
+                evaluated_tokens=count,
+                supported_percent=round(100 * coverage, 2),
             )
-        used.append((region, start, end))
-        located.append((start, end, abstract))
+            if start < 0:
+                reject("Texto del resumen sin respaldo en la transcripción", reason)
+            if any(start < stop and end > begin for _, begin, stop in used):
+                reject("Span de resumen reutilizado o superpuesto")
+            tail = region[end:].lstrip(" .,:;!?\t\n")
+            marker = _KW_RE.match(tail)
+            if keywords and not (
+                marker and _normalized(tail[marker.end() :]).startswith(keywords)
+            ):
+                abstract.keywords = ""
+            if event_sink is not None:
+                event_sink(
+                    "abstract_refine_validation",
+                    phase="validacion",
+                    **metric,
+                    rejection_reason="",
+                    rejection_detail="",
+                )
+            used.append((region, start, end))
+            located.append((start, end, abstract))
+        except _RejectedAbstract as exc:
+            if first_rejection is None:
+                first_rejection = exc.args[0]
+    if not located and first_rejection is not None:
+        raise first_rejection
     for start, end, abstract in sorted(located, key=lambda entry: entry[0]):
         result.append(abstract)
         if spans is not None:

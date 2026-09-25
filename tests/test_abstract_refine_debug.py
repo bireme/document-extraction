@@ -113,10 +113,10 @@ def test_cli_preserva_respuestas_y_comportamiento(tmp_path, caplog, texto, respu
             else:
                 cantidad = len(json.loads(cruda)["abstracts"])
                 assert datos["abstracts_returned"] == cantidad
-                assert datos["validation_succeeded"] is (cantidad == 1)
+                assert datos["validation_succeeded"]
                 if cantidad == 2:
-                    assert datos["error_type"] == "ValueError"
-                    assert len(datos["validation"]) == 1
+                    assert datos["error_type"] == ""
+                    assert len(datos["validation"]) == 2
                     assert datos["validation"][0]["abstract_lang"] == "pt"
                     assert (
                         datos["validation"][0]["rejection_reason"]
@@ -170,3 +170,78 @@ def test_retira_intento_complementario_de_ejecucion_anterior(tmp_path):
     nuevo = AbstractRefineDebugSink(tmp_path, "documento")
     nuevo(attempt=1, raw_response='{"abstracts": []}')
     assert not list((tmp_path / "documento").glob("attempt-2-*"))
+
+
+@pytest.mark.parametrize("idioma", ["en", "pt"])
+@pytest.mark.parametrize("intento", [1, 2])
+@pytest.mark.parametrize("invertido", [False, True])
+def test_respuesta_mixta_preserva_resultado_con_y_sin_debug(idioma, intento, invertido):
+    principal, otro = (_salida("en", "ABSTRACT", _EN), _salida("pt", "RESUMO", _PT))
+    if idioma == "pt":
+        principal, otro = otro, principal
+    valido = json.loads(principal)["abstracts"][0]
+    rechazado = json.loads(otro)["abstracts"][0]
+    if intento == 1:
+        rechazado["text"] = "Contenido inventado sin respaldo en la fuente."
+    items = [rechazado, valido] if invertido else [valido, rechazado]
+    mixta = json.dumps({"abstracts": items})
+    respuestas = [mixta, otro] if intento == 1 else [otro, mixta]
+    resultados, diagnosticos, llamadas, eventos = [], [], [], []
+    for activo in (False, True):
+        llm = Mock(spec=TextLLM)
+        llm.complete_json.side_effect = respuestas
+        registros, capturas = [], []
+        resultado = extract_refined_abstracts(
+            _BILINGUE,
+            llm,
+            event_sink=lambda evento, registros=registros, **campos: registros.append(
+                (evento, campos)
+            ),
+            debug_sink=(lambda capturas=capturas, **campos: capturas.append(campos))
+            if activo
+            else None,
+        )
+        resultados.append(resultado.abstracts)
+        diagnosticos.append(resultado.diagnostics())
+        llamadas.append(llm.complete_json.call_args_list)
+        eventos.append(registros)
+        assert [a.text for a in resultado.abstracts] == [_EN, _PT]
+        assert resultado.diagnostics()["completion_succeeded"]
+        assert not resultado.diagnostics()["fallback"]
+        if activo:
+            datos = next(
+                c["metadata"]
+                for c in capturas
+                if c["attempt"] == intento and "metadata" in c
+            )
+            assert datos["validation_succeeded"]
+            assert len(datos["validation"]) == 2
+            assert sum(bool(m["rejection_reason"]) for m in datos["validation"]) == 1
+    assert resultados[0] == resultados[1]
+    assert diagnosticos[0] == diagnosticos[1]
+    assert llamadas[0] == llamadas[1]
+    assert eventos[0] == eventos[1]
+
+
+def test_todos_invalidos_activan_fallback_con_y_sin_debug():
+    esperado = extract_refined_abstracts(SOURCE, None).abstracts
+    for activo in (False, True):
+        capturas = []
+        llm = Mock(spec=TextLLM)
+        llm.complete_json.return_value = '{"abstracts": [null, {}]}'
+        resultado = extract_refined_abstracts(
+            SOURCE,
+            llm,
+            debug_sink=(lambda capturas=capturas, **campos: capturas.append(campos))
+            if activo
+            else None,
+        )
+        assert resultado.abstracts == esperado
+        assert resultado.diagnostics()["fallback"]
+        assert not resultado.diagnostics()["refinement_succeeded"]
+        llm.complete_json.assert_called_once()
+        if activo:
+            datos = capturas[-1]["metadata"]
+            assert not datos["validation_succeeded"]
+            assert datos["error_type"] == "ValueError"
+            assert len(datos["validation"]) == 2
