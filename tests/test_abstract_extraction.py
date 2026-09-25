@@ -375,7 +375,23 @@ def test_n_complementa_sin_modificar_resumen_validado():
     assert llm.complete_json.call_count == 2
     prompt = llm.complete_json.call_args.args[0]
     datos = json.loads(prompt.splitlines()[-1])
-    assert datos["validated_abstracts"][0]["text"] == _PT
+    assert datos["validated_languages"] == ["pt"]
+    assert datos["target_lang"] == "en"
+    assert datos["transcription_fragments"] == [_EN]
+    assert "encabezado original" not in prompt
+    ejemplo = json.loads(prompt.split("Devuelve SOLO JSON: ")[1].splitlines()[0][:-1])
+    assert ejemplo["abstracts"][0]["header"] == datos["source_headers"][0]
+    assert datos["source_headers"] == ["Abstract"]
+    assert ejemplo["abstracts"][0]["keywords"] == ""
+    assert (
+        "Copia header exactamente de source_headers, sin inventarlo, traducirlo "
+        "ni sustituirlo."
+    ) in prompt
+    assert (
+        "Devuelve keywords solo si están literalmente disponibles en los "
+        'fragmentos proporcionados; en caso contrario, usa "".'
+    ) in prompt
+    assert _PT not in prompt
     assert datos["missing_abstract_evidence"][0]["lang"] == "en"
     diagnostico = result.diagnostics()
     assert diagnostico["refinement_succeeded"]
@@ -476,12 +492,13 @@ def test_respuesta_vacia_valida_tambien_comprueba_completitud():
     llm.complete_json.side_effect = [
         '{"abstracts": []}',
         _salida("en", "ABSTRACT", _EN),
+        '{"abstracts": []}',
     ]
     result = extract_refined_abstracts(_BILINGUE, llm)
     assert [a.text for a in result.abstracts] == [_EN]
     assert not result.diagnostics()["completion_succeeded"]
     assert result.diagnostics()["missing_abstract_evidence"][0]["lang"] == "pt"
-    assert llm.complete_json.call_count == 2
+    assert llm.complete_json.call_count == 3
 
 
 def test_validacion_complementaria_registra_item_sin_texto():
@@ -511,3 +528,41 @@ def test_validacion_complementaria_registra_item_sin_texto():
         result.diagnostics()["completion_retry_failure_phase"]
         == "validacion_complementaria"
     )
+
+
+@pytest.mark.parametrize(
+    "propuesta",
+    [
+        _PT,
+        "Article body.",
+        _EN.replace("health", "wellbeing"),
+        _EN.replace("the health of patients and ", ""),
+    ],
+)
+def test_complemento_del_idioma_solicitado_conserva_validadores(propuesta):
+    llm = Mock(spec=TextLLM)
+    llm.complete_json.side_effect = [
+        _salida("pt", "RESUMO", _PT),
+        _salida("en", "ABSTRACT", propuesta),
+    ]
+    eventos = []
+    resultado = extract_refined_abstracts(
+        _BILINGUE,
+        llm,
+        event_sink=lambda evento, **campos: eventos.append((evento, campos)),
+    )
+    assert [a.text for a in resultado.abstracts] == [_PT]
+    assert not resultado.diagnostics()["completion_succeeded"]
+    validaciones = [
+        campos
+        for evento, campos in eventos
+        if evento == "abstract_refine_validation" and campos["validation_attempt"] == 2
+    ]
+    assert len(validaciones) == 1
+    assert validaciones[0]["target_lang"] == "en"
+    assert validaciones[0]["rejection_reason"]
+    if propuesta == _PT:
+        assert (
+            validaciones[0]["rejection_reason"]
+            == "Span de resumen reutilizado o superpuesto"
+        )

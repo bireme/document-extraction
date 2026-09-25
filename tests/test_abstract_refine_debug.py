@@ -120,7 +120,7 @@ def test_cli_preserva_respuestas_y_comportamiento(tmp_path, caplog, texto, respu
                     assert datos["validation"][0]["abstract_lang"] == "pt"
                     assert (
                         datos["validation"][0]["rejection_reason"]
-                        == "Span de resumen reutilizado o superpuesto"
+                        == "Idioma distinto del solicitado"
                     )
     assert resultados[0] == resultados[1]
     assert llamadas[0] == llamadas[1]
@@ -163,13 +163,14 @@ def test_respuesta_existe_antes_de_validar(tmp_path):
         extract_refined_abstracts("Sin resumen.", llm, debug_sink=sink)
 
 
-def test_retira_intento_complementario_de_ejecucion_anterior(tmp_path):
+@pytest.mark.parametrize("intento", [2, 3, 5])
+def test_retira_intento_complementario_de_ejecucion_anterior(tmp_path, intento):
     sink = AbstractRefineDebugSink(tmp_path, "documento")
-    sink(attempt=2, raw_response='{"abstracts": []}')
-    sink(attempt=2, metadata={"validation_succeeded": True})
+    sink(attempt=intento, raw_response='{"abstracts": []}')
+    sink(attempt=intento, metadata={"validation_succeeded": True})
     nuevo = AbstractRefineDebugSink(tmp_path, "documento")
     nuevo(attempt=1, raw_response='{"abstracts": []}')
-    assert not list((tmp_path / "documento").glob("attempt-2-*"))
+    assert not list((tmp_path / "documento").glob(f"attempt-{intento}-*"))
 
 
 @pytest.mark.parametrize("idioma", ["en", "pt"])
@@ -245,3 +246,78 @@ def test_todos_invalidos_activan_fallback_con_y_sin_debug():
             assert not datos["validation_succeeded"]
             assert datos["error_type"] == "ValueError"
             assert len(datos["validation"]) == 2
+
+
+@pytest.mark.parametrize("inicial", ["pt", "en", None])
+@pytest.mark.parametrize(
+    "fallo", ["ninguno", "otro_idioma", "repetido", "vacio", "inventado"]
+)
+def test_complemento_dirigido_por_idioma_con_y_sin_debug(inicial, fallo):
+    textos = {"pt": _PT, "en": _EN}
+    encabezados = {"pt": "RESUMO", "en": "ABSTRACT"}
+    pendientes = [idioma for idioma in ("en", "pt") if idioma != inicial]
+    primera = (
+        _salida(inicial, encabezados[inicial], textos[inicial])
+        if inicial
+        else '{"abstracts":[]}'
+    )
+    respuestas = [primera]
+    for idioma in pendientes:
+        if fallo == "ninguno":
+            respuesta = _salida(idioma, encabezados[idioma], textos[idioma])
+        elif fallo == "otro_idioma":
+            respuesta = _salida("es", "RESUMEN", "Un resumen ajeno.")
+        elif fallo == "repetido":
+            otro = inicial or ("pt" if idioma == "en" else "en")
+            respuesta = _salida(otro, encabezados[otro], textos[otro])
+        elif fallo == "vacio":
+            respuesta = '{"abstracts":[]}'
+        else:
+            respuesta = _salida(
+                idioma, encabezados[idioma], textos[idioma] + " Inventado."
+            )
+        respuestas.append(respuesta)
+    ejecuciones = []
+    for activo in (False, True):
+        llm = Mock(spec=TextLLM)
+        llm.complete_json.side_effect = respuestas
+        capturas, eventos = [], []
+        resultado = extract_refined_abstracts(
+            _BILINGUE,
+            llm,
+            debug_sink=(lambda capturas=capturas, **campos: capturas.append(campos))
+            if activo
+            else None,
+            event_sink=lambda evento, eventos=eventos, **campos: eventos.append(
+                (evento, campos)
+            ),
+        )
+        esperado = (
+            ["en", "pt"] if fallo == "ninguno" else ([inicial] if inicial else [])
+        )
+        assert [a.lang for a in resultado.abstracts] == esperado
+        assert [a.text for a in resultado.abstracts] == [textos[i] for i in esperado]
+        assert resultado.diagnostics()["completion_retry_succeeded"] == (
+            fallo == "ninguno"
+        )
+        assert llm.complete_json.call_count == 1 + len(pendientes)
+        for intento, idioma in enumerate(pendientes, 2):
+            prompt = llm.complete_json.call_args_list[intento - 1].args[0]
+            datos = json.loads(prompt.splitlines()[-1])
+            assert datos["target_lang"] == idioma
+            assert datos["transcription_fragments"] == [textos[idioma]]
+            assert all(e["lang"] == idioma for e in datos["missing_abstract_evidence"])
+            assert "No resumas, traduzcas, parafrasees ni completes contenido" in prompt
+            assert '{"abstracts":[]}' in prompt
+            if activo:
+                metadata = next(
+                    c["metadata"]
+                    for c in capturas
+                    if c["attempt"] == intento and "metadata" in c
+                )
+                assert metadata["target_lang"] == idioma
+                assert metadata["validation_succeeded"] == (fallo == "ninguno")
+                if fallo != "ninguno":
+                    assert metadata["rejection_reason"]
+        ejecuciones.append((resultado.abstracts, resultado.diagnostics(), eventos))
+    assert ejecuciones[0] == ejecuciones[1]

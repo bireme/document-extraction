@@ -19,11 +19,11 @@ class AbstractRefineDebugSink:
         self.directory.mkdir(parents=True, exist_ok=True)
         if not self.initialized:
             # Retira intentos anteriores del documento para evitar diagnósticos viejos.
-            for number in (1, 2):
-                for suffix in ("response.txt", "validation.json"):
-                    (self.directory / f"attempt-{number}-{suffix}").unlink(
-                        missing_ok=True
-                    )
+            for suffix in ("response.txt", "validation.json"):
+                for path in self.directory.glob(f"attempt-*-{suffix}"):
+                    number = path.name.split("-")[1]
+                    if number.isdigit():
+                        path.unlink(missing_ok=True)
             self.initialized = True
         if metadata is None:
             # Bytes UTF-8 sin reformateo ni conversión de saltos de línea.
