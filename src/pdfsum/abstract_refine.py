@@ -142,6 +142,30 @@ def _source_text(text: str) -> str:
     return re.sub(r"[^\S\n]+", " ", text)
 
 
+def _boundary_pattern(text: str) -> str:
+    """Permite solo espacios y guiones entre letras, sin cambiar caracteres."""
+    compact = re.sub(
+        r"[\s-]+",
+        lambda match: (
+            ""
+            if (
+                match.start() > 0
+                and match.end() < len(text)
+                and text[match.start() - 1].isalpha()
+                and text[match.end()].isalpha()
+            )
+            else match.group()
+        ),
+        text,
+    )
+    parts = []
+    for index, char in enumerate(compact):
+        if index and compact[index - 1].isalpha() and char.isalpha():
+            parts.append(r"[\s-]*")
+        parts.append(r"\s+" if char.isspace() else re.escape(char))
+    return r"(?<!\w)" + "".join(parts) + r"(?!\w)"
+
+
 def _anchor(
     body: str, region: str, details: dict | None = None
 ) -> tuple[int, int, str, float, int, str]:
@@ -155,6 +179,9 @@ def _anchor(
         return exact.start(), exact.end(), "exact", 1.0, count, ""
     if not count:
         return -1, -1, "approximate", 0.0, 0, "Sin palabras evaluables"
+    boundary = re.search(_boundary_pattern(body), region)
+    if boundary:
+        return boundary.start(), boundary.end(), "approximate", 1.0, count, ""
     source = list(_TOKEN_RE.finditer(region))
     target = [t.group().casefold() for t in wanted]
     values = [t.group().casefold() for t in source]
@@ -200,13 +227,12 @@ def _anchor(
                 output_tokens = target[i:j]
                 original_tokens = window[k:l]
 
-                # Acepta una palabra reconstruida a partir de fragmentos partidos.
-                if (
-                    len(output_tokens) == 1
-                    and len(original_tokens) > 1
-                    and output_tokens[0] == "".join(original_tokens)
+                # Comprueba también los separadores originales del bloque.
+                if re.fullmatch(
+                    _boundary_pattern(body[wanted[i].start() : wanted[j - 1].end()]),
+                    region[source[start + k].start() : source[start + l - 1].end()],
                 ):
-                    supported += 1
+                    supported += j - i
                 elif len(output_tokens) == len(original_tokens):
                     for output, original in zip(output_tokens, original_tokens):
                         if (

@@ -1096,6 +1096,105 @@ def test_lista_vacia_no_reserva_spans():
     assert spans == []
 
 
+# Fragmentos de entrada en portugués e inglés para reproducir los casos reales.
+@pytest.mark.parametrize(
+    "partido,unido",
+    [
+        ("den tro", "dentro"),
+        ("junta mente", "juntamente"),
+        ("per corre", "percorre"),
+        ("virulên cia", "virulência"),
+        ("au sentes", "ausentes"),
+        ("internação-extubação", "internaçãoextubação"),
+    ],
+)
+@pytest.mark.parametrize("inverso", [False, True])
+@pytest.mark.parametrize("inicio", [False, True])
+def test_fronteras_conservan_caracteres_y_span(partido, unido, inverso, inicio):
+    original, propuesta = (unido, partido) if inverso else (partido, unido)
+    prefijo = "" if inicio else "El estudio registró "
+    original = prefijo + original + " durante la evaluación."
+    propuesta = prefijo + propuesta + " durante la evaluación."
+    contexto = "RESUMEN\n" + original + "\nPalabras clave: evaluación."
+    esperado = Abstract("es", "RESUMEN", propuesta, "evaluación.")
+    spans = []
+    assert parse_refined_abstracts(respuesta([esperado]), contexto, spans=spans) == [
+        esperado
+    ]
+    region, inicio_span, fin_span = spans[0]
+    assert region[inicio_span:fin_span] == original
+
+
+@pytest.mark.parametrize(
+    "original,propuesta",
+    [
+        ("their", "its"),
+        ("hipotese", "hipótese"),
+        ("73", "78"),
+        ("sin respuesta", "con respuesta"),
+        ("no mejoró", "mejoró"),
+        ("den,tro", "dentro"),
+        ("den/tro", "dentro"),
+        ("7 3", "73"),
+        ("7-3", "73"),
+        ("² ³", "²³"),
+    ],
+)
+def test_fronteras_no_justifican_otros_cambios(original, propuesta):
+    contexto = "RESUMEN\nEl estudio registró den tro y " + original + " al finalizar."
+    texto = "El estudio registró dentro y " + propuesta + " al finalizar."
+    with pytest.raises(ValueError, match="Texto del resumen sin respaldo"):
+        parse_refined_abstracts(respuesta([Abstract("es", "RESUMEN", texto)]), contexto)
+
+
+@pytest.mark.parametrize("inverso", [False, True])
+def test_fronteras_con_ruido_editorial_acotado(inverso):
+    original, propuesta = ("den tro", "dentro")
+    if inverso:
+        original, propuesta = propuesta, original
+    contexto = (
+        "RESUMEN\nEl estudio registró " + original + " durante la evaluación."
+        "\n343\nRevista de Salud\nLos resultados fueron favorables."
+    )
+    texto = (
+        "El estudio registró " + propuesta + " durante la evaluación. "
+        "Los resultados fueron favorables."
+    )
+    esperado = Abstract("es", "RESUMEN", texto)
+    assert parse_refined_abstracts(respuesta([esperado]), contexto) == [esperado]
+
+
+@pytest.mark.parametrize(
+    "intermedio",
+    ["Se excluyeron pacientes.", "ABSTRACT", "Palabras clave: salud."],
+)
+def test_fronteras_no_permiten_omisiones_internas(intermedio):
+    contexto = (
+        "RESUMEN\nEl estudio registró den tro durante la evaluación.\n"
+        + intermedio
+        + "\nLos resultados fueron favorables."
+    )
+    texto = (
+        "El estudio registró dentro durante la evaluación. "
+        "Los resultados fueron favorables."
+    )
+    with pytest.raises(ValueError, match="Texto del resumen sin respaldo"):
+        parse_refined_abstracts(respuesta([Abstract("es", "RESUMEN", texto)]), contexto)
+
+
+def test_fronteras_siguen_sujetas_al_cuerpo_y_overlap():
+    original = "El estudio registró den tro durante la evaluación."
+    esperado = Abstract("es", "RESUMEN", original.replace("den tro", "dentro"))
+    with pytest.raises(ValueError, match="Texto del resumen sin respaldo"):
+        parse_refined_abstracts(
+            respuesta([esperado]),
+            "RESUMEN\nOtro resumen.\nINTRODUCCIÓN\n" + original,
+        )
+    assert parse_refined_abstracts(
+        respuesta([esperado, esperado]), "RESUMEN\n" + original
+    ) == [esperado]
+
+
 @pytest.mark.parametrize("superpuesto", [False, True])
 def test_ordena_validos_y_continua_tras_overlap(superpuesto):
     primero = Abstract("es", "RESUMEN", BODY)
