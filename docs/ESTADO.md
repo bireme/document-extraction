@@ -1,6 +1,6 @@
 # Estado del producto pdfsum
 
-**Actualizado:** 2026-09-03 · **Versión:** 0.14.0 (Unreleased: fase20) ·
+**Actualizado:** 2026-09-25 · **Versión:** 0.14.0 (Unreleased: fase20 y extracción de resúmenes de origen) ·
 **Repo:** GitHub `idourra/pdf-summarizer` (rama → PR → CI → merge → tag)
 
 ## Roadmap y avance
@@ -29,6 +29,7 @@
 | 18 | Preprocesado OCR medido por benchmark | ✅ hecho | 0.14.0 | `FASE18-PREPROCESADO-OCR` 9/9 |
 | 19 | Fallback VLM verificado (anti-alucinación) | ✅ hecho | 0.14.0 | `FASE19-VLM-VERIFICADO` 7/7 |
 | 20 | Despliegue como servicio (API async `pdfsum api` + `pdfsum worker`, extra opcional FastAPI) | ✅ hecho | Unreleased | `FASE20-SERVICIO` (PR #24, #25) |
+| — | Extracción y revisión de resúmenes de origen | ✅ hecho | Unreleased | — |
 
 **Roadmap completo + integración E2E.** El producto arranca desde la **fuente
 real (PDFs)** y cubre el ciclo completo hasta la catalogação, con
@@ -49,7 +50,7 @@ observabilidad durable del lote y salida bibliográfica BIBFRAME/LILACS.
 <ws>/lilacs.json                 export de catalogação (pdfsum export)
 ```
 
-## Qué hace hoy (0.13.0)
+## Qué hace hoy
 
 1. **Clasifica** origen (nativo/escaneado), **idioma** y **tipo**
    (artículo/manual/divulgación) y **selecciona la porción** según el tipo.
@@ -73,6 +74,11 @@ observabilidad durable del lote y salida bibliográfica BIBFRAME/LILACS.
 7. **Distribución**: PyPI (`pip install pdfsum` / `uv`), Docker + Compose
    (modos local/GPU/cloud), wrapper `bin/pdfsum-docker`, CI completo
    (lint+format+tests+arquitectura+build) y publicación automática por tag.
+8. **Extrae y preserva resúmenes de origen** con `extract-abstracts`, sin generar
+   un resumen nuevo del artículo. Puede revisar sus límites con LLM contra la
+   transcripción, aplica validación extractiva y usa un fallback conservador
+   si falla la revisión. La comprobación de completitud no garantiza encontrar
+   todos los resúmenes; véase `GUIA-USO.md`.
 
 ## Pendientes / decisiones abiertas
 

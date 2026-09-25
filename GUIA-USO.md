@@ -159,7 +159,7 @@ Copia tu configuración desde `.pdfsum-config.example.json` en el repo.
 
 ## Buenas prácticas
 
-- **Idempotente:** re-ejecutar no repite OCR (usa `ocr/*.txt` cacheados).
+- **Idempotente (`run`/`transcribe`):** re-ejecutar reutiliza `ocr/*.txt` cacheados.
   La caché está **versionada**: si el PDF cambia (hash) o mejora el
   pipeline OCR, se re-transcribe sola. `--retranscribe` fuerza re-OCR.
   Para regenerar desde cero, borra el workspace.
@@ -195,7 +195,8 @@ Copia tu configuración desde `.pdfsum-config.example.json` en el repo.
   números de página). En `run`, los abstracts se extraen y revisan sobre la
   transcripción cruda antes de limpiar el texto para generar el resumen.
 - **Idiomas:** el resumen sale en el idioma del documento; los abstracts de
-  origen multilingües se preservan verbatim.
+  origen multilingües se preservan de forma extractiva, sin traducir ni
+  parafrasear, con correcciones limitadas de formato/OCR durante la revisión.
 - Si falta Ollama/modelo, los comandos se detienen con un mensaje claro de qué
   instalar (ver también `pdfsum doctor`).
 
@@ -203,18 +204,22 @@ Copia tu configuración desde `.pdfsum-config.example.json` en el repo.
 
 `extract-abstracts` transcribe los PDFs y recupera los resúmenes ya presentes
 en los documentos, sin generar un resumen nuevo del artículo. La extracción
-determinística aporta candidatos; el LLM localiza y refina los límites usando
-la transcripción como fuente de verdad. Los candidatos con contaminación
+determinística aporta candidatos verbatim a partir de encabezados como RESUMO,
+ABSTRACT, RESUMEN o RÉSUMÉ; no certifica sus límites. El LLM localiza el resumen
+y refina sus límites usando la transcripción como fuente de verdad. Los candidatos con contaminación
 editorial evidente se excluyen del prompt, pero se conserva la transcripción.
 Puede recuperar texto anterior al
 encabezado o ausente de los candidatos. La validación busca respaldo en todo
 el contexto enviado, con preferencia por coincidencias contiguas. Admite
-espacios, guiones de fin de línea y correcciones OCR limitadas; rechaza cifras
-alteradas, traducciones, paráfrasis y contenido nuevo.
+correcciones limitadas de formato/OCR en espacios, guiones y fronteras de
+tokens, validadas contra la fuente; rechaza cifras alteradas, traducciones,
+paráfrasis y contenido nuevo.
 
 Cada entrada del JSON se busca independientemente en todo el contexto: el
 orden de respuesta no limita la búsqueda. Se rechazan spans duplicados o
-superpuestos, incluso entre idiomas distintos o entre las dos llamadas.
+superpuestos, incluso entre idiomas distintos o entre llamadas. El rechazo
+de una entrada no impide validar las demás: se conservan las aceptadas. Si
+ninguna entrada de una lista no vacía es válida, falla esa revisión.
 Los resultados se ordenan por su posición real en la transcripción.
 
 También admite spans ordenados separados por bloques editoriales cortos, con
@@ -232,20 +237,27 @@ adicionales.
 Tras una respuesta válida, incluso vacía, se comprueba la completitud dentro
 de esa ventana. La heurística exige un marcador de palabras clave al inicio
 de una línea, antes del primer cuerpo de artículo reconocido, y un bloque
-inmediato de 40 a 6000 caracteres, al menos ocho palabras y puntuación final.
+inmediato de 40 a 6000 caracteres y al menos ocho palabras. Exige puntuación
+final o señales reconocidas de objetivo, método y cierre, en ese orden.
 Usa límites de párrafo/encabezado, descarta contaminación editorial y exige
 compatibilidad entre el idioma del marcador, las señales léxicas del bloque
 y un encabezado de resumen presente en el contexto, aunque esté desplazado.
 No compara los idiomas de los candidatos determinísticos ni extrae ese bloque
 automáticamente. Un marcador aislado o dentro del cuerpo no basta.
 
-Si queda evidencia sin un span validado del mismo idioma, se hace una sola
-llamada complementaria. El prompt identifica los resúmenes ya validados y
-pide únicamente los ausentes, sin modificar los anteriores, resumir el cuerpo,
-traducir ni parafrasear. La respuesta pasa por la misma validación extractiva.
-Si falla la llamada, el JSON o la validación, se conserva la primera revisión;
-si la evidencia sigue pendiente, el resultado se registra como incompleto.
-No se inicia otro ciclo ni se promueve un candidato sospechoso como reemplazo.
+Si queda evidencia sin un span validado del mismo idioma que se superponga
+con ella, se realiza como máximo un intento complementario dirigido por cada
+idioma pendiente. Por ejemplo, EN y PT pendientes pueden dar lugar a una
+llamada inicial y dos intentos adicionales. Cada prompt indica el idioma
+solicitado, los idiomas ya validados, los encabezados y los fragmentos de
+evidencia; pide extraer solo el idioma solicitado, sin modificar los resúmenes
+anteriores, resumir el cuerpo, traducir ni parafrasear. La respuesta pasa por
+la misma validación extractiva. Si falla la llamada, el JSON o la validación,
+se conservan los resúmenes ya validados y se continúa con el siguiente idioma
+pendiente. Si queda evidencia al finalizar, el resultado se registra como
+incompleto. No hay ciclos indefinidos: cada idioma pendiente recibe como
+máximo ese intento dentro de la ejecución. No se promueve un candidato
+sospechoso como reemplazo.
 
 Esta comprobación detecta evidencia de otro resumen, no certifica que cada
 resumen esté íntegro ni que todos los existentes hayan sido encontrados.
@@ -263,7 +275,10 @@ el documento. Sin LLM se mantiene la extracción determinística sin revisión.
 pdfsum extract-abstracts --in ./pdfs --workspace ./data
 ```
 
-Los resultados se guardan en `abstracts/<doc_id>.json`.
+Los resultados se guardan en `abstracts/<doc_id>.json`. El comando reutiliza
+`ocr/<doc_id>.txt` si existe; solo transcribe el PDF cuando falta ese archivo.
+No valida `ocr/*.meta.json` como `run`/`transcribe` ni ofrece `--retranscribe`.
+Para forzar una nueva transcripción, elimina esa caché o usa un workspace nuevo.
 
 ### Observabilidad de `extract-abstracts`
 
@@ -286,8 +301,8 @@ arriba. Los eventos de validación incluyen cobertura, método, número de spans
 lagunas, tokens/caracteres ignorados y motivos de aceptación de las lagunas.
 `abstract_refine_validation` incluye `abstract_index` (desde cero, dentro de
 cada respuesta), `abstract_lang`, `abstract_header`, `validation_attempt`
-(1 o 2), `span_start` y `span_end`, tanto al aceptar como al rechazar una
-entrada. Solo se registran idiomas/encabezados admitidos por el contrato;
+(1 para la llamada inicial; N ≥ 2 para los intentos por idioma), `span_start`
+y `span_end`, tanto al aceptar como al rechazar una entrada. Solo se registran idiomas/encabezados admitidos por el contrato;
 los inválidos quedan vacíos. Los offsets corresponden al contexto normalizado
 (NFC, sin guiones de fin de línea y con espacios horizontales compactados),
 con extremo final exclusivo; son `null` si no se localizó el span. Los fallos
@@ -353,10 +368,11 @@ Por cada documento con respuesta de la LLM se crea `DIR/<doc_id>/`, con:
   `error_type`, motivos de rechazo y `abstracts_returned` (cuando se puede leer
   la lista). `validation` contiene las métricas existentes por entrada visitada:
   índice, idioma, encabezado, método, cobertura, respaldo, spans y rechazo.
-- `attempt-2-response.txt` y `attempt-2-validation.json`: solamente si la llamada
-  complementaria devuelve una respuesta. Si falla el transporte, no hay respuesta
-  que guardar. La respuesta se conserva completa aunque el primer resumen sea
-  rechazado y las entradas siguientes no lleguen a validarse.
+- `attempt-N-response.txt` y `attempt-N-validation.json`, con N ≥ 2: intentos
+  complementarios dirigidos por idioma. Si falla el transporte, no hay archivo
+  de respuesta, pero se registran metadatos del fallo en el JSON diagnóstico.
+  La respuesta recibida se conserva completa aunque se rechacen entradas;
+  la validación continúa con las demás.
 
 El éxito indicado corresponde al parser de esa tentativa; no sustituye el
 resultado de completitud. El JSON diagnóstico no duplica la transcripción,
