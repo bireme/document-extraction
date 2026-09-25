@@ -178,6 +178,20 @@ def abstract_evidence(text: str) -> list[dict]:
     """Señala bloques previos a palabras clave; no extrae ni certifica resúmenes."""
     headers = _find_abstract_headers(text)
     body_start = min((a for a, _ in article_body_ranges(text)), default=len(text))
+    # Estas secciones cierran la búsqueda aunque el encabezado esté desplazado.
+    section = re.search(
+        r"(?im)^[^\S\r\n]*(?:\d+[.)]?\s+)?"
+        r"(?:INTRODUÇÃO|INTRODUCCIÓN|INTRODUCTION|REFERENCES|REFERÊNCIAS|"
+        r"REFERENCIAS|BIBLIOGRAPHY|BIBLIOGRAFÍA)[^\S\r\n]*$",
+        text,
+    )
+    # La introducción de un resumen estructurado ya tiene su propio control.
+    if section and not re.fullmatch(
+        r"\s*(?:INTRODUÇÃO|INTRODUCCIÓN|INTRODUCTION)\s*",
+        section.group(),
+        re.IGNORECASE,
+    ):
+        body_start = min(body_start, section.start())
     evidence = []
     for marker in _KW_RE.finditer(text):
         line_start = text.rfind("\n", 0, marker.start()) + 1
@@ -200,6 +214,10 @@ def abstract_evidence(text: str) -> list[dict]:
         ):
             continue
         end = len(text[:line_start].rstrip())
+        # Un encabezado aislado puede quedar entre el resumen y las palabras clave.
+        for header in reversed(headers):
+            if header.end() <= line_start and not text[header.end() : end].strip():
+                end = len(text[: header.start()].rstrip())
         # Un bloque inmediato y acotado evita arrastrar títulos y otras secciones.
         boundaries = [m.end() for m in re.finditer(r"\n[ \t]*\n", text[:end])]
         boundaries.extend(h.end() for h in headers if h.end() <= end)
@@ -209,10 +227,18 @@ def abstract_evidence(text: str) -> list[dict]:
         block = text[start:end]
         words = re.findall(r"\b[^\W\d_]+\b", block)
         scores = language_scores(block)
+        # Sin punto final exigimos objetivo, método y cierre, en ese orden.
+        # Son señales adicionales; nunca sustituyen los controles del idioma.
+        complete_structure = re.search(
+            r"(?is)\b(?:objective|objetivo|objectif)\b.+"
+            r"\b(?:cohort|coorte|cohorte|methods|métodos|méthodes)\b.+"
+            r"\b(?:concluded|concluiu-se|concluye|concluyó|conclusion|conclusión)\b",
+            block,
+        )
         if (
             not 40 <= len(block) <= 6000
             or len(words) < 8
-            or not re.search(r"[.!?]$", block)
+            or not (re.search(r"[.!?]$", block) or complete_structure)
             or suspicious_candidate(block)
             or _KW_RE.search(block)
             or not scores

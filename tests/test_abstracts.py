@@ -213,3 +213,140 @@ def test_q_senal_de_resumen_estructurado_antes_del_cuerpo():
     assert texto[evidencia[0]["span_start"] : evidencia[0]["span_end"]].startswith(
         "Introduction"
     )
+
+
+@pytest.fixture
+def transcripcion_bilingue():
+    from pathlib import Path
+
+    # Datos originales multilingües; se conserva hasta el inicio del artículo.
+    return (
+        Path(__file__).parent / "fixtures/abstracts/extubacion_bilingue.txt"
+    ).read_text()
+
+
+def test_evidencia_real_sin_punto_final(transcripcion_bilingue):
+    from pdfsum.abstracts import abstract_evidence
+
+    evidencias = abstract_evidence(transcripcion_bilingue)
+    assert [e["lang"] for e in evidencias] == ["en", "pt"]
+    en, pt = evidencias
+    texto = transcripcion_bilingue[en["span_start"] : en["span_end"]]
+    assert texto == transcripcion_bilingue.split("\n\n")[1]
+    assert not texto.endswith(".")
+    assert en["span_end"] < pt["span_start"]
+
+
+@pytest.mark.parametrize("posicion", [0, 1, 2])
+def test_encabezado_antes_entre_o_despues(posicion, transcripcion_bilingue):
+    from pdfsum.abstracts import abstract_evidence
+
+    texto = transcripcion_bilingue.split("\n\n")[1]
+    partes = [texto, "Keywords: salud."]
+    partes.insert(posicion, "Abstract")
+    fuente = "\n\n".join(partes)
+    evidencias = abstract_evidence(fuente)
+    assert len(evidencias) == 1
+    e = evidencias[0]
+    assert fuente[e["span_start"] : e["span_end"]] == texto
+
+
+@pytest.mark.parametrize(
+    "prefijo",
+    [
+        "INTRODUÇÃO",
+        "1. INTRODUCTION",
+        "REFERENCES",
+        "REFERÊNCIAS",
+        "REFERENCIAS",
+        "BIBLIOGRAPHY",
+        "BIBLIOGRAFÍA",
+        "INTRODUCTION\nMETHODS",
+        "INTRODUCTION\nDISCUSSION",
+    ],
+)
+def test_secciones_no_generan_evidencia(prefijo, transcripcion_bilingue):
+    from pdfsum.abstracts import abstract_evidence
+
+    texto = transcripcion_bilingue.split("\n\n")[1]
+    assert (
+        abstract_evidence(
+            "Abstract\n" + prefijo + "\n\n" + texto + "\nKeywords: salud."
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    "contenido",
+    [
+        "",
+        "INTRODUÇÃO\n",
+        "Nota editorial sobre los autores y la revista.",
+        "Original Paper\n",
+    ],
+)
+def test_senales_aisladas_no_bastan(contenido):
+    from pdfsum.abstracts import abstract_evidence
+
+    assert abstract_evidence("Abstract\n" + contenido + "\nKeywords: salud.") == []
+
+
+@pytest.mark.parametrize(
+    "subencabezado",
+    [
+        "Methods",
+        "MÉTODOS",
+        "Results",
+        "RESULTADOS",
+        "Discussion",
+        "DISCUSSÃO",
+        "DISCUSIÓN",
+    ],
+)
+def test_subencabezados_aislados_no_cortan_resumen(subencabezado):
+    from pdfsum.abstracts import abstract_evidence
+
+    # Se reutiliza la prosa inglesa de entrada para comprobar el idioma y el span.
+    prosa = extract_abstracts(_TRILINGUAL)[1].text
+    bloque = (
+        f"Objective\n{prosa}\nMethods\n{prosa}\nResults\n{prosa}\n"
+        f"{subencabezado}\n{prosa}\nConclusion\n{prosa}"
+    )
+    texto = "ABSTRACT\n" + bloque + "\nKeywords: salud."
+    inicio = texto.index(bloque)
+    assert abstract_evidence(texto) == [
+        {"lang": "en", "span_start": inicio, "span_end": inicio + len(bloque)}
+    ]
+
+
+def test_sin_punto_exige_las_tres_senales(transcripcion_bilingue):
+    from pdfsum.abstracts import abstract_evidence
+
+    texto = transcripcion_bilingue.split("\n\n")[1]
+    for senal in ("objective", "cohort", "concluded"):
+        fuente = "Abstract\n" + texto.replace(senal, "dato") + "\nKeywords: salud."
+        assert abstract_evidence(fuente) == []
+
+
+@pytest.mark.parametrize("prefijo", ["DOI: 10.1234/567", "343 Original Paper"])
+def test_bloque_editorial_no_genera_evidencia(prefijo, transcripcion_bilingue):
+    from pdfsum.abstracts import abstract_evidence
+
+    texto = transcripcion_bilingue.split("\n\n")[1]
+    assert (
+        abstract_evidence("Abstract\n" + prefijo + "\n" + texto + "\nKeywords: salud.")
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    "encabezado,palabras", [("Abstract", ""), ("", "Keywords: salud.")]
+)
+def test_sin_pareja_estructural_no_hay_evidencia(
+    encabezado, palabras, transcripcion_bilingue
+):
+    from pdfsum.abstracts import abstract_evidence
+
+    texto = transcripcion_bilingue.split("\n\n")[1]
+    assert abstract_evidence(encabezado + "\n" + texto + "\n" + palabras) == []

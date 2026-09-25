@@ -566,3 +566,38 @@ def test_complemento_del_idioma_solicitado_conserva_validadores(propuesta):
             validaciones[0]["rejection_reason"]
             == "Span de resumen reutilizado o superpuesto"
         )
+
+
+@pytest.mark.parametrize("recuperar", [True, False])
+def test_transcripcion_real_activa_complemento_ingles(recuperar):
+    from pathlib import Path
+
+    from pdfsum.abstracts import abstract_evidence
+
+    fuente = (
+        Path(__file__).parent / "fixtures/abstracts/extubacion_bilingue.txt"
+    ).read_text()
+    evidencias = abstract_evidence(fuente)
+    en, pt = [fuente[e["span_start"] : e["span_end"]] for e in evidencias]
+    llm = Mock(spec=TextLLM)
+    llm.complete_json.side_effect = [
+        _salida("pt", "RESUMO", pt),
+        _salida("en", "ABSTRACT", en) if recuperar else '{"abstracts": []}',
+    ]
+    resultado = extract_refined_abstracts(fuente, llm)
+    assert llm.complete_json.call_count == 2
+    datos = json.loads(llm.complete_json.call_args.args[0].splitlines()[-1])
+    assert datos["target_lang"] == "en"
+    assert datos["validated_languages"] == ["pt"]
+    assert datos["transcription_fragments"] == [en]
+    assert datos["missing_abstract_evidence"] == [evidencias[0]]
+    diagnostico = resultado.diagnostics()
+    assert diagnostico["completion_retry_attempted"]
+    assert diagnostico["completion_succeeded"] is recuperar
+    assert diagnostico["missing_abstract_evidence"] == (
+        [] if recuperar else [evidencias[0]]
+    )
+    assert next(a.text for a in resultado.abstracts if a.lang == "pt") == pt
+    assert [a.lang for a in resultado.abstracts] == (
+        ["en", "pt"] if recuperar else ["pt"]
+    )
