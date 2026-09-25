@@ -13,19 +13,24 @@ release — ver `docs/ESTADO.md`).
 Un módulo Python que convierte el texto de un documento (ya transcrito) en un
 **resumen estructurado** conforme a un **contrato JSON estable**, eligiendo la
 **plantilla según el tipo de documento** y respondiendo **en el idioma del
-documento**, preservando los **resúmenes de origen multilingües** verbatim.
+documento**, preservando los **resúmenes de origen multilingües** de forma
+extractiva, sin traducir ni parafrasear, con correcciones limitadas de formato/OCR.
 
 ## Arquitectura (hexagonal)
 
 ```
 src/pdfsum/
-  contract.py    # DOMINIO: tipos + PUERTOS Summarizer/Transcriber + contrato JSON
+  contract.py    # DOMINIO: tipos + PUERTOS Summarizer/Transcriber/TextLLM + contrato JSON
   classify.py    # DOMINIO: origen (nativo/escaneado), idioma, tipo -> plantilla
   templates.py   # DOMINIO: plantillas A (artículo/IMRAD), B (manual), C (folleto)
-  abstracts.py   # DOMINIO: candidatos verbatim de RESUMO/ABSTRACT/RESUMEN...
+  abstracts.py   # DOMINIO: extracción determinística, encabezados y evidencia estructural
+  abstract_refine.py     # DOMINIO: revisión con LLM y validación extractiva contra la transcripción
+  abstract_extraction.py # DOMINIO: política compartida de extracción, revisión y fallback
   excerpt.py     # DOMINIO: estrategia de porción por tipo (no corte ciego)
   pipeline.py    # DOMINIO: orquesta clasificación + porción + resumen + abstracts
   adapters/      # EXTERNO: Ollama, OCR (poppler+Tesseract), fakes para tests
+    abstract_batch.py        # procesamiento por lote de extract-abstracts
+    abstract_refine_debug.py # persistencia diagnóstica opt-in de respuestas de revisión
   cli.py         # CLI
 ```
 
@@ -308,18 +313,26 @@ make check    # lint + test
 ### Revisión extractiva de resúmenes de origen
 
 `pdfsum extract-abstracts --in ./pdfs --workspace ./data` recupera resúmenes
-existentes. Los candidatos determinísticos son pistas: la revisión puede
-localizar el texto en todo el contexto enviado, incluso antes del encabezado.
-La validación exige respaldo textual y solo admite saltos internos acotados
-por ruido editorial; no acepta paráfrasis, traducciones ni datos inventados.
+existentes, sin generar un resumen nuevo del artículo. La extracción
+determinística conserva texto verbatim a partir de encabezados como RESUMO,
+ABSTRACT, RESUMEN o RÉSUMÉ. Sus candidatos son pistas, no una certificación de
+los límites: la revisión puede localizar el texto en todo el contexto enviado,
+incluso antes del encabezado.
+La validación exige respaldo textual, admite correcciones limitadas de
+formato/OCR y solo permite saltos internos acotados por ruido editorial; no acepta paráfrasis, traducciones ni datos inventados.
 Si falla la revisión, el fallback excluye candidatos claramente contaminados.
 Esos candidatos tampoco se presentan como pistas al LLM. Cada entrada se
 valida en todo el contexto, independientemente del orden del JSON; se rechazan
 spans reutilizados o superpuestos y se devuelve el orden de la transcripción.
-Después se buscan señales conservadoras de resúmenes ausentes antes de las
-palabras clave. Si las hay, se hace una única llamada complementaria con la
-misma validación. Si falla, se conservan los resúmenes ya validados y se
-registra la evidencia pendiente como resultado incompleto.
+Tras una respuesta válida, incluso una lista vacía, se buscan señales
+conservadoras de resúmenes ausentes: palabras clave, idioma, posición antes
+del cuerpo y un encabezado compatible en el contexto, aunque esté desplazado.
+La heurística puede omitir casos válidos. Se realiza como máximo un intento
+complementario dirigido por cada idioma con evidencia pendiente, con la misma
+validación y sin ciclos indefinidos. Si falla, se conservan los resúmenes ya
+validados y se registra la evidencia pendiente como resultado incompleto.
+`completion_succeeded=true` solo indica que no queda evidencia detectada
+pendiente; no garantiza haber encontrado todos los resúmenes.
 `report.json` distingue la ejecución del pipeline de la revisión mediante
 `abstract_extraction`, también disponible en `run` y `batch`.
 Véanse los límites, el fallback y los campos de diagnóstico en

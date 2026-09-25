@@ -5,8 +5,26 @@ semántico. Repositorio en GitHub (`idourra/pdf-summarizer`): flujo
 rama → PR → CI → merge; las versiones se marcan con tags `vX.Y.Z`
 (el tag dispara la publicación a PyPI vía `publish.yml`).
 
-## [Unreleased] — Servicio API + worker (FASE20)
+## [Unreleased] — Servicio API + worker (FASE20) y extracción de resúmenes de origen
 ### Añadido
+- Comando `pdfsum extract-abstracts`: recupera resúmenes ya presentes en los
+  PDFs, sin generar un resumen nuevo del artículo. Revisión extractiva con el
+  backend/modelo configurado y validación contra la transcripción; rechaza
+  paráfrasis, traducciones, contenido inventado y cambios sustantivos, con
+  correcciones limitadas de formato/OCR.
+- Validación independiente de cada abstract: conserva las entradas válidas,
+  rechaza spans reutilizados o superpuestos y ordena por posición en la fuente.
+  Si falla la revisión, aplica un fallback determinístico conservador que
+  excluye candidatos con contaminación editorial evidente.
+- Detección conservadora de evidencia de resúmenes ausentes tras una respuesta
+  válida, incluso vacía; como máximo un intento complementario dirigido por
+  idioma pendiente. Conserva lo validado si falla el complemento; no garantiza
+  exhaustividad aunque no quede evidencia pendiente.
+- Configuración `abstract_refine_context_chars` (20 000 caracteres iniciales
+  por defecto) y diagnóstico opt-in de respuestas de revisión mediante
+  `extract-abstracts --abstract-refine-debug-dir`, separado de los logs normales.
+- Política compartida de extracción, revisión y fallback integrada también
+  en `run`, `batch`, `summarize`, `verify` y `worker`.
 - Nuevo modo servicio **asíncrono**: `pdfsum api` (FastAPI, extra opcional
   `pdfsum[service]`) recibe PDFs (`POST /api/documents`) y encola jobs;
   `pdfsum worker` consume la cola y ejecuta el flujo existente, generando
