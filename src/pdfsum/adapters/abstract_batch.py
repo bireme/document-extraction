@@ -11,6 +11,7 @@ from ..abstract_extraction import extract_refined_abstracts
 from ..abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS
 from ..contract import TextLLM, Transcriber
 from ..workspace import Workspace
+from .abstract_refine_debug import AbstractRefineDebugSink
 from .observability import EventLog, atomic_write_json
 
 
@@ -23,6 +24,7 @@ def extract_abstracts_from_pdfs(
     *,
     backend: str | None = None,
     model: str | None = None,
+    abstract_refine_debug_dir: str | Path | None = None,
 ) -> dict:
     """Transcribe y extrae con eventos y checkpoints del ejecutor de lotes."""
     workspace.ocr_dir.mkdir(parents=True, exist_ok=True)
@@ -131,7 +133,15 @@ def extract_abstracts_from_pdfs(
             details.update(backend=backend, model=model)
             review_started = time.perf_counter()
             extraction = extract_refined_abstracts(
-                text, llm, context_chars, event_sink=next_phase
+                text,
+                llm,
+                context_chars,
+                event_sink=next_phase,
+                debug_sink=(
+                    AbstractRefineDebugSink(Path(abstract_refine_debug_dir), doc_id)
+                    if abstract_refine_debug_dir is not None
+                    else None
+                ),
             )
             abstracts = extraction.abstracts
             details["discarded_candidates"] = extraction.discarded_candidates

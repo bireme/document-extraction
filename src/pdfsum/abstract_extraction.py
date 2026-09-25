@@ -52,6 +52,7 @@ def extract_refined_abstracts(
     context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
     *,
     event_sink: Callable[..., None] | None = None,
+    debug_sink: Callable[..., None] | None = None,
 ) -> AbstractExtractionResult:
     """Revisa incluso sin candidatos; el fallback excluye contaminación evidente."""
     candidates = extract_abstracts(text)
@@ -78,6 +79,7 @@ def extract_refined_abstracts(
             context_chars,
             event_sink=emit,
             diagnostics=completion,
+            debug_sink=debug_sink,
         )
     except Exception as exc:  # noqa: BLE001 — el fallo de revisión no invalida el documento
         retained = [a for a in candidates if not suspicious_candidate(a.text)]

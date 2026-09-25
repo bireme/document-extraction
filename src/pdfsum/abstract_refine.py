@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import unicodedata
 from collections.abc import Callable
@@ -388,6 +389,55 @@ def validate_context_chars(value: int) -> int:
     return value
 
 
+def _debug_emit(debug_sink: Callable[..., None] | None, **fields) -> None:
+    """Aísla fallos diagnósticos sin divulgar la respuesta en los logs."""
+    if debug_sink is not None:
+        try:
+            debug_sink(**fields)
+        except Exception as exc:  # noqa: BLE001 — el diagnóstico es pasivo
+            logging.getLogger(__name__).warning(
+                "No se pudo guardar el diagnóstico de revisión: intento %s (%s)",
+                fields["attempt"],
+                type(exc).__name__,
+            )
+
+
+def _parse_with_debug(raw, context, *, debug_sink=None, event_sink=None, **kwargs):
+    """Observa las métricas existentes y conserva la excepción original."""
+    if debug_sink is None:
+        return parse_refined_abstracts(raw, context, event_sink=event_sink, **kwargs)
+    metrics = []
+
+    def emit(event, **fields):
+        if event == "abstract_refine_validation":
+            metrics.append(dict(fields))
+        if event_sink is not None:
+            event_sink(event, **fields)
+
+    metadata = {
+        "validation_succeeded": False,
+        "error_type": "",
+        "rejection_reason": "",
+        "rejection_detail": "",
+    }
+    try:
+        result = parse_refined_abstracts(raw, context, event_sink=emit, **kwargs)
+        metadata["validation_succeeded"] = True
+        return result
+    except Exception as exc:
+        metadata["error_type"] = type(exc).__name__
+        metadata["rejection_reason"] = str(exc)
+        if metrics:
+            metadata["rejection_detail"] = metrics[-1].get("rejection_detail", "")
+        raise
+    finally:
+        _debug_emit(
+            debug_sink,
+            attempt=kwargs.get("validation_attempt", 1),
+            metadata={**metadata, "validation": metrics},
+        )
+
+
 def refine_abstracts(
     text: str,
     candidates: list[Abstract],
@@ -396,6 +446,7 @@ def refine_abstracts(
     *,
     event_sink: Callable[..., None] | None = None,
     diagnostics: dict | None = None,
+    debug_sink: Callable[..., None] | None = None,
 ) -> list[Abstract]:
     """Revisa el contexto inicial; el llamador decide el fallback y lo registra."""
     validate_context_chars(context_chars)
@@ -424,10 +475,13 @@ def refine_abstracts(
             visible_candidates=len(visible),
         )
     raw = llm.complete_json(prompt)
+    _debug_emit(debug_sink, attempt=1, raw_response=raw)
     if event_sink is not None:
         event_sink("phase_started", phase="validacion")
     spans: list[tuple[str, int, int]] = []
-    refined = parse_refined_abstracts(raw, context, event_sink=event_sink, spans=spans)
+    refined = _parse_with_debug(
+        raw, context, event_sink=event_sink, spans=spans, debug_sink=debug_sink
+    )
     for abstract, (region, _, end) in zip(refined, spans):
         if abstract.keywords:
             continue
@@ -495,15 +549,17 @@ def refine_abstracts(
         try:
             retry_emit("phase_started", phase=phase, prompt_chars=len(prompt))
             raw = llm.complete_json(prompt)
+            _debug_emit(debug_sink, attempt=2, raw_response=raw)
             phase = "validacion_complementaria"
             retry_emit("phase_started", phase=phase)
             added_spans: list[tuple[str, int, int]] = []
-            added = parse_refined_abstracts(
+            added = _parse_with_debug(
                 raw,
                 context,
                 event_sink=retry_emit,
                 spans=added_spans,
                 occupied=spans,
+                debug_sink=debug_sink,
                 validation_attempt=2,
             )
             refined.extend(added)

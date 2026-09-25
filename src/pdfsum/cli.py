@@ -339,6 +339,7 @@ def cmd_extract_abstracts(args: argparse.Namespace) -> int:
         transcriber,
         llm,
         args.abstract_refine_context_chars,
+        abstract_refine_debug_dir=args.abstract_refine_debug_dir,
         backend="fake" if args.fake or args.dry_run else backend,
         model=None if args.fake or args.dry_run else model,
     )
@@ -671,6 +672,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_backend_model(a)
     a.add_argument("--dry-run", action="store_true", help="usar LLM fake (OCR real)")
+    a.add_argument(
+        "--abstract-refine-debug-dir",
+        default=None,
+        help="guardar respuestas crudas de revisión para diagnóstico (datos sensibles)",
+    )
     a.set_defaults(func=cmd_extract_abstracts)
 
     d = sub.add_parser("doctor", help="verificar dependencias de sistema/modelos")

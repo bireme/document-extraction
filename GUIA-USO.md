@@ -329,3 +329,48 @@ Los logs no guardan la transcripción, el prompt ni la respuesta completa del
 LLM. El reporte operativo tampoco duplica los abstracts: su contenido sigue
 en `abstracts/<doc_id>.json`, cuyo formato no cambia. El mensaje de excepción
 se conserva para diagnosticar los fallos; no se añade un volcado de contenido.
+
+### Diagnóstico opt-in de respuestas de revisión
+
+`--abstract-refine-debug-dir DIR` es una opción estrictamente diagnóstica de
+`extract-abstracts`, desactivada por defecto. No cambia el prompt, las reglas de
+validación o completitud, los intentos, el fallback ni los resúmenes finales.
+
+```bash
+pdfsum extract-abstracts \
+  --in /input/Val \
+  --workspace /output \
+  --logs-dir /logs \
+  --lang por+eng+spa \
+  --abstract-refine-debug-dir /logs/abstract-refine-debug
+```
+
+Por cada documento con respuesta de la LLM se crea `DIR/<doc_id>/`, con:
+
+- `attempt-1-response.txt`: respuesta completa de la primera llamada, guardada
+  antes de validarla, en UTF-8, sin reformatear JSON ni cambiar espacios o saltos.
+- `attempt-1-validation.json`: `doc_id`, `attempt`, `validation_succeeded`,
+  `error_type`, motivos de rechazo y `abstracts_returned` (cuando se puede leer
+  la lista). `validation` contiene las métricas existentes por entrada visitada:
+  índice, idioma, encabezado, método, cobertura, respaldo, spans y rechazo.
+- `attempt-2-response.txt` y `attempt-2-validation.json`: solamente si la llamada
+  complementaria devuelve una respuesta. Si falla el transporte, no hay respuesta
+  que guardar. La respuesta se conserva completa aunque el primer resumen sea
+  rechazado y las entradas siguientes no lleguen a validarse.
+
+El éxito indicado corresponde al parser de esa tentativa; no sustituye el
+resultado de completitud. El JSON diagnóstico no duplica la transcripción,
+que sigue en `/output/ocr`. La respuesta cruda no se incorpora a `events.jsonl`,
+`report.json` ni a los logs normales. Sin la opción no se crean estos archivos.
+
+Si falla la escritura diagnóstica, se emite un aviso con el número de intento y
+el tipo de error, sin incluir contenido ni el mensaje de la excepción del sink.
+La extracción continúa con su validación y fallback originales; una revisión
+válida no se convierte en inválida. En ese caso los archivos pueden faltar o
+quedar incompletos. Al recibir la primera respuesta de una nueva ejecución se
+retiran los archivos diagnósticos anteriores de ese documento; use un directorio
+nuevo por ejecución para conservar historiales y evitar mezclar ejecuciones.
+
+Estos archivos pueden contener los abstracts completos o contenido integral del
+documento devuelto por el modelo: trátelos como datos sensibles, limite su acceso
+y retención. No active esta opción indiscriminadamente en producción.
