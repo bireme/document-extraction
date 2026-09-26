@@ -487,6 +487,44 @@ def test_p_keywords_del_cuerpo_no_activa_complemento():
     assert not result.diagnostics()["completion_retry_attempted"]
 
 
+def test_complemento_dirigido_recupera_resumen_en_espanol():
+    prosa = (
+        "El objetivo del estudio fue evaluar la atención de los pacientes en la "
+        "comunidad. Se analizaron los resultados de una intervención en un "
+        "policlínico y se observó una mejoría en la salud de los participantes. "
+        "Se concluyó que el seguimiento favoreció la continuidad de la atención."
+    )
+    texto = "RESUMEN\n" + prosa + "\nPalabras clave: salud; atención primaria."
+    llm = Mock(spec=TextLLM)
+    llm.complete_json.side_effect = [
+        '{"abstracts": []}',
+        _salida("es", "RESUMEN", prosa),
+    ]
+
+    resultado = extract_refined_abstracts(texto, llm)
+
+    assert llm.complete_json.call_count == 2
+    datos = json.loads(llm.complete_json.call_args_list[1].args[0].splitlines()[-1])
+    assert datos["target_lang"] == "es"
+    assert datos["validated_languages"] == []
+    assert datos["source_headers"] == ["RESUMEN"]
+    assert datos["transcription_fragments"] == [prosa]
+    inicio = texto.index(prosa)
+    assert datos["missing_abstract_evidence"] == [
+        {"lang": "es", "span_start": inicio, "span_end": inicio + len(prosa)}
+    ]
+    assert [a.lang for a in resultado.abstracts] == ["es"]
+    assert resultado.abstracts == [Abstract("es", "RESUMEN", prosa)]
+    diagnostico = resultado.diagnostics()
+    assert diagnostico["refinement_succeeded"]
+    assert diagnostico["completion_checked"]
+    assert diagnostico["completion_retry_attempted"]
+    assert diagnostico["completion_retry_succeeded"]
+    assert diagnostico["completion_succeeded"]
+    assert diagnostico["missing_abstract_evidence"] == []
+    assert not diagnostico["fallback"]
+
+
 def test_respuesta_vacia_valida_tambien_comprueba_completitud():
     llm = Mock(spec=TextLLM)
     llm.complete_json.side_effect = [

@@ -198,6 +198,25 @@ def test_p_keywords_sin_evidencia_suficiente_no_genera_senal(texto):
     assert abstract_evidence(texto) == []
 
 
+def test_evidencia_positiva_en_espanol_con_palabras_clave():
+    from pdfsum.abstracts import abstract_evidence
+
+    prosa = (
+        "El objetivo del estudio fue evaluar la atención de los pacientes en la "
+        "comunidad. Se analizaron los resultados de una intervención en un "
+        "policlínico y se observó una mejoría en la salud de los participantes. "
+        "Se concluyó que el seguimiento favoreció la continuidad de la atención."
+    )
+    texto = "RESUMEN\n" + prosa + "\nPalabras clave: salud; atención primaria."
+    evidencia = abstract_evidence(texto)
+    assert len(evidencia) == 1
+    assert evidencia[0]["lang"] == "es"
+    inicio = texto.index(prosa)
+    assert evidencia[0]["span_start"] == inicio
+    assert evidencia[0]["span_end"] == inicio + len(prosa)
+    assert texto[evidencia[0]["span_start"] : evidencia[0]["span_end"]] == prosa
+
+
 def test_q_senal_de_resumen_estructurado_antes_del_cuerpo():
     from pdfsum.abstracts import abstract_evidence
 
