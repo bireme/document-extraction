@@ -63,7 +63,7 @@ class TestPreconditions(unittest.TestCase):
         self.assertIn("falta el modelo", msg2)
 
     def test_cli_precondicion(self):
-        """C4: 'run' sin ollama/modelo -> mensaje claro, código != 0."""
+        """Un lote vacío no requiere el modelo de generación."""
         with (
             TemporaryDirectory() as td,
             patch("pdfsum.adapters.doctor._ollama_models", return_value=None),
@@ -71,8 +71,8 @@ class TestPreconditions(unittest.TestCase):
             buf = io.StringIO()
             with redirect_stdout(buf):
                 rc = main(["run", "--in", td, "--workspace", td])
-            self.assertNotEqual(rc, 0)
-            self.assertIn("Precondición no cumplida", buf.getvalue())
+            self.assertEqual(rc, 0)
+            self.assertNotIn("Precondición no cumplida", buf.getvalue())
 
     def test_doctor_capacidades(self):
         """C5: 'doctor' imprime el bloque de capacidades."""

@@ -87,3 +87,14 @@ def verify_coverage(text: str, chapters: list[Chapter]) -> bool:
     # Tolerancia: capítulos deben cubrir al menos 80% del texto en length
     coverage_ratio = len(joined) / len(text)
     return coverage_ratio >= 0.8
+
+
+def chapter_boundaries(text: str) -> list[int]:
+    """Delimita capítulos sin descartar prefacio, encabezados ni cierre."""
+    starts = [
+        m.start()
+        for m in re.finditer(
+            r"(?im)^[ \t]*(?:cap[ií]tulo|chapter)\s+(?:\d{1,3}|[IVXLCDM]+)\b", text
+        )
+    ]
+    return sorted({0, *starts, len(text)}) if len(starts) >= 2 else []

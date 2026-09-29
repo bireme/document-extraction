@@ -19,8 +19,8 @@ import time
 from pathlib import Path
 
 from ..abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS
-from ..contract import Summarizer, TextLLM, Transcriber
-from ..queue import FAILED, PENDING, JobQueue
+from ..contract import TextGenerator, TextLLM, Transcriber
+from ..queue import DONE, FAILED, PENDING, JobQueue
 from ..workspace import Workspace
 from .job_store import DirJobStore
 from .observability import atomic_write_json
@@ -34,11 +34,13 @@ def _safe_job_dir(job_id: str) -> str:
 def run_once(
     workspace_root: str | Path,
     transcriber: Transcriber,
-    summarizer: Summarizer,
+    summarizer: TextGenerator,
     *,
     abstract_llm: TextLLM | None = None,
     abstract_refine_context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
-    long_strategy: str = "excerpt",
+    long_strategy: str = "hierarchical",
+    max_chars: int = 42000,
+    reprocess: bool = False,
     poll_states: set[str] | None = None,
     sleep_seconds: float = 0.0,
 ) -> int:
@@ -51,7 +53,9 @@ def run_once(
     store = DirJobStore(root / "service_jobs")
     queue = JobQueue(store)
     processed = 0
-    states = poll_states or {PENDING, FAILED}
+    states = poll_states or (
+        {PENDING, FAILED, DONE} if reprocess else {PENDING, FAILED}
+    )
 
     for raw in store.all().values():
         if raw.get("state") not in states:
@@ -81,16 +85,21 @@ def run_once(
                 abstract_refine_context_chars=abstract_refine_context_chars,
                 retranscribe=False,
                 long_strategy=long_strategy,
+                max_chars=max_chars,
             )
             # compatibilidad: report "último job" en summaries/report.json
             atomic_write_json(root / "summaries" / "report.json", report)
+            if report["progress"]["failed"]:
+                raise RuntimeError(
+                    "Falló el procesamiento del documento; consulta el reporte del job"
+                )
             return report
 
         try:
             # payload idempotente: sha256 del PDF subido (contenido real).
             pdf_path = min(pdf_dir.glob("*.pdf"))
             payload = hashlib.sha256(pdf_path.read_bytes()).hexdigest()
-            queue.submit(doc_id, payload, work)
+            queue.submit(doc_id, payload, work, reprocess=reprocess)
             processed += 1
         except BaseException as exc:
             # Capturar incluso KeyboardInterrupt para preservar estado en disco.
@@ -109,11 +118,13 @@ def run_once(
 def main_loop(
     workspace_root: str | Path,
     transcriber: Transcriber,
-    summarizer: Summarizer,
+    summarizer: TextGenerator,
     *,
     abstract_llm: TextLLM | None = None,
     abstract_refine_context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
-    long_strategy: str = "excerpt",
+    long_strategy: str = "hierarchical",
+    max_chars: int = 42000,
+    reprocess: bool = False,
     interval_seconds: float = 1.0,
 ) -> None:
     """Loop infinito del worker (producción)."""
@@ -125,5 +136,8 @@ def main_loop(
             abstract_llm=abstract_llm,
             abstract_refine_context_chars=abstract_refine_context_chars,
             long_strategy=long_strategy,
+            max_chars=max_chars,
+            reprocess=reprocess,
         )
+        reprocess = False
         time.sleep(interval_seconds)

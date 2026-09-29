@@ -37,6 +37,7 @@ def split_blocks(text: str, max_chars: int = DEFAULT_BLOCK_CHARS) -> list[str]:
         else:
             if buf.strip():
                 blocks.append(buf.strip())
+            buf = ""
             if len(part) <= max_chars:
                 buf = part
             else:

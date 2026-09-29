@@ -64,7 +64,9 @@ def test_cli_preserva_respuestas_y_comportamiento(tmp_path, caplog, texto, respu
         if activo:
             args.extend(["--abstract-refine-debug-dir", str(debug)])
         with (
-            patch("pdfsum.cli._build_summarizer", return_value=llm),
+            patch(
+                "pdfsum.adapters.summarizer_factory.build_reviewer", return_value=llm
+            ),
             patch("pdfsum.cli._build_transcriber", return_value=FakeTranscriber(texto)),
         ):
             assert main(args) == 0

@@ -31,3 +31,7 @@ class FakeSummarizer:
         for name in section_names(req.template):
             out[name] = f"[fake:{req.lang}] {name}: {preview}".strip()
         return out
+
+    def generate_abstract(self, text: str, lang: str) -> str:
+        """Devuelve una síntesis determinista para el arnés."""
+        return " ".join(text.split()[:40])

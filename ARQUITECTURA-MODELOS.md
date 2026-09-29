@@ -1,5 +1,9 @@
 # Arquitectura de Modelos — Estado Actual y Extensibilidad
 
+> Flujo actual: abstracts existentes primero, generación textual solo como
+> respaldo. Modelos separados y migración: [guía de abstracts](docs/ABSTRACTS.md).
+> Las referencias a plantillas y secciones describen la API Python legada.
+
 **Documento de referencia**: Qué adaptadores están implementados, cuál es la arquitectura, y cómo agregar soporte para nuevos servicios (OpenRouter, OpenAI, Anthropic, etc).
 
 ---

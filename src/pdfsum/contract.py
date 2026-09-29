@@ -169,3 +169,84 @@ class JobStore(Protocol):
     def put(self, key: str, value: dict) -> None: ...
 
     def all(self) -> dict[str, dict]: ...
+
+
+DOCUMENT_ABSTRACT_VERSION = "2.0"
+
+
+@dataclass
+class DocumentAbstractResult:
+    """Resultado exclusivo: resúmenes de origen o un resumen generado."""
+
+    doc_id: str
+    idioma_principal: str
+    tipo_documento: str
+    ai_extracted_abstract: list[Abstract] = field(default_factory=list)
+    ai_generated_abstract: str | None = None
+    meta: dict = field(default_factory=dict)
+    contract_version: str = DOCUMENT_ABSTRACT_VERSION
+
+    def validate(self) -> None:
+        if self.contract_version != DOCUMENT_ABSTRACT_VERSION:
+            raise ValueError("Versión de contrato desconocida")
+        generated = self.ai_generated_abstract
+        if generated is not None and not isinstance(generated, str):
+            raise ValueError("El resumen generado debe ser texto")
+        if bool(self.ai_extracted_abstract) == bool(generated and generated.strip()):
+            raise ValueError("Se requiere exclusivamente extracción o generación")
+        if not isinstance(self.ai_extracted_abstract, list):
+            raise TypeError("Los resúmenes extraídos deben ser una lista")
+        for abstract in self.ai_extracted_abstract:
+            if not isinstance(abstract, Abstract) or not isinstance(
+                abstract.keywords, str
+            ):
+                raise TypeError("Resumen extraído inválido")
+            if not all(
+                isinstance(v, str) and v.strip()
+                for v in (abstract.lang, abstract.header, abstract.text)
+            ):
+                raise ValueError("Resumen extraído inválido")
+
+    def to_dict(self) -> dict:
+        self.validate()
+        return asdict(self)
+
+    def to_json(self, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> DocumentAbstractResult:
+        result = cls(
+            doc_id=data["doc_id"],
+            idioma_principal=data["idioma_principal"],
+            tipo_documento=data["tipo_documento"],
+            ai_extracted_abstract=[
+                Abstract(**a) for a in data["ai_extracted_abstract"]
+            ],
+            ai_generated_abstract=data["ai_generated_abstract"],
+            meta=dict(data.get("meta", {})),
+            contract_version=data["contract_version"],
+        )
+        result.validate()
+        return result
+
+    @classmethod
+    def from_json(cls, text: str) -> DocumentAbstractResult:
+        return cls.from_dict(json.loads(text))
+
+
+def read_result(data: dict) -> SummaryResult | DocumentAbstractResult:
+    """Lee contratos explícitos sin convertir artefactos anteriores."""
+    if data.get("contract_version") == DOCUMENT_ABSTRACT_VERSION:
+        return DocumentAbstractResult.from_dict(data)
+    if data.get("contract_version", CONTRACT_VERSION) == CONTRACT_VERSION:
+        if "ai_extracted_abstract" in data or "ai_generated_abstract" in data:
+            raise ValueError("Campos incompatibles con el contrato legado")
+        return SummaryResult.from_dict(data)
+    raise ValueError("Versión de contrato desconocida")
+
+
+class TextGenerator(Protocol):
+    """Puerto de generación textual sin plantillas."""
+
+    def generate_abstract(self, text: str, lang: str) -> str: ...

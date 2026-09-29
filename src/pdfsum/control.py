@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .contract import SummaryResult
+from .contract import DocumentAbstractResult, SummaryResult
 
 
 @dataclass
@@ -56,6 +56,12 @@ def term_coverage(text: str, expected_terms: list[str]) -> tuple[float, list[str
 
 
 def _all_text(res: SummaryResult) -> str:
+    if isinstance(res, DocumentAbstractResult):
+        return (
+            "\n".join(a.text for a in res.ai_extracted_abstract)
+            or res.ai_generated_abstract
+            or ""
+        )
     return "\n".join(res.secciones.values())
 
 

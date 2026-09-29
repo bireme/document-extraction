@@ -11,12 +11,12 @@ Orden de búsqueda:
 Formato esperado:
   {
     "long_strategy": "excerpt" | "blocks" | "hierarchical",
-    "model": "qwen2.5:7b",
-    "vlm_model": "qwen3-vl:8b-instruct"
+    "abstract_model": "qwen2.5:7b",
+    "summary_model": "qwen3:8b",
+    "vlm_model": "qwen3-vl:8b-instruct",
     "summarizer_backend": "ollama" | "openai" | "openrouter" | "anthropic",
-    "cloud_model": "qwen/qwen-2.5-7b-instruct",
     "lang": "por+eng+spa",
-    "max_chars": 40000,
+    "max_chars": 42000,
     "abstract_refine_context_chars": 20000
   }
 

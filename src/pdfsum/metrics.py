@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 
-from .contract import SummaryResult
+from .contract import DocumentAbstractResult, SummaryResult
 from .qa import QAReport
 
 
@@ -17,7 +17,7 @@ from .qa import QAReport
 class BatchItem:
     """Un elemento procesado del lote: resultado + QA + tiempo."""
 
-    result: SummaryResult
+    result: SummaryResult | DocumentAbstractResult
     qa: QAReport
     seconds: float = 0.0
     phase_seconds: dict[str, float] = field(default_factory=dict)
@@ -26,6 +26,9 @@ class BatchItem:
 
 @dataclass
 class BatchMetrics:
+    abstracts_extraidos: int = 0
+    abstracts_generados: int = 0
+    generacion_evitada: int = 0
     total: int = 0
     ok: int = 0
     con_fallos: int = 0
@@ -39,6 +42,9 @@ class BatchMetrics:
 
     def to_dict(self) -> dict:
         return {
+            "abstracts_extraidos": self.abstracts_extraidos,
+            "abstracts_generados": self.abstracts_generados,
+            "generacion_evitada": self.generacion_evitada,
             "total": self.total,
             "ok": self.ok,
             "con_fallos": self.con_fallos,
@@ -66,6 +72,10 @@ def batch_metrics(items: list[BatchItem]) -> BatchMetrics:
     gates: Counter[str] = Counter()
     phases: Counter[str] = Counter()
     for it in items:
+        if isinstance(it.result, DocumentAbstractResult):
+            m.abstracts_extraidos += len(it.result.ai_extracted_abstract)
+            m.abstracts_generados += int(bool(it.result.ai_generated_abstract))
+            m.generacion_evitada += int(bool(it.result.ai_extracted_abstract))
         if it.qa.is_ok:
             m.ok += 1
         else:

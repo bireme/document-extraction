@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .contract import SummaryResult
+from .contract import DocumentAbstractResult, SummaryResult
 
 BIBFRAME_CONTEXT = {
     "bf": "http://id.loc.gov/ontologies/bibframe/",
@@ -73,7 +73,9 @@ def _year(raw: str) -> str:
     return m.group(1) if m else ""
 
 
-def _summary_terms(summary: SummaryResult) -> list[str]:
+def _summary_terms(summary: SummaryResult | DocumentAbstractResult) -> list[str]:
+    if isinstance(summary, DocumentAbstractResult):
+        return []
     key = _TERMS_KEY.get(summary.plantilla, "terminos")
     raw = summary.secciones.get(key, "")
     terms = []
@@ -84,13 +86,16 @@ def _summary_terms(summary: SummaryResult) -> list[str]:
     return terms
 
 
-def merge_bib_sources(pdf_meta: dict | None, summary: SummaryResult) -> BibData:
+def merge_bib_sources(
+    pdf_meta: dict | None, summary: SummaryResult | DocumentAbstractResult
+) -> BibData:
     """Combina metadata del PDF (precedencia) con el resumen (complemento).
 
     `pdf_meta` es el dict normalizado de adapters/pdf_metadata.py (o None
     si el PDF no está disponible). Cada campo poblado registra su fuente
     en `sources` ('pdf_metadata' | 'summary').
     """
+    sections = summary.secciones if isinstance(summary, SummaryResult) else {}
     pdf_meta = pdf_meta or {}
     bib = BibData(doc_id=summary.doc_id)
 
@@ -105,11 +110,11 @@ def merge_bib_sources(pdf_meta: dict | None, summary: SummaryResult) -> BibData:
     _set(
         "title",
         (pdf_meta.get("title") or "").strip(),
-        summary.secciones.get("titulo", "").strip(),
+        sections.get("titulo", "").strip(),
     )
     # Subject del PDF suele ser el capítulo; si el título vino del PDF y
     # además hay título de resumen distinto, este último es el del capítulo.
-    summary_title = summary.secciones.get("titulo", "").strip()
+    summary_title = sections.get("titulo", "").strip()
     pdf_subject = (pdf_meta.get("subject") or "").strip()
     section = pdf_subject or (
         summary_title if bib.sources.get("title") == "pdf_metadata" else ""
@@ -121,12 +126,12 @@ def merge_bib_sources(pdf_meta: dict | None, summary: SummaryResult) -> BibData:
     _set(
         "authors",
         _split_authors(pdf_meta.get("author") or ""),
-        _split_authors(summary.secciones.get("autores", "")),
+        _split_authors(sections.get("autores", "")),
     )
     _set(
         "publisher",
         "",  # pdfinfo no trae editorial confiable (Producer es software)
-        summary.secciones.get("entidad", "").strip(),
+        sections.get("entidad", "").strip(),
     )
     if bib.publisher.lower().startswith("no se"):
         # el resumidor a veces responde "No se especifica..." — no es dato

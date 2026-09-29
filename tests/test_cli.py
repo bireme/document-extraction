@@ -34,18 +34,15 @@ class TestCLI(unittest.TestCase):
                 "doc_id",
                 "idioma_principal",
                 "tipo_documento",
-                "plantilla",
-                "secciones",
-                "idiomas_resumo_origem",
-                "abstracts_origem",
+                "ai_extracted_abstract",
+                "ai_generated_abstract",
                 "meta",
             ):
                 self.assertIn(f, data)
-            # artículo -> plantilla A, abstracts pt+en detectados
             self.assertEqual(data["tipo_documento"], "articulo")
-            self.assertEqual(data["plantilla"], "A")
-            self.assertEqual(data["idiomas_resumo_origem"], ["pt", "en"])
-            self.assertTrue(data["secciones"])
+            self.assertEqual(data["ai_extracted_abstract"], [])
+            self.assertTrue(data["ai_generated_abstract"])
+            self.assertNotIn("secciones", data)
 
 
 if __name__ == "__main__":

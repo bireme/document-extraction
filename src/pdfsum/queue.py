@@ -72,6 +72,8 @@ class JobQueue:
         doc_id: str,
         payload: str,
         work: Callable[[str, str], dict],
+        *,
+        reprocess: bool = False,
     ) -> Job:
         """Procesa un job idempotente. `work(doc_id, payload)->dict` hace el trabajo.
 
@@ -79,7 +81,7 @@ class JobQueue:
         Reintenta hasta max_retries+1 intentos si `work` lanza excepción.
         """
         key = job_key(doc_id, payload)
-        existing = self._load(key)
+        existing = None if reprocess else self._load(key)
         if existing and existing.state == DONE:
             return existing  # idempotente: no reprocesar
 

@@ -1,4 +1,8 @@
-# pdfsum — motor de resúmenes estructurados de PDF
+# pdfsum — extracción y generación de resúmenes de PDF
+
+> Flujo actual: abstracts existentes primero, generación textual solo como
+> respaldo. Modelos separados y migración: [guía de abstracts](docs/ABSTRACTS.md).
+> Las referencias a plantillas y secciones describen la API Python legada.
 
 Producto derivado del piloto BIREME–INFOMED. **Versión actual: 0.14.0**
 (flujo completo desde PDF: OCR híbrido con segmentación + resumen jerárquico
@@ -10,11 +14,11 @@ release — ver `docs/ESTADO.md`).
 
 ## Qué es
 
-Un módulo Python que convierte el texto de un documento (ya transcrito) en un
-**resumen estructurado** conforme a un **contrato JSON estable**, eligiendo la
-**plantilla según el tipo de documento** y respondiendo **en el idioma del
-documento**, preservando los **resúmenes de origen multilingües** de forma
-extractiva, sin traducir ni parafrasear, con correcciones limitadas de formato/OCR.
+Un módulo Python que transcribe PDFs, revisa sus resúmenes existentes y los
+conserva por separado. Cuando no encuentra ninguno válido, genera un único
+abstract textual en el idioma del documento. `summarize` genera directamente;
+`run` y `batch` aplican la política de respaldo. La API estructurada anterior
+sigue disponible para consumidores legados.
 
 ## Arquitectura (hexagonal)
 
@@ -49,7 +53,8 @@ adaptador, sin tocar el núcleo.
 - Ollama instalado y ejecutándose: `ollama serve`
 - Modelos descargados:
   ```bash
-  ollama pull qwen2.5:7b          # ~6.3 GB (esencial)
+  ollama pull qwen2.5:7b          # revisión de abstracts
+  ollama pull qwen3:8b            # generación de respaldo
   ollama pull qwen3-vl:8b-instruct # ~8.8 GB (opcional, para OCR)
   ```
 
@@ -210,8 +215,9 @@ curl -H "Authorization: Bearer $PDFSUM_API_TOKEN" \
 # Detalle completo: INSTALL.md § 11 "Modo servicio (FASE20)"
 ```
 
-Salida: JSON con `doc_id`, `idioma_principal`, `tipo_documento`, `plantilla`,
-`secciones`, `idiomas_resumo_origem`, `abstracts_origem`, `meta`.
+Salida nueva: JSON con `doc_id`, `contract_version`, `idioma_principal`,
+`tipo_documento`, `ai_extracted_abstract`, `ai_generated_abstract` y `meta`.
+Los dos campos de abstracts son excluyentes; el primero conserva una lista.
 
 El `report.json` incluye `report_version`, fecha UTC de generación y unidad de
 duración. Cada entrada de `documents` informa `tiempo_total` y

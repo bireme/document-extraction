@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .classify import detect_language
-from .contract import SummaryResult
+from .contract import DocumentAbstractResult, SummaryResult
 from .templates import section_keys
 
 # Frases que delatan refusal o que el modelo se dirige al usuario.
@@ -121,9 +121,28 @@ def _gate_abstracts(res: SummaryResult, rep: QAReport) -> None:
 
 def check_result(res: SummaryResult) -> QAReport:
     """Aplica todos los gates y devuelve el reporte agregado."""
+    if isinstance(res, DocumentAbstractResult):
+        return check_document_abstract(res)
     rep = QAReport(doc_id=res.doc_id)
     _gate_schema(res, rep)
     _gate_refusal(res, rep)
     _gate_language(res, rep)
     _gate_abstracts(res, rep)
+    return rep
+
+
+def check_document_abstract(res: DocumentAbstractResult) -> QAReport:
+    """Valida el contrato textual sin exigir plantillas."""
+    rep = QAReport(doc_id=res.doc_id)
+    try:
+        res.validate()
+    except (ValueError, TypeError, AttributeError) as exc:
+        rep.add("schema", str(exc))
+    expected_source = "extracted" if res.ai_extracted_abstract else "generated"
+    if res.meta.get("abstract_source", expected_source) != expected_source:
+        rep.add("schema", "abstract_source no coincide con el contenido")
+    if isinstance(res.ai_generated_abstract, str) and any(
+        marker in res.ai_generated_abstract.lower() for marker in _REFUSAL_MARKERS
+    ):
+        rep.add("refusal", "El texto generado contiene una negativa")
     return rep

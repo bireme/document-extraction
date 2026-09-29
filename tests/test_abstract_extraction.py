@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from pdfsum.abstract_extraction import extract_refined_abstracts
+from pdfsum.abstract_generation import document_abstract_result
 from pdfsum.abstracts import extract_abstracts
 from pdfsum.adapters.batch_runner import run_batch
 from pdfsum.adapters.fake_summarizer import FakeSummarizer
@@ -106,7 +107,8 @@ def test_pdf_revisa_crudo_y_resume_limpio(tmp_path):
             wraps=extract_refined_abstracts,
         ) as extract,
         patch(
-            "pdfsum.adapters.pdf_batch.summarize_document", wraps=summarize_document
+            "pdfsum.adapters.pdf_batch.document_abstract_result",
+            wraps=document_abstract_result,
         ) as summary,
     ):
         report = run_batch_pdfs(
@@ -134,7 +136,9 @@ def test_pdf_fallo_revision_continua_qa_y_persistencia(tmp_path, caplog):
     )
     assert report["status"] == "completed"
     record = json.loads(ws.summary_path("doc").read_text())
-    assert record["abstracts_origem"] == [asdict(a) for a in extract_abstracts(SOURCE)]
+    assert record["ai_extracted_abstract"] == [
+        asdict(a) for a in extract_abstracts(SOURCE)
+    ]
     assert "_qa" in record
     assert "Revisión demorada" in caplog.text
 
@@ -159,7 +163,7 @@ def test_batch_cache_incluye_revision(tmp_path, failure):
     assert report["documents"][0]["cache_hit"]
     record = json.loads((tmp_path / "salida/doc.json").read_text())
     expected = extract_abstracts(SOURCE) if failure else []
-    assert record["abstracts_origem"] == [asdict(a) for a in expected]
+    assert record["ai_extracted_abstract"] == [asdict(a) for a in expected]
 
 
 @pytest.mark.parametrize(
@@ -193,7 +197,7 @@ def test_cli_propaga_llm_y_limite(tmp_path, command):
             "pdfsum.config.load_config",
             return_value={"abstract_refine_context_chars": 1234},
         ),
-        patch("pdfsum.cli._build_summarizer", return_value=llm),
+        patch("pdfsum.adapters.summarizer_factory.build_reviewer", return_value=llm),
         patch(
             "pdfsum.cli._build_transcriber", return_value=FakeTranscriber(transcription)
         ),
@@ -205,6 +209,8 @@ def test_cli_propaga_llm_y_limite(tmp_path, command):
     if command == "worker":
         assert loop.call_args.kwargs["abstract_llm"] is llm
         assert loop.call_args.kwargs["abstract_refine_context_chars"] == 1234
+    elif command == "summarize":
+        complete.assert_not_called()
     else:
         complete.assert_called_once()
         data = json.loads(complete.call_args.args[0].splitlines()[-1])
