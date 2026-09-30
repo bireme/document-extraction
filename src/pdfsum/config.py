@@ -16,6 +16,8 @@ Formato esperado:
     "vlm_model": "qwen3-vl:8b-instruct",
     "summarizer_backend": "ollama" | "openai" | "openrouter" | "anthropic",
     "lang": "por+eng+spa",
+    "ocr_workers": 2,
+    "vlm_workers": 1,
     "max_chars": 42000,
     "abstract_refine_context_chars": 20000
   }
@@ -65,3 +67,10 @@ def resolve_abstract_refine_context_chars() -> int:
     return validate_context_chars(
         get_config_value("abstract_refine_context_chars", ABSTRACT_REFINE_CONTEXT_CHARS)
     )
+
+
+def validate_ocr_workers(value: int, name: str) -> int:
+    """Exige un número entero positivo de workers, sin conversiones implícitas."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{name} debe ser un entero positivo")
+    return value

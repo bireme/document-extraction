@@ -1,0 +1,26 @@
+---
+id: OCR-PARALELO
+titulo: OCR concurrente por página
+criterios:
+  - id: C1
+    descripcion: Páginas concurrentes con límite, temporales aislados y orden estable.
+    verificacion: tests/test_hybrid_concurrency.py
+  - id: C2
+    descripcion: Límite VLM independiente, liberado ante errores, sin cambiar retries.
+    verificacion: tests/test_hybrid_concurrency.py y tests/test_hybrid_vlm_verify.py
+  - id: C3
+    descripcion: Nativos sin OCR; mixtos procesan solo páginas pobres; un worker secuencial.
+    verificacion: tests/test_hybrid_mixto.py y tests/test_hybrid_concurrency.py
+  - id: C4
+    descripcion: CLI y configuración validan límites positivos en todos los puntos de entrada.
+    verificacion: tests/test_cli_ocr_workers.py
+  - id: C5
+    descripcion: Eventos, métricas, QA y metadatos conservan sus contratos.
+    verificacion: tests/test_hybrid_ocr.py y tests/test_batch_vlm_verify.py
+  - id: C6
+    descripcion: Benchmark manual de 1, 2 y 4 workers, sin GPU obligatoria en CI.
+    verificacion: benchmarks/benchmark_ocr_workers.py
+invariantes:
+  - Sin cambios de routing, prompts, modelos, segmentación ni versión de caché.
+  - Sin paralelismo entre regiones ni documentos.
+  - Como máximo dos intentos VLM por región; degradación existente intacta.

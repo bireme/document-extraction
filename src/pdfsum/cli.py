@@ -20,7 +20,11 @@ import sys
 from pathlib import Path
 
 from .abstract_generation import generate_document_abstract
-from .config import get_config_value, resolve_abstract_refine_context_chars
+from .config import (
+    get_config_value,
+    resolve_abstract_refine_context_chars,
+    validate_ocr_workers,
+)
 from .contract import read_result
 
 
@@ -253,7 +257,13 @@ def cmd_worker(args: argparse.Namespace) -> int:
     fake = getattr(args, "fake", False) or args.dry_run
     summarizer = LazyGenerator(backend, model, fake)
     reviewer = build_reviewer(abstract_backend, abstract_model, fake)
-    transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
+    transcriber = _build_transcriber(
+        args.fake,
+        args.lang,
+        vlm_model=args.vlm_model,
+        ocr_workers=args.ocr_workers,
+        vlm_workers=args.vlm_workers,
+    )
 
     main_loop(
         args.workspace,
@@ -269,13 +279,27 @@ def cmd_worker(args: argparse.Namespace) -> int:
     return 0
 
 
-def _build_transcriber(fake: bool, lang: str, vlm_model: str | None = None):
+def _build_transcriber(
+    fake: bool,
+    lang: str,
+    vlm_model: str | None = None,
+    ocr_workers: int | None = None,
+    vlm_workers: int | None = None,
+):
     """Transcriptor por defecto: híbrido nativo+Tesseract con fallback VLM.
 
     Si Ollama + el modelo de visión están disponibles, el híbrido los usa como
     fallback para escaneos de baja confianza (color/contraste); si no, degrada
     a Tesseract con aviso (la app sigue funcional).
     """
+    ocr_workers = validate_ocr_workers(
+        ocr_workers if ocr_workers is not None else get_config_value("ocr_workers", 2),
+        "ocr_workers",
+    )
+    vlm_workers = validate_ocr_workers(
+        vlm_workers if vlm_workers is not None else get_config_value("vlm_workers", 1),
+        "vlm_workers",
+    )
     if fake:
         from .adapters.fake_transcriber import FakeTranscriber
 
@@ -298,7 +322,9 @@ def _build_transcriber(fake: bool, lang: str, vlm_model: str | None = None):
             )
     except (OSError, ValueError):
         print("aviso: Ollama no accesible; OCR de baja confianza usará Tesseract.")
-    return HybridOcrTranscriber(lang=lang, vlm=vlm)
+    return HybridOcrTranscriber(
+        lang=lang, vlm=vlm, ocr_workers=ocr_workers, vlm_workers=vlm_workers
+    )
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -313,7 +339,13 @@ def cmd_run(args: argparse.Namespace) -> int:
     summarizer = LazyGenerator(backend, model, fake)
     reviewer = build_reviewer(abstract_backend, abstract_model, fake)
     ws = Workspace(args.workspace, logs_dir=args.logs_dir)
-    transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
+    transcriber = _build_transcriber(
+        args.fake,
+        args.lang,
+        vlm_model=args.vlm_model,
+        ocr_workers=args.ocr_workers,
+        vlm_workers=args.vlm_workers,
+    )
     report = run_batch_pdfs(
         args.in_dir,
         ws,
@@ -342,7 +374,13 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
     from .workspace import Workspace
 
     ws = Workspace(args.workspace)
-    transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
+    transcriber = _build_transcriber(
+        args.fake,
+        args.lang,
+        vlm_model=args.vlm_model,
+        ocr_workers=args.ocr_workers,
+        vlm_workers=args.vlm_workers,
+    )
     meta = transcribe_pdfs(args.in_dir, ws, transcriber, retranscribe=args.retranscribe)
     cached = sum(1 for m in meta.values() if m.get("cached"))
     print(f"transcribe: {len(meta)} PDFs ({cached} cacheados) -> {ws.ocr_dir}")
@@ -358,7 +396,13 @@ def cmd_extract_abstracts(args: argparse.Namespace) -> int:
     backend, model = _task_model(args, "abstract")
     llm = build_reviewer(backend, model, args.fake or args.dry_run)
     ws = Workspace(args.workspace, logs_dir=args.logs_dir)
-    transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
+    transcriber = _build_transcriber(
+        args.fake,
+        args.lang,
+        vlm_model=args.vlm_model,
+        ocr_workers=args.ocr_workers,
+        vlm_workers=args.vlm_workers,
+    )
     report = extract_abstracts_from_pdfs(
         args.in_dir,
         ws,
@@ -455,7 +499,13 @@ def cmd_verify(args: argparse.Namespace) -> int:
     pdfs = args.pdfs or str(samples_dir / "pdfs")
     control = args.control or str(samples_dir / "control_set.json")
     ws = Workspace(args.workspace)
-    transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
+    transcriber = _build_transcriber(
+        args.fake,
+        args.lang,
+        vlm_model=args.vlm_model,
+        ocr_workers=args.ocr_workers,
+        vlm_workers=args.vlm_workers,
+    )
     from .adapters.summarizer_factory import LazyGenerator, build_reviewer
 
     backend, model = _task_model(args, "summary")
@@ -771,6 +821,19 @@ def build_parser() -> argparse.ArgumentParser:
     for command in (r, w, v):
         command.add_argument(
             "--max-chars", type=int, default=get_config_value("max_chars", 42000)
+        )
+    for command in (r, t, a, w, v):
+        command.add_argument(
+            "--ocr-workers",
+            type=int,
+            default=None,
+            help="páginas OCR simultáneas (def: config ocr_workers, si no 2; 1 secuencial)",
+        )
+        command.add_argument(
+            "--vlm-workers",
+            type=int,
+            default=None,
+            help="llamadas VLM simultáneas por transcriptor (def: config vlm_workers, si no 1)",
         )
     return p
 

@@ -171,6 +171,50 @@ dependencia Pillow para el fallback de OCR por región) →
 **Guía completa** (requisitos de sistema, modelos, troubleshooting):
 → [`INSTALL.md`](INSTALL.md) **Sección 2 (Modelos Local vs Remoto)**
 
+## Concurrencia del OCR
+
+Los comandos `run`, `transcribe`, `extract-abstracts`, `worker` y `verify`
+aceptan `--ocr-workers` (default **2**) y `--vlm-workers` (default **1**).
+También pueden configurarse como `ocr_workers` y `vlm_workers` en
+`.pdfsum-config.json`; los argumentos CLI tienen prioridad. Ambos valores
+deben ser enteros positivos. `--ocr-workers 1` mantiene ejecución secuencial.
+
+El límite OCR se aplica a páginas escaneadas, incluidas las páginas pobres de
+PDFs mixtos. Las páginas nativas no pasan por OCR. El límite VLM es independiente
+por instancia del transcriptor y cubre cada llamada de fallback y reintento;
+no limita otras instancias, contenedores ni clientes del mismo Ollama.
+Las regiones de cada página y los documentos del lote siguen siendo secuenciales.
+Los eventos de progreso pueden llegar fuera del orden de páginas; el texto final
+y `pages_detail` siempre conservan el orden del documento. Los temporales se
+aíslan por página. Ante una excepción se cancelan tareas pendientes y se espera
+a las activas antes de propagar el error, sin guardar una transcripción parcial.
+
+No cambian modelos, prompts, thresholds, verificación, QA ni formato de caché.
+No hay variables de entorno ni argumentos nuevos obligatorios, ni cambios
+necesarios en Docker/Compose. Al desplegar, reconstruye la imagen para incluir
+el código actualizado. Más workers consumen más RAM y CPU; Tesseract también
+puede usar threads internos. Mide antes de aumentar los límites, especialmente
+el del VLM por su consumo de VRAM.
+
+Para comparar **1, 2 y 4 workers**, el benchmark mide solo la transcripción
+completa, sin caché de pdfsum ni resumen. Guarda tiempos, texto, hashes y detalles
+por página; rota el orden de ejecución entre repeticiones. Usa el mismo corpus,
+idioma, modelo y límite VLM, sin otros trabajos competidores:
+
+```bash
+PYTHONPATH=src python benchmarks/benchmark_ocr_workers.py \
+  --out /tmp/ocr-workers --repeats 3 --warmup \
+  --vlm-model qwen3-vl:8b-instruct /ruta/pdfs/*.pdf
+```
+
+Omite `--vlm-model` para medir solo Tesseract, sin Ollama ni GPU. El benchmark
+no forma parte del CI. Compara la mediana de `segundos` por PDF y número de
+workers en `resultados.json`; revisa `texto_igual_secuencial` y
+`detalle_igual_secuencial` y los `.txt` guardados. Una diferencia con VLM requiere
+revisión: la generación puede variar incluso al repetir una ejecución secuencial.
+El benchmark no demuestra calidad por sí solo. Para medir con la CLI existente,
+usa workspaces separados y `--retranscribe` para evitar resultados cacheados.
+
 ## Uso
 
 ```bash

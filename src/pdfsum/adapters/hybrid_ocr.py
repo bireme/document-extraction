@@ -19,7 +19,9 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import BoundedSemaphore, Lock
 from typing import Any
 
 from ..classify import (
@@ -27,6 +29,7 @@ from ..classify import (
     aggregate_source,
     route_pages,
 )
+from ..config import validate_ocr_workers
 from ..contract import PageOCR, SourceKind, TranscriptResult
 from ..ocr_routing import (
     MIN_CONF,
@@ -90,7 +93,14 @@ class HybridOcrTranscriber:
         min_conf: float = MIN_CONF,
         min_words: int = MIN_WORDS,
         event_sink: Callable[..., None] | None = None,
+        ocr_workers: int = 2,
+        vlm_workers: int = 1,
     ):
+        self.ocr_workers = validate_ocr_workers(ocr_workers, "ocr_workers")
+        self.vlm_workers = validate_ocr_workers(vlm_workers, "vlm_workers")
+        self._vlm_slots = BoundedSemaphore(self.vlm_workers)
+        self._counter_lock = Lock()
+        self._event_lock = Lock()
         self.lang = lang
         self.dpi = dpi
         self.vlm = vlm
@@ -117,7 +127,8 @@ class HybridOcrTranscriber:
             extra={"evento": event, **fields},
         )
         if self._event_sink is not None:
-            self._event_sink(event, **fields)
+            with self._event_lock:
+                self._event_sink(event, **fields)
 
     def transcribe(self, path: str) -> TranscriptResult:
         pages = _pdfinfo_pages(path)
@@ -156,22 +167,22 @@ class HybridOcrTranscriber:
         # toman del pdftotext ya hecho. Marcador en TODAS las páginas.
         chunks: list[str] = []
         pages_detail: list[dict] = []
-        with tempfile.TemporaryDirectory() as td:
-            for p in range(1, pages + 1):
-                if decisions[p - 1] == "nativo":
-                    page_text = native_pages[p - 1].strip("\n")
-                    chunks.append(f"=== pág {p} ===\n{page_text}")
-                    pages_detail.append(
-                        {
-                            "page": p,
-                            "source": "nativo",
-                            "chars": len(page_text),
-                        }
-                    )
-                else:
-                    text, detail = self._ocr_single_page(path, p, pages, td)
-                    chunks.append(f"=== pág {p} ===\n{text}")
-                    pages_detail.append(detail)
+        ocr_results = self._ocr_pages(
+            path,
+            [p for p in range(1, pages + 1) if decisions[p - 1] != "nativo"],
+            pages,
+        )
+        for p in range(1, pages + 1):
+            if decisions[p - 1] == "nativo":
+                page_text = native_pages[p - 1].strip("\n")
+                chunks.append(f"=== pág {p} ===\n{page_text}")
+                pages_detail.append(
+                    {"page": p, "source": "nativo", "chars": len(page_text)}
+                )
+            else:
+                text, detail = ocr_results[p]
+                chunks.append(f"=== pág {p} ===\n{text}")
+                pages_detail.append(detail)
         return TranscriptResult(
             text="\n".join(chunks),
             pages=pages,
@@ -184,7 +195,6 @@ class HybridOcrTranscriber:
         from PIL import Image
 
         segment_timings: dict[str, float] = {}
-        fallback_before = self.vlm_used_pages
         with Image.open(img) as im:
             regs = sort_reading_order(
                 valid_regions(detect_regions(im, timings=segment_timings), *im.size)
@@ -226,7 +236,6 @@ class HybridOcrTranscriber:
                     tmp.unlink(missing_ok=True)
         total_words = sum(w for _, w in confs)
         conf_media = sum(c * w for c, w in confs) / total_words if total_words else 0.0
-        del fallback_before  # FASE19: el uso VLM se rastrea por región
         if metrics is not None:
             metrics.update(segment_timings)
             metrics.update(
@@ -265,12 +274,14 @@ class HybridOcrTranscriber:
             verdict = None
             for _attempt in range(2):
                 try:
-                    candidate = self.vlm.ocr_image(str(img), self.lang)
+                    with self._vlm_slots:
+                        candidate = self.vlm.ocr_image(str(img), self.lang)
                 except Exception:  # noqa: BLE001 - error del VLM = rechazo
                     candidate = ""
                 verdict = verify_vlm_output(candidate, base_words, self.lang)
                 if verdict.accepted:
-                    self.vlm_used_pages += 1
+                    with self._counter_lock:
+                        self.vlm_used_pages += 1
                     return (
                         candidate,
                         conf,
@@ -396,14 +407,37 @@ class HybridOcrTranscriber:
             out.close()
         return dest, angle_applied
 
+    def _ocr_pages(
+        self, path: str, page_numbers: list[int], pages_total: int
+    ) -> dict[int, tuple[str, dict]]:
+        """Procesa páginas con temporales propios y devuelve resultados en orden."""
+
+        def process(p: int) -> tuple[str, dict]:
+            with tempfile.TemporaryDirectory(prefix=f"pdfsum-p{p}-") as td:
+                return self._ocr_single_page(path, p, pages_total, td)
+
+        if not page_numbers:
+            return {}
+        workers = min(self.ocr_workers, len(page_numbers))
+        if workers == 1:
+            return {p: process(p) for p in page_numbers}
+        # El trabajo pesado usa subprocess y Pillow; threads evita copiar imágenes
+        # y permite compartir el límite VLM y el destino de eventos sin IPC.
+        executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="ocr")
+        try:
+            return dict(zip(page_numbers, executor.map(process, page_numbers)))
+        finally:
+            # Ante un fallo, cancelar pendientes y esperar las páginas activas
+            # antes de propagarlo; cada página limpia sus propios temporales.
+            executor.shutdown(wait=True, cancel_futures=True)
+
     def _ocr_hybrid(self, path: str, pages: int) -> tuple[str, list[dict]]:
         chunks: list[str] = []
         pages_detail: list[dict] = []
-        with tempfile.TemporaryDirectory() as td:
-            for p in range(1, max(pages, 1) + 1):
-                text, detail = self._ocr_single_page(path, p, pages, td)
-                pages_detail.append(detail)
-                if detail["source"] == "sin_imagen":
-                    continue
-                chunks.append(f"=== pág {p} ===\n{text}")
+        results = self._ocr_pages(path, list(range(1, max(pages, 1) + 1)), pages)
+        for p, (text, detail) in results.items():
+            pages_detail.append(detail)
+            if detail["source"] == "sin_imagen":
+                continue
+            chunks.append(f"=== pág {p} ===\n{text}")
         return "\n".join(chunks), pages_detail
