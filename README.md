@@ -20,6 +20,9 @@ abstract textual en el idioma del documento. `summarize` genera directamente;
 `run` y `batch` aplican la política de respaldo. La API estructurada anterior
 sigue disponible para consumidores legados.
 
+El OCR híbrido reutiliza el texto TSV sin repetir Tesseract por región;
+ver [equivalencia y benchmark](docs/OCR-TSV.md).
+
 ## Arquitectura (hexagonal)
 
 ```

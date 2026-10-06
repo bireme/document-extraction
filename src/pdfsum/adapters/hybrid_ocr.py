@@ -264,10 +264,7 @@ class HybridOcrTranscriber:
         )
         conf, words = parse_tsv_confidence(tsv)
         if route_page(conf, words, self.min_conf, self.min_words) == "tesseract":
-            text = _run(
-                ["tesseract", str(img), "stdout", "-l", self.lang, "--psm", "1"]
-            )
-            return text, conf, words, no_vlm
+            return parse_tsv_lines(tsv), conf, words, no_vlm
         # baja confianza: fallback VLM verificado (1 reintento, FASE19)
         if self.vlm is not None:
             base_words = parse_tsv_words(tsv)
@@ -296,8 +293,7 @@ class HybridOcrTranscriber:
                 {"vlm": False, "vlm_rejected": True, "motivo": verdict.reason},
             )
         # sin VLM: degradar a Tesseract pese a baja confianza
-        text = _run(["tesseract", str(img), "stdout", "-l", self.lang, "--psm", "1"])
-        return text, conf, words, no_vlm
+        return parse_tsv_lines(tsv), conf, words, no_vlm
 
     def _ocr_single_page(
         self, path: str, p: int, pages_total: int, td: str

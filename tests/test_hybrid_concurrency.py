@@ -160,10 +160,11 @@ class TestPageConcurrency(unittest.TestCase):
             p = 2 if "pdfsum-p2-" in cmd[1] else 3
             if "tsv" in cmd:
                 barrier.wait()
+                if p == 2:
+                    self.assertTrue(third_completed.wait(5))
                 confidence = 95 if p == 2 else 30
                 return "level\tconf\ttext\n" + f"5\t{confidence}\tpalabra\n" * 20
-            self.assertTrue(third_completed.wait(5))
-            return "texto dos"
+            raise AssertionError(f"subproceso inesperado: {cmd}")
 
         def regions(im, timings):
             timings.update(
