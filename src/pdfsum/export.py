@@ -12,7 +12,9 @@ Se usa un subconjunto pragmático y se anota su origen.
 
 from __future__ import annotations
 
-from .contract import SummaryResult
+from dataclasses import asdict
+
+from .contract import DocumentAbstractResult, SummaryResult
 
 # Mapa de tipo interno -> tipo de documento LILACS (campo 05, aproximado).
 _LILACS_DOCTYPE = {
@@ -43,12 +45,31 @@ def _candidate_descriptors(res: SummaryResult) -> list[str]:
     return [p for p in parts if p]
 
 
-def to_lilacs(res: SummaryResult) -> dict:
+def to_lilacs(res: SummaryResult | DocumentAbstractResult) -> dict:
     """Genera un registro LILACS borrador a partir del resumen.
 
     El registro incluye 'status: draft' y una nota explícita de que requiere
     validación humana (descriptores DeCS, tipo de documento, etc.).
     """
+    if isinstance(res, DocumentAbstractResult):
+        res.validate()
+        return {
+            "status": "draft",
+            "_note": "Borrador para revisión humana; no se generan metadatos bibliográficos.",
+            "lilacs": {
+                "05_tipo_documento": _LILACS_DOCTYPE.get(res.tipo_documento, "M"),
+                "titulo": "",
+                "idioma_texto": res.idioma_principal,
+                "ai_extracted_abstract": [asdict(a) for a in res.ai_extracted_abstract],
+                "ai_generated_abstract": res.ai_generated_abstract,
+                "descritores_candidatos": [],
+            },
+            "origen": {
+                "doc_id": res.doc_id,
+                "tipo_interno": res.tipo_documento,
+                "contract_version": res.contract_version,
+            },
+        }
     doctype = _LILACS_DOCTYPE.get(res.tipo_documento, "M")
     # resúmenes por idioma: el ejecutivo + los abstracts de origen verbatim
     abstracts = [

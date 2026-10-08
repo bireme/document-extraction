@@ -1,6 +1,10 @@
 # Guía rápida de uso — pdfsum
 
-Convertir PDFs en resúmenes estructurados, 100 % local (sin API).
+> Flujo actual: abstracts existentes primero, generación textual solo como
+> respaldo. Modelos separados y migración: [guía de abstracts](docs/ABSTRACTS.md).
+> Las referencias a plantillas y secciones describen la API Python legada.
+
+Convertir PDFs en abstracts extraídos o generados, con backend local o cloud.
 Todo lo necesario en **una página**. Instalación detallada: `INSTALL.md`.
 
 ---
@@ -12,8 +16,8 @@ pdfsum run --in /ruta/a/tus/pdfs --workspace ./datos --lang por+eng+spa
 ```
 
 Apuntas a una carpeta de PDFs y la app: transcribe (OCR si hace falta) →
-resume en el idioma del documento y con la plantilla de su tipo → valida →
-reporta. Resultados:
+revisa los abstracts existentes → genera solo si no queda ninguno válido →
+valida y reporta. Resultados:
 
 ```
 ./datos/ocr/<doc_id>.txt           transcripciones (cacheadas)
@@ -92,7 +96,8 @@ curl http://127.0.0.1:8765/api/report
 --lang por+eng+spa            idioma(s) OCR Tesseract, combinables con '+'
                                (default: por+eng+spa; el resumen va en el
                                idioma del doc, detectado aparte)
---model qwen2.5:7b            modelo de resumen (por defecto)
+--abstract-model qwen2.5:7b   revisión de abstracts existentes
+--summary-model qwen3:8b      generación de respaldo
 --long-strategy ESTRATEGIA    elección del usuario por recursos/necesidades
 ```
 
@@ -137,7 +142,9 @@ Si siempre usas la misma estrategia, puedes configurarla en un archivo
 cat > .pdfsum-config.json <<EOF
 {
   "long_strategy": "hierarchical",
-  "model": "qwen2.5:7b",
+  "abstract_model": "qwen2.5:7b",
+  "summary_model": "qwen3:8b",
+  "vlm_model": "qwen3-vl:8b-instruct",
   "lang": "por+eng+spa"
 }
 EOF
@@ -390,3 +397,13 @@ nuevo por ejecución para conservar historiales y evitar mezclar ejecuciones.
 Estos archivos pueden contener los abstracts completos o contenido integral del
 documento devuelto por el modelo: trátelos como datos sensibles, limite su acceso
 y retención. No active esta opción indiscriminadamente en producción.
+
+### API HTTP con el pipeline actualizado
+
+`pdfsum processing-api --workspace /output --host 0.0.0.0 --port 8766
+--backend ollama --abstract-model qwen2.5:7b --summary-model qwen3:8b
+--vlm-model qwen3-vl:8b-instruct --lang por+eng+spa` (en una sola línea).
+Admite `--ocr-workers` y `--vlm-workers`, con los defaults de la configuración.
+`POST /api/pdfsum` mantiene los tres comandos y las fuentes URL/folder.
+`run` devuelve abstracts extraídos o generación de respaldo; `extract-abstracts`
+conserva la clave HTTP `abstracts`. Véase [el contrato](docs/PDFSUM-API.md).

@@ -46,7 +46,7 @@ class AbstractExtractionResult:
         }
 
 
-def extract_refined_abstracts(
+def _extract_window(
     text: str,
     llm: TextLLM | None,
     context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
@@ -87,3 +87,81 @@ def extract_refined_abstracts(
             retained, count, True, False, exc, phase, count - len(retained)
         )
     return AbstractExtractionResult(abstracts, count, True, True, completion=completion)
+
+
+def extract_refined_abstracts(
+    text: str,
+    llm: TextLLM | None,
+    context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
+    *,
+    event_sink: Callable[..., None] | None = None,
+    debug_sink: Callable[..., None] | None = None,
+) -> AbstractExtractionResult:
+    """Revisa la ventana inicial y los encabezados fuera de ella."""
+    from .abstracts import _find_abstract_headers
+
+    headers = _find_abstract_headers(text)
+    if type(context_chars) is not int or context_chars <= 0:
+        return _extract_window(
+            text, llm, context_chars, event_sink=event_sink, debug_sink=debug_sink
+        )
+
+    def window_end(start: int) -> int:
+        end = min(len(text), start + context_chars)
+        crossing = [h.start() for h in headers if start < h.start() < end]
+        if end < len(text) and crossing:
+            # Revisa completo en la próxima ventana el último encabezado cercano al corte.
+            last = crossing[-1]
+            candidates = extract_abstracts(text[last:])
+            if (
+                candidates
+                and last + len(candidates[0].text) + len(candidates[0].header) > end
+            ):
+                end = last
+        return end
+
+    attempts = 0
+    offset = 0
+
+    def debug(**fields):
+        nonlocal attempts
+        number = offset + fields["attempt"]
+        attempts = max(attempts, number)
+        if debug_sink is not None:
+            debug_sink(**{**fields, "attempt": number})
+
+    end = window_end(0)
+    result = _extract_window(
+        text,
+        llm,
+        end or context_chars,
+        event_sink=event_sink,
+        debug_sink=debug if debug_sink is not None else None,
+    )
+    if llm is None or result.error is not None:
+        return result
+    covered = end
+    windows = []
+    for header in headers:
+        if header.start() < covered:
+            continue
+        start = header.start()
+        end = window_end(start)
+        offset = attempts
+        extra = _extract_window(
+            text[start:end],
+            llm,
+            context_chars,
+            event_sink=event_sink,
+            debug_sink=debug if debug_sink is not None else None,
+        )
+        result.abstracts.extend(extra.abstracts)
+        result.discarded_candidates += extra.discarded_candidates
+        windows.append({"start": start, "end": end, **extra.diagnostics()})
+        if extra.error is not None:
+            result.error, result.failure_phase = extra.error, extra.failure_phase
+            result.refinement_succeeded = False
+        covered = end
+    if windows:
+        result.completion["windows"] = windows
+    return result

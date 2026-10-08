@@ -1,4 +1,8 @@
-# pdfsum — motor de resúmenes estructurados de PDF
+# pdfsum — extracción y generación de resúmenes de PDF
+
+> Flujo actual: abstracts existentes primero, generación textual solo como
+> respaldo. Modelos separados y migración: [guía de abstracts](docs/ABSTRACTS.md).
+> Las referencias a plantillas y secciones describen la API Python legada.
 
 Producto derivado del piloto BIREME–INFOMED. **Versión actual: 0.14.0**
 (flujo completo desde PDF: OCR híbrido con segmentación + resumen jerárquico
@@ -15,15 +19,21 @@ coincidente a un directorio temporal; `--input-root` tiene `/input` como valor
 predeterminado. Admite `extract-abstracts`, `transcribe` y `run`;
 `summarize` todavía no está soportado. ServerIA prepara el PDF y devuelve el
 resultado a OFI9 sin acceder a MongoDB. El servicio previo `pdfsum api` se conserva.
-Consulta [contrato, Docker y ejemplos](docs/PDFSUM-API.md).
+La API usa modelos separados (`--abstract-model`, `--summary-model`,
+`--vlm-model`) y admite `--ocr-workers`/`--vlm-workers`. `run` conserva abstracts
+válidos y genera solamente cuando faltan; su resultado usa el contrato textual
+actualizado. Consulta [contrato, migración, Docker y ejemplos](docs/PDFSUM-API.md).
 
 ## Qué es
 
-Un módulo Python que convierte el texto de un documento (ya transcrito) en un
-**resumen estructurado** conforme a un **contrato JSON estable**, eligiendo la
-**plantilla según el tipo de documento** y respondiendo **en el idioma del
-documento**, preservando los **resúmenes de origen multilingües** de forma
-extractiva, sin traducir ni parafrasear, con correcciones limitadas de formato/OCR.
+Un módulo Python que transcribe PDFs, revisa sus resúmenes existentes y los
+conserva por separado. Cuando no encuentra ninguno válido, genera un único
+abstract textual en el idioma del documento. `summarize` genera directamente;
+`run` y `batch` aplican la política de respaldo. La API estructurada anterior
+sigue disponible para consumidores legados.
+
+El OCR híbrido reutiliza el texto TSV sin repetir Tesseract por región;
+ver [equivalencia y benchmark](docs/OCR-TSV.md).
 
 ## Arquitectura (hexagonal)
 
@@ -58,7 +68,8 @@ adaptador, sin tocar el núcleo.
 - Ollama instalado y ejecutándose: `ollama serve`
 - Modelos descargados:
   ```bash
-  ollama pull qwen2.5:7b          # ~6.3 GB (esencial)
+  ollama pull qwen2.5:7b          # revisión de abstracts
+  ollama pull qwen3:8b            # generación de respaldo
   ollama pull qwen3-vl:8b-instruct # ~8.8 GB (opcional, para OCR)
   ```
 
@@ -175,6 +186,50 @@ dependencia Pillow para el fallback de OCR por región) →
 **Guía completa** (requisitos de sistema, modelos, troubleshooting):
 → [`INSTALL.md`](INSTALL.md) **Sección 2 (Modelos Local vs Remoto)**
 
+## Concurrencia del OCR
+
+Los comandos `run`, `transcribe`, `extract-abstracts`, `worker` y `verify`
+aceptan `--ocr-workers` (default **2**) y `--vlm-workers` (default **1**).
+También pueden configurarse como `ocr_workers` y `vlm_workers` en
+`.pdfsum-config.json`; los argumentos CLI tienen prioridad. Ambos valores
+deben ser enteros positivos. `--ocr-workers 1` mantiene ejecución secuencial.
+
+El límite OCR se aplica a páginas escaneadas, incluidas las páginas pobres de
+PDFs mixtos. Las páginas nativas no pasan por OCR. El límite VLM es independiente
+por instancia del transcriptor y cubre cada llamada de fallback y reintento;
+no limita otras instancias, contenedores ni clientes del mismo Ollama.
+Las regiones de cada página y los documentos del lote siguen siendo secuenciales.
+Los eventos de progreso pueden llegar fuera del orden de páginas; el texto final
+y `pages_detail` siempre conservan el orden del documento. Los temporales se
+aíslan por página. Ante una excepción se cancelan tareas pendientes y se espera
+a las activas antes de propagar el error, sin guardar una transcripción parcial.
+
+No cambian modelos, prompts, thresholds, verificación, QA ni formato de caché.
+No hay variables de entorno ni argumentos nuevos obligatorios, ni cambios
+necesarios en Docker/Compose. Al desplegar, reconstruye la imagen para incluir
+el código actualizado. Más workers consumen más RAM y CPU; Tesseract también
+puede usar threads internos. Mide antes de aumentar los límites, especialmente
+el del VLM por su consumo de VRAM.
+
+Para comparar **1, 2 y 4 workers**, el benchmark mide solo la transcripción
+completa, sin caché de pdfsum ni resumen. Guarda tiempos, texto, hashes y detalles
+por página; rota el orden de ejecución entre repeticiones. Usa el mismo corpus,
+idioma, modelo y límite VLM, sin otros trabajos competidores:
+
+```bash
+PYTHONPATH=src python benchmarks/benchmark_ocr_workers.py \
+  --out /tmp/ocr-workers --repeats 3 --warmup \
+  --vlm-model qwen3-vl:8b-instruct /ruta/pdfs/*.pdf
+```
+
+Omite `--vlm-model` para medir solo Tesseract, sin Ollama ni GPU. El benchmark
+no forma parte del CI. Compara la mediana de `segundos` por PDF y número de
+workers en `resultados.json`; revisa `texto_igual_secuencial` y
+`detalle_igual_secuencial` y los `.txt` guardados. Una diferencia con VLM requiere
+revisión: la generación puede variar incluso al repetir una ejecución secuencial.
+El benchmark no demuestra calidad por sí solo. Para medir con la CLI existente,
+usa workspaces separados y `--retranscribe` para evitar resultados cacheados.
+
 ## Uso
 
 ```bash
@@ -219,8 +274,9 @@ curl -H "Authorization: Bearer $PDFSUM_API_TOKEN" \
 # Detalle completo: INSTALL.md § 11 "Modo servicio (FASE20)"
 ```
 
-Salida: JSON con `doc_id`, `idioma_principal`, `tipo_documento`, `plantilla`,
-`secciones`, `idiomas_resumo_origem`, `abstracts_origem`, `meta`.
+Salida nueva: JSON con `doc_id`, `contract_version`, `idioma_principal`,
+`tipo_documento`, `ai_extracted_abstract`, `ai_generated_abstract` y `meta`.
+Los dos campos de abstracts son excluyentes; el primero conserva una lista.
 
 El `report.json` incluye `report_version`, fecha UTC de generación y unidad de
 duración. Cada entrada de `documents` informa `tiempo_total` y

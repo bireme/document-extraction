@@ -379,6 +379,18 @@ def parse_refined_abstracts(
             # contextual independiente de la posición del encabezado del resumen.
             anchor = _anchor(body, region, metric)
             start, end, method, coverage, count, reason = anchor
+            if start >= 0 and any(
+                start < stop and end > begin for _, begin, stop in used
+            ):
+                # Un texto repetido puede tener otro span propio; nunca reutiliza el anterior.
+                for match in re.finditer(_boundary_pattern(body), region):
+                    if not any(
+                        match.start() < stop and match.end() > begin
+                        for _, begin, stop in used
+                    ):
+                        start, end = match.span()
+                        method, coverage, reason = "exact", 1.0, ""
+                        break
             if start >= 0:
                 metric.update(span_start=start, span_end=end)
                 if any(start < stop and end > begin for begin, stop in body_ranges):

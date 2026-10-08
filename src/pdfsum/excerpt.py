@@ -64,10 +64,14 @@ class Excerpt:
     strategy: str = "full"
 
 
-def find_structural_sections(text: str) -> list[Section]:
+def find_structural_sections(
+    text: str, *, include_abstract: bool = True
+) -> list[Section]:
     """Localiza encabezados estructurales con su offset, ordenados por posición."""
     found: list[Section] = []
     for name, pat in _STRUCTURE:
+        if name == "abstract" and not include_abstract:
+            continue
         m = re.search(pat, text)
         if m:
             found.append(Section(name=name, start=m.start()))
@@ -79,14 +83,21 @@ def _window(text: str, start: int, size: int) -> str:
     return text[start : start + size].strip()
 
 
-def _articulo_excerpt(text: str, max_chars: int) -> Excerpt:
+def _articulo_excerpt(
+    text: str, max_chars: int, include_abstract: bool = True
+) -> Excerpt:
     """Abstract + introducción + conclusiones (paper)."""
-    secs = {s.name: s.start for s in find_structural_sections(text)}
+    secs = {
+        s.name: s.start
+        for s in find_structural_sections(text, include_abstract=include_abstract)
+    }
     parts: list[str] = []
     used = []
     # presupuesto repartido: abstract e intro y conclusiones
     budget = max_chars
     order = [("abstract", 0.4), ("introducao", 0.3), ("conclusao", 0.3)]
+    if not include_abstract:
+        order = [("introducao", 0.5), ("conclusao", 0.5)]
     chunks: list[tuple[str, str]] = []
     for name, frac in order:
         if name in secs:
@@ -115,9 +126,11 @@ def _articulo_excerpt(text: str, max_chars: int) -> Excerpt:
     )
 
 
-def _manual_excerpt(text: str, max_chars: int) -> Excerpt:
+def _manual_excerpt(
+    text: str, max_chars: int, include_abstract: bool = True
+) -> Excerpt:
     """Portada/apresentação + índice + introducción (representativo)."""
-    secs = find_structural_sections(text)
+    secs = find_structural_sections(text, include_abstract=include_abstract)
     parts: list[str] = []
     used: list[str] = []
     # portada = arranque del documento
@@ -140,7 +153,11 @@ def _manual_excerpt(text: str, max_chars: int) -> Excerpt:
 
 
 def select_excerpt(
-    text: str, doc_type: DocType, max_chars: int = DEFAULT_MAX_CHARS
+    text: str,
+    doc_type: DocType,
+    max_chars: int = DEFAULT_MAX_CHARS,
+    *,
+    include_abstract: bool = True,
 ) -> Excerpt:
     """Devuelve la porción a resumir según tipo/estructura/tamaño.
 
@@ -151,9 +168,9 @@ def select_excerpt(
             text=text.strip(), parts=["completo"], truncated=False, strategy="full"
         )
     if doc_type == DocType.ARTICULO:
-        return _articulo_excerpt(text, max_chars)
+        return _articulo_excerpt(text, max_chars, include_abstract)
     if doc_type == DocType.MANUAL:
-        return _manual_excerpt(text, max_chars)
+        return _manual_excerpt(text, max_chars, include_abstract)
     # DIVULGACION largo (raro): prefijo honesto
     return Excerpt(
         text=text[:max_chars].strip(),

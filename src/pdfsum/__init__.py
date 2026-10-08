@@ -6,17 +6,22 @@ hexagonal: `contract`, `classify`, `templates`, `abstracts`, `excerpt`,
 los puertos (Summarizer, Transcriber, JobStore).
 """
 
+from .abstract_generation import generate_document_abstract
 from .chunking import split_blocks, summarize_in_blocks
 from .contract import (
     CONTRACT_VERSION,
+    DOCUMENT_ABSTRACT_VERSION,
     Abstract,
     DocType,
+    DocumentAbstractResult,
     SourceKind,
     Summarizer,
     SummarizeRequest,
     SummaryResult,
+    TextGenerator,
     Transcriber,
     TranscriptResult,
+    read_result,
 )
 from .control import ControlCase, evaluate_case, run_control_suite, term_coverage
 from .excerpt import Excerpt, select_excerpt
@@ -32,11 +37,13 @@ __version__ = "0.14.0"  # Release 0.14.0 (calidad de transcripción F16-F19)
 
 __all__ = [
     "CONTRACT_VERSION",
+    "DOCUMENT_ABSTRACT_VERSION",
     "Abstract",
     "BatchItem",
     "BatchMetrics",
     "ControlCase",
     "DocType",
+    "DocumentAbstractResult",
     "Excerpt",
     "JobQueue",
     "QAReport",
@@ -45,6 +52,7 @@ __all__ = [
     "SummarizeRequest",
     "Summarizer",
     "SummaryResult",
+    "TextGenerator",
     "Transcriber",
     "TranscriptResult",
     "Workspace",
@@ -54,6 +62,8 @@ __all__ = [
     "check_result",
     "edit_sections",
     "evaluate_case",
+    "generate_document_abstract",
+    "read_result",
     "reject",
     "run_control_suite",
     "select_excerpt",

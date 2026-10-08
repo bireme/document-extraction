@@ -34,9 +34,11 @@ def process_pdf(
     context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
     backend: str | None = None,
     model: str | None = None,
-    long_strategy: str = "excerpt",
+    long_strategy: str = "hierarchical",
+    generator=None,
+    max_chars: int = 42000,
 ) -> dict | str:
-    """Despacha funciones Python y devuelve el artefacto principal sin transformarlo."""
+    """Despacha el pipeline y adapta el artefacto principal al contrato HTTP."""
 
     def safe_error(_exc):
         return PROCESSING_ERROR
@@ -61,7 +63,10 @@ def process_pdf(
             str(pdf.parent),
             workspace,
             transcriber,
-            llm,
+            generator if generator is not None else llm,
+            abstract_llm=llm,
+            abstract_refine_context_chars=context_chars,
+            max_chars=max_chars,
             long_strategy=long_strategy,
             format_error=safe_error,
         )
@@ -70,7 +75,11 @@ def process_pdf(
         output = workspace.summary_path(pdf.stem)
     else:
         raise ValueError("Comando PDF no permitido")
-    return json.loads(output.read_text(encoding="utf-8"))
+    result = json.loads(output.read_text(encoding="utf-8"))
+    if command == "extract-abstracts" and "ai_extracted_abstract" in result:
+        # Conserva el contrato HTTP sin modificar el artefacto del CLI.
+        result["abstracts"] = result.pop("ai_extracted_abstract")
+    return result
 
 
 class SelectionError(Exception):

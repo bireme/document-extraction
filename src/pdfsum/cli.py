@@ -1,11 +1,11 @@
 """CLI del motor pdfsum.
 
 Subcomandos:
-  run                flujo completo desde PDFs: transcribe (OCR) -> resume -> report.
+  run                transcribe, revisa abstracts y genera solo como respaldo.
   transcribe         solo transcribe PDFs a ocr/<doc_id>.txt (cacheado).
   extract-abstracts  transcribe PDFs y extrae resúmenes existentes sin generarlos.
-  summarize          resume un texto ya transcrito (paso 2 aislado).
-  batch              resume un lote de .txt (cola idempotente + QA gates).
+  summarize          genera un abstract textual sin buscar resúmenes existentes.
+  batch              aplica la política de respaldo a un lote de textos.
   export             exporta un lote a registros LILACS (borrador).
   serve              API de consulta de solo lectura del lote.
 
@@ -19,10 +19,13 @@ import logging
 import sys
 from pathlib import Path
 
-from .abstract_extraction import extract_refined_abstracts
-from .config import get_config_value, resolve_abstract_refine_context_chars
-from .contract import SummaryResult
-from .pipeline import summarize_document
+from .abstract_generation import generate_document_abstract
+from .config import (
+    get_config_value,
+    resolve_abstract_refine_context_chars,
+    validate_ocr_workers,
+)
+from .contract import read_result
 
 
 def _resolve_backend_model(
@@ -42,28 +45,53 @@ def _build_summarizer(dry_run: bool, backend: str, model: str):
     return build_summarizer(backend, model, dry_run=dry_run)
 
 
+def _task_model(args, task: str) -> tuple[str, str]:
+    """El alias legado selecciona revisión en extract-abstracts y generación en los demás."""
+    from .adapters.summarizer_factory import resolve_task_backend, resolve_task_model
+
+    backend = resolve_task_backend(
+        task, getattr(args, f"{task}_backend", None), args.backend
+    )
+    explicit = getattr(args, f"{task}_model", None)
+    alias_task = "abstract" if args.cmd == "extract-abstracts" else "summary"
+    if args.model and task == alias_task:
+        if explicit and explicit != args.model:
+            raise ValueError("--model contradice el argumento específico")
+        logging.getLogger(__name__).warning(
+            "--model es un alias legado de --%s-model", task
+        )
+        explicit = explicit or args.model
+    return backend, resolve_task_model(backend, task, explicit)
+
+
+def _add_generation_options(parser):
+    parser.add_argument(
+        "--long-strategy",
+        choices=["excerpt", "blocks", "hierarchical"],
+        default=get_config_value("long_strategy", "hierarchical"),
+    )
+    parser.add_argument(
+        "--max-chars", type=int, default=get_config_value("max_chars", 42000)
+    )
+
+
 def cmd_summarize(args: argparse.Namespace) -> int:
     text = Path(args.text).read_text(encoding="utf-8", errors="replace")
     doc_id = args.doc_id or Path(args.text).stem
-    backend, model = _resolve_backend_model(args.backend, args.model)
-    summarizer = _build_summarizer(args.dry_run, backend, model)
-    extraction = extract_refined_abstracts(
-        text, summarizer, args.abstract_refine_context_chars
-    )
-    if extraction.error is not None:
-        logging.getLogger(__name__).warning(
-            "Revisión de resúmenes fallida; se conserva la extracción: %s (%s)",
-            doc_id,
-            extraction.error,
-        )
-    result = summarize_document(
-        doc_id=doc_id,
-        text=text,
-        summarizer=summarizer,
-        abstracts=extraction.abstracts,
+    backend, model = _task_model(args, "summary")
+    from .adapters.summarizer_factory import LazyGenerator, model_diagnostics
+
+    generator = LazyGenerator(backend, model, args.dry_run)
+    result = generate_document_abstract(
+        doc_id,
+        text,
+        generator,
         pages=args.pages,
         lang=args.lang,
+        long_strategy=args.long_strategy,
+        max_chars=args.max_chars,
     )
+    result.meta["models"] = model_diagnostics(None, generator, "generated")
     out = result.to_json()
     if args.out:
         Path(args.out).write_text(out + "\n", encoding="utf-8")
@@ -74,19 +102,22 @@ def cmd_summarize(args: argparse.Namespace) -> int:
 
 def cmd_batch(args: argparse.Namespace) -> int:
     from .adapters.batch_runner import run_batch
+    from .adapters.summarizer_factory import LazyGenerator, build_reviewer
 
-    backend, model = _resolve_backend_model(args.backend, args.model)
-    if not args.dry_run:
-        err = _preflight_resumen(model, backend)
-        if err is not None:
-            return err
-    summarizer = _build_summarizer(args.dry_run, backend, model)
+    backend, model = _task_model(args, "summary")
+    abstract_backend, abstract_model = _task_model(args, "abstract")
+    fake = getattr(args, "fake", False) or args.dry_run
+    summarizer = LazyGenerator(backend, model, fake)
+    reviewer = build_reviewer(abstract_backend, abstract_model, fake)
     report = run_batch(
         in_dir=args.in_dir,
         out_dir=args.out_dir,
         summarizer=summarizer,
         max_retries=args.max_retries,
-        abstract_llm=summarizer,
+        long_strategy=args.long_strategy,
+        max_chars=args.max_chars,
+        reprocess=args.reprocess,
+        abstract_llm=reviewer,
         abstract_refine_context_chars=args.abstract_refine_context_chars,
     )
     m = report["metrics"]
@@ -112,7 +143,7 @@ def cmd_export(args: argparse.Namespace) -> int:
             continue
         d = json.loads(f.read_text(encoding="utf-8"))
         d.pop("_qa", None)
-        records.append(to_lilacs(SummaryResult.from_dict(d)))
+        records.append(to_lilacs(read_result(d)))
     Path(args.out).write_text(
         json.dumps(records, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -139,7 +170,7 @@ def cmd_bibframe(args: argparse.Namespace) -> int:
             continue
         d = json.loads(f.read_text(encoding="utf-8"))
         d.pop("_qa", None)
-        summary = SummaryResult.from_dict(d)
+        summary = read_result(d)
 
         pdf_meta = None
         if pdfs_dir is not None:
@@ -219,35 +250,56 @@ def cmd_api(args: argparse.Namespace) -> int:
 def cmd_worker(args: argparse.Namespace) -> int:
     """Worker del servicio: procesa jobs encolados en el workspace."""
     from .adapters.service_worker import main_loop
+    from .adapters.summarizer_factory import LazyGenerator, build_reviewer
 
-    backend, model = _resolve_backend_model(args.backend, args.model)
-    if not (args.fake or args.dry_run):
-        err = _preflight_resumen(model, backend)
-        if err is not None:
-            return err
-
-    transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
-    summarizer = _build_summarizer(args.fake or args.dry_run, backend, model)
+    backend, model = _task_model(args, "summary")
+    abstract_backend, abstract_model = _task_model(args, "abstract")
+    fake = getattr(args, "fake", False) or args.dry_run
+    summarizer = LazyGenerator(backend, model, fake)
+    reviewer = build_reviewer(abstract_backend, abstract_model, fake)
+    transcriber = _build_transcriber(
+        args.fake,
+        args.lang,
+        vlm_model=args.vlm_model,
+        ocr_workers=args.ocr_workers,
+        vlm_workers=args.vlm_workers,
+    )
 
     main_loop(
         args.workspace,
         transcriber,
         summarizer,
-        abstract_llm=summarizer,
+        abstract_llm=reviewer,
         abstract_refine_context_chars=args.abstract_refine_context_chars,
         long_strategy=args.long_strategy,
+        max_chars=args.max_chars,
         interval_seconds=args.interval,
+        reprocess=args.reprocess,
     )
     return 0
 
 
-def _build_transcriber(fake: bool, lang: str, vlm_model: str | None = None):
+def _build_transcriber(
+    fake: bool,
+    lang: str,
+    vlm_model: str | None = None,
+    ocr_workers: int | None = None,
+    vlm_workers: int | None = None,
+):
     """Transcriptor por defecto: híbrido nativo+Tesseract con fallback VLM.
 
     Si Ollama + el modelo de visión están disponibles, el híbrido los usa como
     fallback para escaneos de baja confianza (color/contraste); si no, degrada
     a Tesseract con aviso (la app sigue funcional).
     """
+    ocr_workers = validate_ocr_workers(
+        ocr_workers if ocr_workers is not None else get_config_value("ocr_workers", 2),
+        "ocr_workers",
+    )
+    vlm_workers = validate_ocr_workers(
+        vlm_workers if vlm_workers is not None else get_config_value("vlm_workers", 1),
+        "vlm_workers",
+    )
     if fake:
         from .adapters.fake_transcriber import FakeTranscriber
 
@@ -270,30 +322,39 @@ def _build_transcriber(fake: bool, lang: str, vlm_model: str | None = None):
             )
     except (OSError, ValueError):
         print("aviso: Ollama no accesible; OCR de baja confianza usará Tesseract.")
-    return HybridOcrTranscriber(lang=lang, vlm=vlm)
+    return HybridOcrTranscriber(
+        lang=lang, vlm=vlm, ocr_workers=ocr_workers, vlm_workers=vlm_workers
+    )
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    """Flujo completo desde PDFs: transcribe (cache) -> resume -> report."""
+    """Transcribe, revisa y genera solamente cuando no quedan abstracts válidos."""
     from .adapters.pdf_batch import run_batch_pdfs
+    from .adapters.summarizer_factory import LazyGenerator, build_reviewer
     from .workspace import Workspace
 
-    backend, model = _resolve_backend_model(args.backend, args.model)
-    if not (args.fake or args.dry_run):
-        err = _preflight_resumen(model, backend)
-        if err is not None:
-            return err
+    backend, model = _task_model(args, "summary")
+    abstract_backend, abstract_model = _task_model(args, "abstract")
+    fake = getattr(args, "fake", False) or args.dry_run
+    summarizer = LazyGenerator(backend, model, fake)
+    reviewer = build_reviewer(abstract_backend, abstract_model, fake)
     ws = Workspace(args.workspace, logs_dir=args.logs_dir)
-    transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
-    summarizer = _build_summarizer(args.fake or args.dry_run, backend, model)
+    transcriber = _build_transcriber(
+        args.fake,
+        args.lang,
+        vlm_model=args.vlm_model,
+        ocr_workers=args.ocr_workers,
+        vlm_workers=args.vlm_workers,
+    )
     report = run_batch_pdfs(
         args.in_dir,
         ws,
         transcriber,
         summarizer,
-        abstract_llm=summarizer,
+        abstract_llm=reviewer,
         abstract_refine_context_chars=args.abstract_refine_context_chars,
         long_strategy=args.long_strategy,
+        max_chars=args.max_chars,
         retranscribe=args.retranscribe,
     )
     m = report["metrics"]
@@ -313,7 +374,13 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
     from .workspace import Workspace
 
     ws = Workspace(args.workspace)
-    transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
+    transcriber = _build_transcriber(
+        args.fake,
+        args.lang,
+        vlm_model=args.vlm_model,
+        ocr_workers=args.ocr_workers,
+        vlm_workers=args.vlm_workers,
+    )
     meta = transcribe_pdfs(args.in_dir, ws, transcriber, retranscribe=args.retranscribe)
     cached = sum(1 for m in meta.values() if m.get("cached"))
     print(f"transcribe: {len(meta)} PDFs ({cached} cacheados) -> {ws.ocr_dir}")
@@ -323,16 +390,19 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
 def cmd_extract_abstracts(args: argparse.Namespace) -> int:
     """Transcribe PDFs y extrae solamente los resúmenes presentes."""
     from .adapters.abstract_batch import extract_abstracts_from_pdfs
+    from .adapters.summarizer_factory import build_reviewer
     from .workspace import Workspace
 
-    backend, model = _resolve_backend_model(args.backend, args.model)
-    if not (args.fake or args.dry_run):
-        err = _preflight_resumen(model, backend)
-        if err is not None:
-            return err
-    llm = _build_summarizer(args.fake or args.dry_run, backend, model)
+    backend, model = _task_model(args, "abstract")
+    llm = build_reviewer(backend, model, args.fake or args.dry_run)
     ws = Workspace(args.workspace, logs_dir=args.logs_dir)
-    transcriber = _build_transcriber(args.fake, args.lang)
+    transcriber = _build_transcriber(
+        args.fake,
+        args.lang,
+        vlm_model=args.vlm_model,
+        ocr_workers=args.ocr_workers,
+        vlm_workers=args.vlm_workers,
+    )
     report = extract_abstracts_from_pdfs(
         args.in_dir,
         ws,
@@ -362,7 +432,15 @@ def cmd_processing_api(args: argparse.Namespace) -> int:
     except ImportError:
         print("Instala el extra opcional: pip install 'pdfsum[service]'")
         return 2
-    backend, model = _resolve_backend_model(args.backend, args.model)
+    from .adapters.summarizer_factory import LazyGenerator, build_reviewer
+
+    # En esta API multicomando, el alias previo configura ambas responsabilidades.
+    model_args = argparse.Namespace(**vars(args))
+    model_args.model = None
+    model_args.abstract_model = args.abstract_model or args.model
+    model_args.summary_model = args.summary_model or args.model
+    backend, model = _task_model(model_args, "abstract")
+    summary_backend, summary_model = _task_model(model_args, "summary")
     context_chars = get_config_value(
         "abstract_refine_context_chars", ABSTRACT_REFINE_CONTEXT_CHARS
     )
@@ -372,18 +450,26 @@ def cmd_processing_api(args: argparse.Namespace) -> int:
 
     def process(pdf, workspace, command):
         # Cada solicitud tiene sus propios adaptadores y destino de eventos.
-        transcriber = _build_transcriber(False, args.lang, vlm_model=args.vlm_model)
-        llm = (
-            _build_summarizer(False, backend, model)
-            if command != "transcribe"
-            else None
+        transcriber = _build_transcriber(
+            False,
+            args.lang,
+            vlm_model=args.vlm_model,
+            ocr_workers=args.ocr_workers,
+            vlm_workers=args.vlm_workers,
         )
+        llm = build_reviewer(backend, model) if command != "transcribe" else None
         return process_pdf(
             pdf,
             workspace,
             transcriber,
             llm,
             command=command,
+            generator=(
+                LazyGenerator(summary_backend, summary_model)
+                if command == "run"
+                else None
+            ),
+            max_chars=args.max_chars,
             long_strategy=args.long_strategy,
             context_chars=context_chars,
             backend=backend,
@@ -413,14 +499,23 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     from .adapters.doctor import (
         capabilities,
         check_environment,
+        check_task_models,
         environment_ok,
         format_capabilities,
         format_report,
     )
+    from .adapters.vlm_ocr import resolve_vlm_model
 
-    backend, model = _resolve_backend_model(args.backend, args.model)
-    checks = check_environment(text_model=model, backend=backend)
-    print(f"Verificación de entorno pdfsum (backend de resumen: {backend}):")
+    backend, model = _task_model(args, "summary")
+    abstract_backend, abstract_model = _task_model(args, "abstract")
+    vlm_model = resolve_vlm_model(args.vlm_model)
+    checks = check_environment(text_model=model, backend=backend, vlm_model=vlm_model)
+    checks.extend(
+        check_task_models(
+            backend, abstract_model, model, vlm_model, abstract_backend=abstract_backend
+        )
+    )
+    print(f"Verificación de entorno pdfsum (backend textual: {backend}):")
     print(format_report(checks))
     print("\nCapacidades disponibles:")
     caps = capabilities(checks)
@@ -430,7 +525,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     if not caps["resumen"]:
         print(
             "AVISO: sin backend de resumen listo (Ollama+modelo, o API key "
-            "cloud) NO se pueden generar resúmenes (núcleo). Ver INSTALL.md §2."
+            "cloud) no se pueden generar abstracts de respaldo. La extracción "
+            "determinista sigue disponible. Ver INSTALL.md §2."
         )
     return 0 if ok else 1
 
@@ -468,7 +564,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     """Corre el flujo sobre la muestra incluida y evalúa contra el control set."""
     from .acceptance import acceptance_verdict, load_control_set
     from .adapters.pdf_batch import run_batch_pdfs
-    from .contract import SummaryResult
+    from .contract import read_result
     from .control import run_control_suite
     from .workspace import Workspace
 
@@ -476,17 +572,29 @@ def cmd_verify(args: argparse.Namespace) -> int:
     pdfs = args.pdfs or str(samples_dir / "pdfs")
     control = args.control or str(samples_dir / "control_set.json")
     ws = Workspace(args.workspace)
-    transcriber = _build_transcriber(args.fake, args.lang, vlm_model=args.vlm_model)
-    backend, model = _resolve_backend_model(args.backend, args.model)
-    summarizer = _build_summarizer(args.fake or args.dry_run, backend, model)
+    transcriber = _build_transcriber(
+        args.fake,
+        args.lang,
+        vlm_model=args.vlm_model,
+        ocr_workers=args.ocr_workers,
+        vlm_workers=args.vlm_workers,
+    )
+    from .adapters.summarizer_factory import LazyGenerator, build_reviewer
+
+    backend, model = _task_model(args, "summary")
+    abstract_backend, abstract_model = _task_model(args, "abstract")
+    fake = getattr(args, "fake", False) or args.dry_run
+    summarizer = LazyGenerator(backend, model, fake)
+    reviewer = build_reviewer(abstract_backend, abstract_model, fake)
     run_batch_pdfs(
         pdfs,
         ws,
         transcriber,
         summarizer,
-        abstract_llm=summarizer,
+        abstract_llm=reviewer,
         abstract_refine_context_chars=args.abstract_refine_context_chars,
         long_strategy=args.long_strategy,
+        max_chars=args.max_chars,
     )
     # cargar resultados y evaluar contra el set de control
     results = {}
@@ -497,7 +605,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
         d = json.loads(f.read_text(encoding="utf-8"))
         d.pop("_qa", None)
-        results[d["doc_id"]] = SummaryResult.from_dict(d)
+        results[d["doc_id"]] = read_result(d)
     cases = load_control_set(control)
     rep = run_control_suite(results, cases).to_dict()
     verdict = acceptance_verdict(rep, min_coverage=args.min_coverage)
@@ -544,9 +652,18 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument(
             "--model",
             default=None,
-            help="modelo a usar (def: config 'model'/'cloud_model', si no "
-            "el default del backend)",
+            help="alias legado: ambos modelos en processing-api; --abstract-model en extract-abstracts; --summary-model en los demás",
         )
+        for task in ("abstract", "summary"):
+            sp.add_argument(
+                f"--{task}-backend",
+                choices=BACKENDS,
+                default=None,
+                help="backend por responsabilidad",
+            )
+            sp.add_argument(
+                f"--{task}-model", default=None, help="modelo por responsabilidad"
+            )
         if add_vlm:
             sp.add_argument(
                 "--vlm-model",
@@ -566,6 +683,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="usar resumidor fake (sin modelo)"
     )
     s.add_argument("--out", default=None, help="escribir JSON a archivo")
+    _add_generation_options(s)
     s.set_defaults(func=cmd_summarize)
 
     b = sub.add_parser("batch", help="procesar un lote de .txt (cola + QA)")
@@ -575,6 +693,12 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--max-retries", dest="max_retries", type=int, default=2)
     b.add_argument(
         "--dry-run", action="store_true", help="usar resumidor fake (sin modelo)"
+    )
+    _add_generation_options(b)
+    b.add_argument(
+        "--reprocess",
+        action="store_true",
+        help="reprocesar jobs explícitamente sin borrar OCR",
     )
     b.set_defaults(func=cmd_batch)
 
@@ -649,11 +773,16 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument(
         "--long-strategy",
         dest="long_strategy",
-        default=get_config_value("long_strategy", "excerpt"),
+        default=get_config_value("long_strategy", "hierarchical"),
         choices=["excerpt", "blocks", "hierarchical"],
     )
     w.add_argument("--dry-run", action="store_true", help="resumidor fake")
     w.add_argument("--fake", action="store_true", help="transcriber + resumidor fake")
+    w.add_argument(
+        "--reprocess",
+        action="store_true",
+        help="reprocesar una vez los jobs terminados sin borrar OCR",
+    )
     w.set_defaults(func=cmd_worker)
 
     r = sub.add_parser("run", help="flujo completo desde PDFs (transcribe+resume)")
@@ -677,7 +806,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument(
         "--long-strategy",
         dest="long_strategy",
-        default=get_config_value("long_strategy", "excerpt"),
+        default=get_config_value("long_strategy", "hierarchical"),
         choices=["excerpt", "blocks", "hierarchical"],
     )
     r.add_argument(
@@ -727,7 +856,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument(
         "--fake", action="store_true", help="usar transcriptor y LLM fake para pruebas"
     )
-    _add_backend_model(a)
+    _add_backend_model(a, add_vlm=True)
     a.add_argument("--dry-run", action="store_true", help="usar LLM fake (OCR real)")
     a.add_argument(
         "--abstract-refine-debug-dir",
@@ -764,16 +893,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=100_000_000,
         help="tamaño máximo del PDF en bytes",
     )
-    remote.add_argument(
-        "--long-strategy",
-        choices=["excerpt", "blocks", "hierarchical"],
-        default="excerpt",
-    )
+    _add_generation_options(remote)
     _add_backend_model(remote, add_vlm=True)
     remote.set_defaults(func=cmd_processing_api)
 
     d = sub.add_parser("doctor", help="verificar dependencias de sistema/modelos")
-    _add_backend_model(d)
+    _add_backend_model(d, add_vlm=True)
     d.set_defaults(func=cmd_doctor)
 
     v = sub.add_parser("verify", help="verificar resultados sobre la muestra incluida")
@@ -787,7 +912,7 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument(
         "--long-strategy",
         dest="long_strategy",
-        default=get_config_value("long_strategy", "excerpt"),
+        default=get_config_value("long_strategy", "hierarchical"),
         choices=["excerpt", "blocks", "hierarchical"],
     )
     v.add_argument("--min-coverage", dest="min_coverage", type=float, default=0.6)
@@ -798,6 +923,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="transcriber+resumidor fake (prueba el arnés)",
     )
     v.set_defaults(func=cmd_verify)
+    for command in (r, w, v):
+        command.add_argument(
+            "--max-chars", type=int, default=get_config_value("max_chars", 42000)
+        )
+    for command in (r, t, a, w, v, remote):
+        command.add_argument(
+            "--ocr-workers",
+            type=int,
+            default=None,
+            help="páginas OCR simultáneas (def: config ocr_workers, si no 2; 1 secuencial)",
+        )
+        command.add_argument(
+            "--vlm-workers",
+            type=int,
+            default=None,
+            help="llamadas VLM simultáneas por transcriptor (def: config vlm_workers, si no 1)",
+        )
     return p
 
 
@@ -807,7 +949,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.func in (
         cmd_extract_abstracts,
         cmd_run,
-        cmd_summarize,
         cmd_batch,
         cmd_verify,
         cmd_worker,
@@ -817,7 +958,14 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             print(str(exc))
             return 2
-    return args.func(args)
+    try:
+        return args.func(args)
+    except ValueError as exc:
+        print(f"Configuración o resultado inválido: {exc}", file=sys.stderr)
+        return 2
+    except RuntimeError as exc:
+        print(f"No se pudo completar el procesamiento: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

@@ -1,5 +1,9 @@
 # Instalación y reproducibilidad — pdfsum
 
+> Flujo actual: abstracts existentes primero, generación textual solo como
+> respaldo. Modelos separados y migración: [guía de abstracts](docs/ABSTRACTS.md).
+> Las referencias a plantillas y secciones describen la API Python legada.
+
 Guía para que **otra persona con una GPU similar o superior** instale la
 aplicación, la ejecute y **verifique que obtiene resultados similares**.
 
@@ -20,7 +24,8 @@ aplicación, la ejecute y **verifique que obtiene resultados similares**.
 |---|---|
 | Leer PDFs con texto nativo | **poppler-utils** |
 | Transcribir PDFs **escaneados** | poppler + **Tesseract** (+ idioma, p. ej. `por`) |
-| **Generar resúmenes** (núcleo) | **Ollama en ejecución** + modelo **`qwen2.5:7b`** descargado |
+| Revisar abstracts | Ollama + `qwen2.5:7b`; fallback determinista si falta |
+| Generar abstracts de respaldo | Ollama + `qwen3:8b`, solo cuando haga falta generar |
 | OCR de escaneos difíciles | Ollama + modelo **`qwen3-vl:8b-instruct`** |
 
 > **Sí: para resumir, Ollama debe estar instalado, en ejecución y con el modelo

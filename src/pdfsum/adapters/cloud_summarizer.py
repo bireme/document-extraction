@@ -86,3 +86,9 @@ class CloudSummarizer:
         prompt = build_prompt(req.text, req.lang, req.template, MAX_CHARS)
         raw = strip_think(self._call(prompt))
         return parse_sections(raw, req.template, req.lang)
+
+    def generate_abstract(self, text: str, lang: str) -> str:
+        """Genera texto directo mediante el transporte existente."""
+        from .llm_prompt import build_abstract_prompt
+
+        return strip_think(self._call(build_abstract_prompt(text, lang))).strip()

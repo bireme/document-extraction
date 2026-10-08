@@ -62,7 +62,8 @@ def extract_abstracts_from_pdfs(
             {
                 **report,
                 "documents": [
-                    {k: v for k, v in d.items() if k != "abstracts"} for d in documentos
+                    {k: v for k, v in d.items() if k != "ai_extracted_abstract"}
+                    for d in documentos
                 ],
                 "run_id": run_id,
                 "command": "extract-abstracts",
@@ -193,7 +194,7 @@ def extract_abstracts_from_pdfs(
                 "doc_id": doc_id,
                 "status": "found" if abstracts else "not_found",
                 "source_kind": source_kind,
-                "abstracts": [
+                "ai_extracted_abstract": [
                     {
                         "lang": a.lang,
                         "header": a.header,
@@ -204,9 +205,10 @@ def extract_abstracts_from_pdfs(
                 ],
             }
             atomic_write_json(workspace.abstract_path(doc_id), resultado)
-            documentos.append(
-                {**resultado, "abstract_extraction": extraction.diagnostics()}
-            )
+            diagnostics = extraction.diagnostics()
+            if extraction.error is not None:
+                diagnostics["fallback_reason"] = format_error(extraction.error)
+            documentos.append({**resultado, "abstract_extraction": diagnostics})
             metrics[
                 "fallback_determinista" if fallback else "revision_llm_exitosa"
             ] += 1

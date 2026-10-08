@@ -1,28 +1,13 @@
 {
-  "_comment": "Copiar a .pdfsum-config.json en el directorio de trabajo o en ~/ para personalizar defaults.",
-  "_comment2": "Los flags de CLI siempre prevalecen sobre este archivo.",
-  
-  "long_strategy": "excerpt",
-  "_long_strategy_help": "excerpt (rápido, ~1-2% cobertura) | blocks (mediano, 100% cobertura) | hierarchical (lento, 100% cobertura con mejor coherencia por capítulos)",
-  
-  "model": "qwen2.5:7b",
-  "_model_help": "Modelo Ollama local, usado solo si summarizer_backend=ollama",
-
-  "vlm_model": "qwen3-vl:8b-instruct",
-  "_vlm_model_help": "Modelo Ollama local, usado para mejorar el ocr",
-
+  "_comment": "Copia este archivo a .pdfsum-config.json. Modelos: CLI > entorno PDFSUM_*_MODEL > configuración > default del backend.",
   "summarizer_backend": "ollama",
-  "_summarizer_backend_help": "ollama (local, default) | openai | openrouter | anthropic. También via env PDFSUM_SUMMARIZER_BACKEND (prevalece sobre este archivo).",
-
-  "cloud_model": "qwen/qwen-2.5-7b-instruct",
-  "_cloud_model_help": "Modelo a usar si summarizer_backend != ollama. Default por proveedor si se omite: openrouter=qwen/qwen-2.5-7b-instruct (mismo Qwen que local, en la nube), openai=gpt-4o-mini, anthropic=claude-haiku-4-5.",
-
-  "_api_keys_help": "Las API keys NUNCA van aquí (evita comitear secretos): export OPENAI_API_KEY / OPENROUTER_API_KEY / ANTHROPIC_API_KEY segun el backend. Ver INSTALL.md §2.",
-
-  "lang": "por+eng+spa",
-  "_lang_help": "Idiomas OCR (Tesseract), combinables con +. Ej: por+eng+spa+fra",
-  
+  "abstract_model": "qwen2.5:7b",
+  "summary_model": "qwen3:8b",
+  "vlm_model": "qwen3-vl:8b-instruct",
+  "long_strategy": "hierarchical",
   "abstract_refine_context_chars": 20000,
-  "_abstract_refine_context_chars_help": "Máximo de caracteres iniciales para revisar resúmenes existentes con el mismo backend/modelo.",
-  "max_chars": 40000
+  "max_chars": 42000,
+  "lang": "por+eng+spa",
+  "_cloud_help": "Al cambiar de backend, configura los identificadores de ambos modelos para ese proveedor. Las API keys se leen solamente del entorno.",
+  "_legacy_help": "model y cloud_model solo se usan en el flujo estructurado legado; no seleccionan los modelos del flujo nuevo."
 }

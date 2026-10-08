@@ -34,6 +34,9 @@ class _DeterministicSummarizer:
         text = self._TEXT.get(request.lang, self._TEXT["pt"])
         return {name: f"{text}: {name}" for name in section_keys(request.template)}
 
+    def generate_abstract(self, text: str, lang: str) -> str:
+        return self._TEXT.get(lang, self._TEXT["pt"])
+
 
 class _DeterministicPageOCR:
     """Fallback reproducible que deja visible la región procesada."""
@@ -55,14 +58,18 @@ class TestPdfFlowE2E(unittest.TestCase):
                 f"dependencias opcionales ausentes para E2E: {', '.join(missing)}"
             )
 
-    def _assert_report(self, workspace: Workspace, expected: int) -> dict:
+    def _assert_report(
+        self, workspace: Workspace, expected: int, failed: int = 0
+    ) -> dict:
         report = json.loads(workspace.report_path.read_text(encoding="utf-8"))
         self.assertEqual(report["report_version"], "3.1")  # FASE16 aditivo
-        self.assertEqual(report["status"], "completed")
+        self.assertEqual(
+            report["status"], "completed_with_errors" if failed else "completed"
+        )
         self.assertEqual(report["progress"]["discovered"], expected)
         self.assertEqual(report["progress"]["processed"], expected)
-        self.assertEqual(report["progress"]["completed"], expected)
-        self.assertEqual(report["progress"]["failed"], 0)
+        self.assertEqual(report["progress"]["completed"], expected - failed)
+        self.assertEqual(report["progress"]["failed"], failed)
         for field in (
             "run_id",
             "started_at",
@@ -103,7 +110,7 @@ class TestPdfFlowE2E(unittest.TestCase):
             self.assertEqual(summary["doc_id"], "nativo")
             self.assertEqual(summary["meta"]["pages"], 1)
             self.assertEqual(summary["meta"]["source_kind"], "nativo")
-            self.assertTrue(summary["secciones"])
+            self.assertTrue(summary["ai_generated_abstract"])
             self.assertTrue(summary["_qa"]["passed"])
             events = (root / "logs" / "events.jsonl").read_text(encoding="utf-8")
             self.assertIn('"event":"run_started"', events)
@@ -141,11 +148,21 @@ class TestPdfFlowE2E(unittest.TestCase):
                 _DeterministicSummarizer(),
             )
 
-            report = self._assert_report(workspace, len(kinds) + 2)
+            empty = {
+                name
+                for name in (*kinds, "casi_vacio", "corrupto")
+                if not workspace.ocr_path(name).read_text().strip()
+            }
+            report = self._assert_report(workspace, len(kinds) + 2, failed=len(empty))
             documents = {item["doc_id"]: item for item in report["documents"]}
             self.assertEqual(set(documents), set(kinds) | {"casi_vacio", "corrupto"})
             for doc_id, document in documents.items():
                 with self.subTest(doc_id=doc_id):
+                    if doc_id in empty:
+                        self.assertEqual(document["status"], "failed")
+                        self.assertIn("No hay texto", document["error"])
+                        self.assertFalse(workspace.summary_path(doc_id).exists())
+                        continue
                     self.assertEqual(document["status"], "completed")
                     self.assertEqual(document["source_kind"], "escaneado")
                     self.assertTrue(document["qa_ok"])
@@ -155,7 +172,7 @@ class TestPdfFlowE2E(unittest.TestCase):
                     self.assertEqual(summary["doc_id"], doc_id)
                     self.assertIn("pages", summary["meta"])
                     self.assertIn("source_kind", summary["meta"])
-                    self.assertTrue(summary["secciones"])
+                    self.assertTrue(summary["ai_generated_abstract"])
 
             for doc_id in kinds:
                 text = workspace.ocr_path(doc_id).read_text(encoding="utf-8")

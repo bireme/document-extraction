@@ -122,19 +122,17 @@ def check_environment(
             checks.append(
                 Check(
                     f"model:{text_model}",
-                    any(m.startswith(text_model) for m in models),
-                    "presente"
-                    if any(m.startswith(text_model) for m in models)
-                    else "falta",
+                    model_available(text_model, models),
+                    "presente" if model_available(text_model, models) else "falta",
                     hard=False,
                 )
             )
             checks.append(
                 Check(
                     f"model:{vlm_model}",
-                    any(m.startswith(vlm_model.split(":")[0]) for m in models),
-                    "presente (o variante)"
-                    if any(m.startswith(vlm_model.split(":")[0]) for m in models)
+                    model_available(vlm_model, models),
+                    "presente"
+                    if model_available(vlm_model, models)
                     else "falta (OCR de imagen)",
                     hard=False,
                 )
@@ -181,9 +179,9 @@ def check_environment(
             checks.append(
                 Check(
                     f"model:{vlm_model}",
-                    any(m.startswith(vlm_model.split(":")[0]) for m in models),
-                    "presente (o variante)"
-                    if any(m.startswith(vlm_model.split(":")[0]) for m in models)
+                    model_available(vlm_model, models),
+                    "presente"
+                    if model_available(vlm_model, models)
                     else "falta (OCR de imagen)",
                     hard=False,
                 )
@@ -211,12 +209,20 @@ def capabilities(checks: list[Check]) -> dict[str, bool]:
     )
     vlm_model = any(k.startswith("model:") and "vl" in k and v for k, v in by.items())
     api_key_ok = any(k.endswith("_api_key") and v for k, v in by.items())
-    return {
+    result = {
         "extraer_nativo": bool(poppler),
         "ocr_imagen": bool(poppler and by.get("tesseract")),
         "resumen": bool(api_key_ok or (by.get("ollama") and text_model)),
         "ocr_vlm": bool(by.get("ollama") and vlm_model),
     }
+
+    for task in ("abstract", "summary", "vlm"):
+        if f"task:{task}" in by:
+            result[task] = by[f"task:{task}"]
+    if "summary" in result:
+        result["resumen"] = result["summary"]
+        result["ocr_vlm"] = result["vlm"]
+    return result
 
 
 def summarization_ready(
@@ -250,7 +256,7 @@ def summarization_ready(
             + model
             + "\nDiagnóstico: 'pdfsum doctor'. Detalles: INSTALL.md §1."
         )
-    if not any(m.startswith(model) for m in models):
+    if not model_available(model, models):
         return False, (
             f"Ollama está pero falta el modelo '{model}'. Descárgalo:\n"
             f"  ollama pull {model}\n"
@@ -261,13 +267,18 @@ def summarization_ready(
 
 def format_capabilities(caps: dict[str, bool]) -> str:
     etiquetas = {
+        "abstract": "Revisar resúmenes existentes",
+        "summary": "Generar un abstract textual",
+        "vlm": "OCR visual configurado",
         "extraer_nativo": "Extraer PDFs con texto (poppler)",
         "ocr_imagen": "OCR de escaneados (tesseract)",
         "resumen": "Generar resúmenes (backend local u nube)  [núcleo]",
         "ocr_vlm": "OCR de escaneos difíciles (VLM)",
     }
     return "\n".join(
-        f"  {'SÍ ' if caps[k] else 'NO '} {etiquetas[k]}" for k in etiquetas
+        f"  {'SÍ ' if caps[k] else 'NO '} {etiquetas[k]}"
+        for k in etiquetas
+        if k in caps
     )
 
 
@@ -278,3 +289,29 @@ def format_report(checks: list[Check]) -> str:
         tag = "[duro]" if c.hard else "[opc]"
         lines.append(f"  {mark}{tag:7} {c.name}: {c.detail}")
     return "\n".join(lines)
+
+
+def model_available(model: str, models: list[str]) -> bool:
+    """Compara el tag exacto; un nombre sin tag significa latest."""
+    expected = model if ":" in model else model + ":latest"
+    return expected in models or model in models
+
+
+def check_task_models(
+    backend: str,
+    abstract_model: str,
+    summary_model: str,
+    vlm_model: str,
+    *,
+    abstract_backend: str | None = None,
+) -> list[Check]:
+    """Diagnostica responsabilidades explícitas, sin inferirlas del nombre."""
+    checks = []
+    for task, model, provider in (
+        ("abstract", abstract_model, abstract_backend or backend),
+        ("summary", summary_model, backend),
+        ("vlm", vlm_model, "ollama"),
+    ):
+        ok, detail = summarization_ready(model, provider)
+        checks.append(Check(f"task:{task}", ok, f"{provider}/{model}: {detail}", False))
+    return checks

@@ -75,7 +75,7 @@ class TestTranscribeMixto(unittest.TestCase):
     def test_mixto_solo_ocr_de_paginas_pobres(self):
         """C2: N=4 páginas, K=2 pobres -> solo K pasan por OCR."""
         result, ocr_calls = self._transcribe([_RICA, _POBRE, _RICA, _POBRE])
-        self.assertEqual(ocr_calls, [2, 4])  # solo las pobres
+        self.assertEqual(sorted(ocr_calls), [2, 4])  # solo las pobres
         self.assertEqual(result.source_kind, SourceKind.MIXTO)
         # texto de las 4 páginas presente
         self.assertEqual(result.text.count("=== pág"), 4)
@@ -98,7 +98,7 @@ class TestTranscribeMixto(unittest.TestCase):
         """Caso borde: ESCANEADO puro pasa por el camino OCR existente."""
         result, ocr_calls = self._transcribe([_POBRE, _POBRE])
         self.assertEqual(result.source_kind, SourceKind.ESCANEADO)
-        self.assertEqual(ocr_calls, [1, 2])
+        self.assertEqual(sorted(ocr_calls), [1, 2])
         self.assertEqual(result.text.count("=== pág"), 2)
 
 

@@ -66,10 +66,14 @@ class EventTranscriber:
 
 
 class InterruptingSummarizer:
-    def summarize(self, request):
-        if request.doc_id == "b":
+    def __init__(self):
+        self.calls = 0
+
+    def generate_abstract(self, text, lang):
+        self.calls += 1
+        if self.calls == 2:
             raise KeyboardInterrupt()
-        return FakeSummarizer().summarize(request)
+        return "Resumen determinista para probar el checkpoint."
 
 
 class InterruptingTranscriber:
@@ -229,7 +233,7 @@ class TestBatchPdf(unittest.TestCase):
                 run_batch_pdfs(
                     str(ind),
                     ws,
-                    FakeTranscriber(_TEXT, pages=4),
+                    FakeTranscriber("Texto sin resumen de origen.", pages=4),
                     InterruptingSummarizer(),
                 )
 

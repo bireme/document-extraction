@@ -228,7 +228,7 @@ def test_fallback_y_continuidad_del_lote(tmp_path, caplog, raw):
     llm.complete_json.side_effect = [raw, respuesta(extract_abstracts(SOURCE))]
     report = extract_abstracts_from_pdfs(str(inputs), ws, FakeTranscriber(SOURCE), llm)
     assert report["total"] == report["found"] == 2
-    assert report["documents"][0]["abstracts"] == [
+    assert report["documents"][0]["ai_extracted_abstract"] == [
         asdict(a) for a in extract_abstracts(SOURCE)
     ]
     assert "abstract_refine_fallback" in [
@@ -272,7 +272,7 @@ def test_cache_y_configuracion_de_contexto(tmp_path):
             "pdfsum.config.load_config",
             return_value={"abstract_refine_context_chars": len(SOURCE)},
         ),
-        patch("pdfsum.cli._build_summarizer", return_value=llm),
+        patch("pdfsum.adapters.summarizer_factory.build_reviewer", return_value=llm),
         patch("pdfsum.cli._build_transcriber", return_value=transcriber),
     ):
         assert (
@@ -292,10 +292,14 @@ def test_cache_y_configuracion_de_contexto(tmp_path):
     assert "RESTO EXCLUIDO" not in llm.complete_json.call_args.args[0]
 
 
-def test_preflight_fallido_no_procesa_documentos(tmp_path):
+def test_preflight_fallido_permite_fallback(tmp_path):
+    (tmp_path / "a.pdf").touch()
     with (
-        patch("pdfsum.cli._preflight_resumen", return_value=2),
-        patch("pdfsum.cli._build_summarizer") as build,
+        patch(
+            "pdfsum.adapters.doctor.summarization_ready",
+            return_value=(False, "No disponible"),
+        ),
+        patch("pdfsum.cli._build_transcriber", return_value=FakeTranscriber(SOURCE)),
     ):
         assert (
             main(
@@ -307,9 +311,10 @@ def test_preflight_fallido_no_procesa_documentos(tmp_path):
                     str(tmp_path / "salida"),
                 ]
             )
-            == 2
+            == 0
         )
-    build.assert_not_called()
+    record = json.loads((tmp_path / "salida/abstracts/a.json").read_text())
+    assert record["ai_extracted_abstract"]
 
 
 class Response:
@@ -385,14 +390,19 @@ def test_cli_resuelve_una_vez_y_reutiliza_cliente(tmp_path, monkeypatch, backend
         args += ["--backend", backend]
     with (
         patch("pdfsum.config.load_config", return_value={}),
-        patch("pdfsum.cli._preflight_resumen", return_value=None) as preflight,
+        patch(
+            "pdfsum.adapters.doctor.summarization_ready",
+            return_value=(True, "Disponible"),
+        ) as preflight,
         patch("pdfsum.cli._build_transcriber", return_value=FakeTranscriber(SOURCE)),
-        patch("pdfsum.cli._build_summarizer", return_value=llm) as build,
+        patch(
+            "pdfsum.adapters.summarizer_factory.build_summarizer", return_value=llm
+        ) as build,
         patch.object(llm, "complete_json", wraps=llm.complete_json) as complete,
     ):
         assert main(args) == 0
-    build.assert_called_once_with(False, backend or "ollama", "modelo-elegido")
-    preflight.assert_called_once_with("modelo-elegido", backend or "ollama")
+    build.assert_called_once_with(backend or "ollama", "modelo-elegido", False)
+    preflight.assert_called_once_with("modelo-elegido", backend=backend or "ollama")
     assert complete.call_count == 2
 
 
@@ -516,7 +526,7 @@ def test_eventos_fallo_y_metricas(tmp_path, caplog, raw, etapa, tipo, mensaje):
         "doc_id",
         "status",
         "source_kind",
-        "abstracts",
+        "ai_extracted_abstract",
     }
     for path in (ws.report_path, ws.logs_dir / "events.jsonl"):
         content = path.read_text()

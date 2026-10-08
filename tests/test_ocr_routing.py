@@ -2,7 +2,7 @@
 
 import unittest
 
-from pdfsum.ocr_routing import parse_tsv_confidence, route_page
+from pdfsum.ocr_routing import parse_tsv_confidence, parse_tsv_lines, route_page
 
 _TSV = (
     "level\tpage_num\tconf\ttext\n"
@@ -29,6 +29,46 @@ class TestOcrRouting(unittest.TestCase):
         self.assertAlmostEqual(conf, (94.5 + 91.0 + 96.0) / 3, places=2)
         # TSV vacío -> (0,0)
         self.assertEqual(parse_tsv_confidence(""), (0.0, 0))
+
+
+class TestTsvLines(unittest.TestCase):
+    def test_idiomas_y_espacios(self):
+        for text in (
+            "Olá, ação e saúde pública!",
+            "¡Atención! Información y población: ¿sí?",
+            'Health research: "quoted" words & 50%.',
+        ):
+            with self.subTest(text=text):
+                tsv = "conf\ttext\n" + "\n".join(
+                    f"95\t  {word}  " for word in text.split()
+                )
+                self.assertEqual(parse_tsv_lines(tsv), text)
+
+    def test_comillas_literales(self):
+        self.assertEqual(
+            parse_tsv_lines('conf\ttext\n95\t"hola\n95\tmundo"'),
+            '"hola mundo"',
+        )
+
+    def test_lineas_bloques_parrafos_paginas(self):
+        tsv = "page_num\tblock_num\tpar_num\tline_num\tconf\ttext\n"
+        tsv += "1\t2\t1\t1\t95\tfinal\n"
+        tsv += "1\t1\t1\t1\t95\tprimera\n"
+        tsv += "1\t1\t1\t1\t95\tlínea\n"
+        tsv += "1\t1\t1\t2\t95\tsegunda\n"
+        tsv += "1\t1\t2\t1\t95\tpárrafo\n"
+        tsv += "2\t1\t1\t1\t95\tpágina\n"
+        self.assertEqual(
+            parse_tsv_lines(tsv), "primera línea\nsegunda\npárrafo\nfinal\npágina"
+        )
+
+    def test_vacio_y_confianza_invalida(self):
+        for tsv in ("", "conf\ttext\n", "conf\ttext\n-1\tignorar\nx\tignorar\n95\t  "):
+            with self.subTest(tsv=tsv):
+                self.assertEqual(parse_tsv_lines(tsv), "")
+        self.assertEqual(
+            parse_tsv_lines("conf\ttext\n-1\tno\ninvalida\tno\n0\tsí"), "sí"
+        )
 
 
 if __name__ == "__main__":

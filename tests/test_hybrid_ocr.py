@@ -68,8 +68,32 @@ class TestHybridOcr(unittest.TestCase):
 
             run.side_effect = fake_run
             tr = self._hybrid(vlm).transcribe(str(self.dir / "x.pdf"))
-        self.assertIn("texto tesseract", tr.text)
+        self.assertIn(" ".join(["palabra"] * 30), tr.text)
         self.assertEqual(vlm.calls, 0)
+
+    def test_region_una_llamada_tsv(self):
+        for conf, words in ((95, 30), (95, 3), (30, 20), (0, 0)):
+            with self.subTest(conf=conf, words=words):
+                tx = self._hybrid(None)
+                with patch(
+                    "pdfsum.adapters.hybrid_ocr._run", return_value=_tsv(conf, words)
+                ) as run:
+                    text, _, count, info = tx._ocr_page(Path("region.png"))
+                run.assert_called_once_with(
+                    [
+                        "tesseract",
+                        "region.png",
+                        "stdout",
+                        "-l",
+                        "por",
+                        "--psm",
+                        "1",
+                        "tsv",
+                    ]
+                )
+                self.assertEqual(text, " ".join(["palabra"] * words))
+                self.assertEqual(count, words)
+                self.assertFalse(info["vlm"])
 
     def test_escala_vlm(self):
         """C5: baja confianza -> escala al VLM y usa su texto."""
@@ -147,7 +171,7 @@ class TestHybridOcr(unittest.TestCase):
                 tr = HybridOcrTranscriber(
                     lang=lang_combo, vlm=FakePageOCR()
                 ).transcribe(str(self.dir / "x.pdf"))
-        self.assertIn("texto tesseract", tr.text)
+        self.assertIn(" ".join(["palabra"] * 30), tr.text)
         self.assertTrue(seen_lang_args)
         self.assertTrue(all(l == lang_combo for l in seen_lang_args))
 

@@ -54,8 +54,11 @@ def _make(vlm):
 def _run_page(tx):
     from pathlib import Path
 
-    with patch("pdfsum.adapters.hybrid_ocr._run", return_value=_TSV_LOW):
-        return tx._ocr_page(Path("/fake/region.png"))
+    with patch("pdfsum.adapters.hybrid_ocr._run", return_value=_TSV_LOW) as run:
+        result = tx._ocr_page(Path("/fake/region.png"))
+        run.assert_called_once()
+        assert run.call_args.args[0][-1] == "tsv"
+        return result
 
 
 class TestReintentoYDegradacion(unittest.TestCase):

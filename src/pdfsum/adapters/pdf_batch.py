@@ -16,10 +16,10 @@ from pathlib import Path
 from uuid import uuid4
 
 from ..abstract_extraction import extract_refined_abstracts
+from ..abstract_generation import document_abstract_result
 from ..abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS
-from ..contract import Summarizer, TextLLM, Transcriber
+from ..contract import TextGenerator, TextLLM, Transcriber
 from ..metrics import BatchItem, batch_metrics
-from ..pipeline import summarize_document
 from ..qa import check_result
 from ..textclean import clean_text
 from ..transcript_qa import check_transcript
@@ -38,6 +38,7 @@ from .ocr_meta import (
     sha256_file,
     write_meta,
 )
+from .summarizer_factory import model_diagnostics
 
 
 def _load_or_transcribe(
@@ -119,11 +120,12 @@ def run_batch_pdfs(
     in_dir: str,
     workspace: Workspace,
     transcriber: Transcriber,
-    summarizer: Summarizer,
+    summarizer: TextGenerator,
     *,
     abstract_llm: TextLLM | None = None,
     abstract_refine_context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
-    long_strategy: str = "excerpt",
+    long_strategy: str = "hierarchical",
+    max_chars: int = 42000,
     retranscribe: bool = False,
     format_error: Callable[[BaseException], str] | None = None,
 ) -> dict:
@@ -260,6 +262,8 @@ def run_batch_pdfs(
                     abstract_refine_context_chars,
                     event_sink=partial(events.write, doc_id=doc_id),
                 )
+                if extraction.error is not None and format_error is not None:
+                    extraction.error = RuntimeError(format_error(extraction.error))
                 phases["abstracts"] = time.perf_counter() - started
                 events.write(
                     "phase_completed",
@@ -281,13 +285,28 @@ def run_batch_pdfs(
 
                 started = time.perf_counter()
                 monitor.set_context(doc_id=doc_id, phase="resumen")
-                res = summarize_document(
+                res = document_abstract_result(
                     doc_id=doc_id,
                     text=cleaned,
                     abstracts=extraction.abstracts,
-                    summarizer=summarizer,
+                    generator=summarizer,
                     pages=om["pages"],
                     long_strategy=long_strategy,
+                    max_chars=max_chars,
+                )
+                res.meta["models"] = model_diagnostics(
+                    abstract_llm, summarizer, res.meta["abstract_source"]
+                )
+                vlm = getattr(transcriber, "vlm", None)
+                res.meta["models"]["vlm"] = {
+                    "backend": "ollama",
+                    "model": getattr(vlm, "model", None),
+                    "used_pages": (ocr_meta.get("quality") or {}).get("paginas_vlm", 0),
+                }
+                events.write(
+                    "abstract_selected",
+                    doc_id=doc_id,
+                    abstract_source=res.meta["abstract_source"],
                 )
                 res.meta["abstract_extraction"] = extraction.diagnostics()
                 res.meta["text_cleaned"] = True
@@ -326,6 +345,7 @@ def run_batch_pdfs(
                         "tipo": res.tipo_documento,
                         "idioma": res.idioma_principal,
                         "qa_ok": qa.is_ok,
+                        "abstract_source": res.meta["abstract_source"],
                         "abstract_extraction": extraction.diagnostics(),
                         "source_kind": om["source_kind"],
                         "transcription_cached": om["cached"],

@@ -11,6 +11,7 @@ archivo en lugar de leerla). Lección del piloto aplicada:
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 
@@ -29,10 +30,10 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
 def resolve_vlm_model(model: str | None) -> str:
-    """Resuelve el modelo: flag > config > default."""
+    """Resuelve el modelo: CLI > entorno > configuración > default."""
     if model:
         return model
-    configured = get_config_value("vlm_model", None)
+    configured = os.getenv("PDFSUM_VLM_MODEL") or get_config_value("vlm_model", None)
     return configured or DEFAULT_VLM
 
 

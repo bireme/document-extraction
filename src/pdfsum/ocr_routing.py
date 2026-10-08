@@ -67,11 +67,12 @@ def parse_tsv_words(tsv: str) -> list[str]:
 def parse_tsv_lines(tsv: str) -> str:
     """Reconstruye el texto Tesseract del TSV agrupando por línea.
 
-    FASE19: texto de degradación cuando el VLM se rechaza (ya existe del
-    routing; no requiere re-ejecutar Tesseract).
+    Reutiliza el OCR del routing, también cuando el VLM se rechaza.
+    Conserva palabras y líneas; normaliza espacios y omite líneas vacías.
+    Las comillas del texto son literales, no delimitadores CSV.
     """
     lines: dict[tuple, list[str]] = {}
-    reader = csv.DictReader(io.StringIO(tsv), delimiter="\t")
+    reader = csv.DictReader(io.StringIO(tsv), delimiter="\t", quoting=csv.QUOTE_NONE)
     for row in reader:
         try:
             c = float(row.get("conf", "-1"))
@@ -82,11 +83,12 @@ def parse_tsv_lines(tsv: str) -> str:
             continue
         try:
             key = (
+                int(row.get("page_num") or 0),
                 int(row.get("block_num") or 0),
                 int(row.get("par_num") or 0),
                 int(row.get("line_num") or 0),
             )
         except (TypeError, ValueError):
-            key = (0, 0, 0)
+            key = (0, 0, 0, 0)
         lines.setdefault(key, []).append(word)
     return "\n".join(" ".join(ws) for _, ws in sorted(lines.items()))

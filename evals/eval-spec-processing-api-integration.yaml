@@ -1,0 +1,16 @@
+---
+id: PROCESSING-API-INTEGRACION
+titulo: API HTTP con extracción prioritaria y OCR actualizado
+criterios:
+  - id: C1
+    descripcion: Los tres comandos admiten URL y folder con aislamiento y limpieza.
+    verificacion: tests/test_pdfsum_api.py
+  - id: C2
+    descripcion: Modelos separados, alias legado y configuración OCR llegan al pipeline.
+    verificacion: tests/test_pdfsum_api.py y tests/test_cli_ocr_workers.py
+  - id: C3
+    descripcion: Solo se genera cuando no hay abstracts válidos y no se filtran errores.
+    verificacion: tests/test_pdfsum_api.py y tests/test_fallback_ai_summary.py
+  - id: C4
+    descripcion: Se conserva el contrato HTTP y la protección SSRF de descarga.
+    verificacion: tests/test_pdfsum_api.py y tests/test_pdf_download.py

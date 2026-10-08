@@ -14,10 +14,10 @@ from pathlib import Path
 from uuid import uuid4
 
 from ..abstract_extraction import extract_refined_abstracts
+from ..abstract_generation import document_abstract_result
 from ..abstract_refine import ABSTRACT_REFINE_CONTEXT_CHARS
-from ..contract import Summarizer, SummaryResult, TextLLM
+from ..contract import TextGenerator, TextLLM, read_result
 from ..metrics import BatchItem, batch_metrics
-from ..pipeline import summarize_document
 from ..qa import check_result
 from ..queue import JobQueue
 from .job_store import FileJobStore
@@ -27,15 +27,19 @@ from .observability import (
     atomic_write_json,
     utc_now,
 )
+from .summarizer_factory import model_diagnostics
 
 
 def run_batch(
     in_dir: str,
     out_dir: str,
-    summarizer: Summarizer,
+    summarizer: TextGenerator,
     *,
     abstract_llm: TextLLM | None = None,
     abstract_refine_context_chars: int = ABSTRACT_REFINE_CONTEXT_CHARS,
+    long_strategy: str = "hierarchical",
+    max_chars: int = 42000,
+    reprocess: bool = False,
     pattern: str = "*.txt",
     max_retries: int = 2,
 ) -> dict:
@@ -126,19 +130,29 @@ def run_batch(
                         )
                     monitor.set_context(doc_id=did, phase="resumen")
                     started = time.perf_counter()
-                    res = summarize_document(
+                    res = document_abstract_result(
                         doc_id=did,
                         text=text,
-                        summarizer=summarizer,
+                        generator=summarizer,
+                        long_strategy=long_strategy,
+                        max_chars=max_chars,
                         abstracts=extraction.abstracts,
                     )
                     summary_seconds += time.perf_counter() - started
+                    res.meta["models"] = model_diagnostics(
+                        abstract_llm, summarizer, res.meta["abstract_source"]
+                    )
+                    events.write(
+                        "abstract_selected",
+                        doc_id=did,
+                        abstract_source=res.meta["abstract_source"],
+                    )
                     res.meta["abstract_extraction"] = extraction.diagnostics()
                     return res.to_dict()
 
                 t0 = time.perf_counter()
                 monitor.set_context(doc_id=doc_id, phase="resumen")
-                job = queue.submit(doc_id, payload, work)
+                job = queue.submit(doc_id, payload, work, reprocess=reprocess)
                 queue_seconds = time.perf_counter() - t0
                 phases["resumen"] = summary_seconds
                 phases["cola"] = max(
@@ -171,7 +185,7 @@ def run_batch(
                     checkpoint()
                     continue
 
-                res = SummaryResult.from_dict(job.result)
+                res = read_result(job.result)
                 t0 = time.perf_counter()
                 monitor.set_context(doc_id=doc_id, phase="qa")
                 qa = check_result(res)
@@ -197,6 +211,7 @@ def run_batch(
                         "tipo": res.tipo_documento,
                         "idioma": res.idioma_principal,
                         "qa_ok": qa.is_ok,
+                        "abstract_source": res.meta.get("abstract_source", "legacy"),
                         "abstract_extraction": res.meta.get("abstract_extraction", {}),
                         "gates": [failure.gate for failure in qa.failures],
                         "cache_hit": item.cache_hit,

@@ -1,5 +1,9 @@
 # Configuración de Modelos — Ollama Local vs. Servicios Remotos
 
+> Flujo actual: abstracts existentes primero, generación textual solo como
+> respaldo. Modelos separados y migración: [guía de abstracts](docs/ABSTRACTS.md).
+> Las referencias a plantillas y secciones describen la API Python legada.
+
 **Documento de referencia**: Cómo elegir, instalar y configurar el backend de modelos para pdf-summarizer.
 
 ---

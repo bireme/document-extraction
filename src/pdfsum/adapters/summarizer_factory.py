@@ -91,3 +91,103 @@ def build_summarizer(backend: str, model: str, dry_run: bool = False):
     raise ValueError(
         f"backend '{backend}' desconocido; opciones: {', '.join(BACKENDS)}"
     )
+
+
+DEFAULT_ABSTRACT_MODELS = dict(DEFAULT_MODEL_BY_BACKEND)
+DEFAULT_SUMMARY_MODELS = {
+    **DEFAULT_MODEL_BY_BACKEND,
+    "ollama": "qwen3:8b",
+    "openrouter": "qwen/qwen3-8b",
+}
+
+
+def resolve_task_model(backend: str, task: str, explicit: str | None = None) -> str:
+    """Resuelve cada responsabilidad: CLI, entorno, configuración, default."""
+    if get_config_value("model") or get_config_value("cloud_model"):
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "model/cloud_model pertenecen al flujo legado; configura abstract_model y summary_model"
+        )
+    defaults = DEFAULT_ABSTRACT_MODELS if task == "abstract" else DEFAULT_SUMMARY_MODELS
+    key = f"{task}_model"
+    return (
+        explicit
+        or os.getenv(f"PDFSUM_{key.upper()}")
+        or get_config_value(key)
+        or defaults[backend]
+    )
+
+
+class LazyGenerator:
+    """Comprueba el generador solamente cuando un documento lo necesita."""
+
+    def __init__(self, backend: str, model: str, dry_run: bool = False):
+        self.provider, self.model, self.dry_run = backend, model, dry_run
+        self.delegate = None
+
+    def generate_abstract(self, text: str, lang: str) -> str:
+        if self.delegate is None:
+            if not self.dry_run:
+                from .doctor import summarization_ready
+
+                ok, message = summarization_ready(self.model, backend=self.provider)
+                if not ok:
+                    raise RuntimeError("Generación no disponible: " + message)
+            self.delegate = build_summarizer(self.provider, self.model, self.dry_run)
+        return self.delegate.generate_abstract(text, lang)
+
+
+class UnavailableReviewer:
+    """Activa el fallback conservador con diagnóstico de disponibilidad."""
+
+    def __init__(self, backend: str, model: str, message: str):
+        self.provider, self.model, self.message = backend, model, message
+
+    def complete_json(self, prompt: str) -> str:
+        raise RuntimeError(self.message)
+
+
+def build_reviewer(backend: str, model: str, dry_run: bool = False):
+    """La falta del modelo de revisión no bloquea la extracción determinista."""
+    if not dry_run:
+        from .doctor import summarization_ready
+
+        ok, message = summarization_ready(model, backend=backend)
+        if not ok:
+            return UnavailableReviewer(backend, model, message)
+    return build_summarizer(backend, model, dry_run)
+
+
+def model_diagnostics(reviewer, generator, source: str) -> dict:
+    """Registra las responsabilidades sin atribuir llamadas que se evitaron."""
+
+    def describe(adapter):
+        if adapter is None:
+            return {"backend": None, "model": None, "used": False}
+        if getattr(adapter, "dry_run", False):
+            return {"backend": "fake", "model": None}
+        return {
+            "backend": getattr(
+                adapter, "provider", "ollama" if hasattr(adapter, "model") else "fake"
+            ),
+            "model": getattr(adapter, "model", None),
+        }
+
+    return {
+        "abstract": describe(reviewer),
+        "summary": {**describe(generator), "used": source == "generated"},
+    }
+
+
+def resolve_task_backend(
+    task: str, explicit: str | None = None, shared: str | None = None
+) -> str:
+    """Permite proveedores independientes sin romper --backend compartido."""
+    return resolve_backend(
+        explicit
+        or shared
+        or os.getenv(f"PDFSUM_{task.upper()}_BACKEND")
+        or os.getenv("PDFSUM_SUMMARIZER_BACKEND")
+        or get_config_value(f"{task}_backend")
+    )

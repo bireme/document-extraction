@@ -1,0 +1,16 @@
+---
+id: OCR-REUTILIZAR-TSV
+titulo: Reutilizar el texto TSV sin repetir Tesseract
+criterios:
+  - id: C1
+    descripcion: Una llamada TSV por región, sin llamada de texto adicional.
+    verificacion: tests/test_hybrid_ocr.py
+  - id: C2
+    descripcion: Texto multilingüe, líneas, bloques y puntuación conservados.
+    verificacion: tests/test_ocr_routing.py
+  - id: C3
+    descripcion: Routing, reintentos, degradación y concurrencia sin cambios.
+    verificacion: tests/test_hybrid_vlm_verify.py y tests/test_hybrid_concurrency.py
+  - id: C4
+    descripcion: Benchmark con llamadas, tiempos y equivalencia para 1 y 3 workers.
+    verificacion: benchmarks/benchmark_ocr_workers.py

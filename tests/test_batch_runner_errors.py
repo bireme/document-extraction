@@ -11,17 +11,17 @@ from pdfsum.adapters.fake_summarizer import FakeSummarizer
 
 
 class _FailingSummarizer:
-    def summarize(self, request):
+    def generate_abstract(self, text, lang):
         raise TimeoutError("servicio de resumen demorado")
 
 
 class _EmptySummarizer:
-    def summarize(self, request):
-        return {}
+    def generate_abstract(self, text, lang):
+        return ""
 
 
 class _InterruptingSummarizer:
-    def summarize(self, request):
+    def generate_abstract(self, text, lang):
         raise KeyboardInterrupt()
 
 
@@ -59,8 +59,8 @@ class TestBatchRunnerErrors(unittest.TestCase):
             self.assertIn("TimeoutError", document["error"])
             self.assertFalse((output / "uno.json").exists())
 
-    def test_respuesta_vacia_completa_con_qa_fallido(self):
-        """Un payload vacío queda visible mediante gates de QA."""
+    def test_respuesta_vacia_falla_sin_serializar_exito(self):
+        """Un resumen vacío falla y no se persiste como éxito."""
         with TemporaryDirectory() as td:
             input_dir = Path(td) / "entrada"
             output = Path(td) / "salida"
@@ -68,9 +68,9 @@ class TestBatchRunnerErrors(unittest.TestCase):
             (input_dir / "uno.txt").write_text("contenido", encoding="utf-8")
             report = run_batch(str(input_dir), str(output), _EmptySummarizer())
             document = report["documents"][0]
-            self.assertEqual(document["status"], "completed")
-            self.assertFalse(document["qa_ok"])
-            self.assertIn("schema", document["gates"])
+            self.assertEqual(document["status"], "failed")
+            self.assertIn("ValueError", document["error"])
+            self.assertFalse((output / "uno.json").exists())
 
     def test_archivo_sin_permiso_logico_se_registra_y_lote_continua(self):
         """Un PermissionError de lectura queda aislado por documento."""

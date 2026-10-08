@@ -20,11 +20,12 @@ Fuera de Docker: `pip install '.[service]'`.
 ```bash
 OLLAMA_HOST=http://ollama:11434 pdfsum processing-api \
   --host 0.0.0.0 --port 8766 --workspace /output --logs-dir /logs \
-  --backend ollama --model qwen2.5:7b --vlm-model qwen3-vl:8b-instruct \
+  --backend ollama --abstract-model qwen2.5:7b --summary-model qwen3:8b \
+  --vlm-model qwen3-vl:8b-instruct \
   --lang por+eng+spa
 ```
 
-Se reutilizan las fábricas y `.pdfsum-config.json` del CLI: backend/modelo,
+Se reutilizan las fábricas y `.pdfsum-config.json` del CLI: backends/modelos separados,
 modelo VLM, idiomas OCR y `abstract_refine_context_chars`. Las credenciales de
 backends cloud mantienen su configuración habitual por variables de entorno.
 Los modelos deben estar disponibles en Ollama; el OCR conserva su fallback a
@@ -49,9 +50,15 @@ TLS y autenticación. El host por defecto del CLI es `127.0.0.1`.
 
 El comando anterior `extract-abstracts-api` se sustituye por `processing-api`.
 El comando `pdfsum api` conserva su servicio asíncrono previo, sin cambios.
-`--long-strategy` admite `excerpt` (predeterminado), `blocks` y `hierarchical`
-y se aplica solamente a `run`. Backend/modelo se aplican a `run` y
-`extract-abstracts`; `transcribe` no crea un LLM de resumen. Idiomas y modelo VLM
+`--long-strategy` admite `excerpt`, `blocks` y `hierarchical` (predeterminado,
+configurable); `--max-chars` usa la configuración existente (42 000 por defecto).
+Ambos se aplican a `run`. `--abstract-model` configura la revisión extractiva y
+`--summary-model` la generación de respaldo. Se admiten `--abstract-backend` y
+`--summary-backend`, además de `--backend` compartido. En `processing-api`,
+el argumento legado `--model` configura ambas responsabilidades, salvo que haya
+un argumento específico para una de ellas. Sin flags se usan las variables
+`PDFSUM_ABSTRACT_MODEL`/`PDFSUM_SUMMARY_MODEL` y la configuración del CLI.
+`transcribe` no crea revisores ni generadores. Idiomas y modelo VLM
 se aplican a los tres comandos. El contexto de revisión se aplica solo a abstracts.
 
 ## Contrato
@@ -137,16 +144,21 @@ HTTP 200:
 }
 ```
 
-Para `extract-abstracts`, `result` es el contenido exacto de `abstracts/<doc_id>.json`, sin otra
-representación ni contenido del reporte agregado. `result.doc_id` identifica la
+Para `extract-abstracts`, `result` conserva el contrato HTTP previo: el campo
+`ai_extracted_abstract` del artefacto actualizado `abstracts/<doc_id>.json` se
+expone como `abstracts`. Los demás campos se conservan, sin el reporte agregado. `result.doc_id` identifica la
 ejecución interna; `id` es la identidad de OFI9. Un documento sin resumen devuelve
 HTTP 200 con `result.status = "not_found"` y `abstracts = []`. Una falla de revisión
 LLM conserva la extracción determinista, igual que el CLI, y queda registrada.
 
 Para `transcribe`, `result` es una string con el contenido UTF-8 completo de
 `ocr/<doc_id>.txt`, incluidos sus saltos de línea. Para `run`, es el JSON exacto
-de `summaries/<doc_id>.json`, con los campos de resumen, metadatos y `_qa` que
-produce el pipeline. No se devuelve el reporte agregado del lote. Si `run`
+de `summaries/<doc_id>.json`, con `ai_extracted_abstract`,
+`ai_generated_abstract`, `meta` y `_qa` del pipeline actualizado. Si hay abstracts
+válidos se preservan y no se llama al generador; en caso contrario se genera un
+abstract textual. Esto sustituye el contenido estructurado anterior de `run`;
+los consumidores deben leer estos campos (véase [migración](ABSTRACTS.md)).
+La envoltura HTTP `id`, `command`, `status`, `result` permanece igual. No se devuelve el reporte agregado del lote. Si `run`
 registra un documento fallido, la API devuelve un error de procesamiento.
 
 El dispatcher llama directamente `extract_abstracts_from_pdfs`, `transcribe_pdfs`
@@ -210,3 +222,17 @@ revisión. No hay cola, reservas, persistencia de jobs, deduplicación ni reinte
 automáticos. FastAPI ejecuta el trabajo en su pool de threads; dimensiona la
 concurrencia según memoria/GPU. Una interrupción abrupta del proceso puede dejar
 un directorio temporal; no se elimina automáticamente al reiniciar.
+
+## OCR y despliegue
+
+`--ocr-workers` y `--vlm-workers` respetan `ocr_workers` y `vlm_workers` de
+`.pdfsum-config.json` (2 y 1 por defecto). El límite es por transcriptor/solicitud;
+varias solicitudes pueden multiplicar la concurrencia. El OCR reutiliza el TSV
+de Tesseract dentro de cada procesamiento. El aislamiento y la limpieza impiden
+reutilizar cachés entre solicitudes HTTP independientes.
+
+El Dockerfile incluye los idiomas `por+eng+spa` y el extra de servicio; no requiere
+cambios. El puerto publicado puede ser `30200:8766` manteniendo `--port 8766` y
+`--host 0.0.0.0`. Los argumentos de modelos separados del ejemplo son compatibles.
+No se necesita cambiar una composición externa que ya use esos argumentos;
+reconstruye la imagen con esta integración. No se modifica ningún Compose externo.

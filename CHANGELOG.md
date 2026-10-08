@@ -7,6 +7,16 @@ rama → PR → CI → merge; las versiones se marcan con tags `vX.Y.Z`
 
 ## [Unreleased] — Servicio API + worker (FASE20) y extracción de resúmenes de origen
 ### Añadido
+- Integración del pipeline actualizado en `processing-api`: modelos separados,
+  generación diferida de respaldo, OCR paralelo y reutilización de TSV.
+  Se conservan URL/folder, aislamiento, limpieza y protecciones HTTP.
+- Compatibilidad de `--model` en la API y configuración OCR/VLM compartida.
+  Extracción conserva `result.abstracts`; `run` devuelve el contrato textual
+  actualizado con `ai_extracted_abstract` y `ai_generated_abstract`.
+- OCR concurrente por página en PDFs escaneados y mixtos: `--ocr-workers`
+  (default 2) y límite independiente `--vlm-workers` (default 1), también
+  configurables en `.pdfsum-config.json`. Orden final estable, temporales
+  aislados y routing/reintentos sin cambios. Benchmark manual de 1/2/4 workers.
 - Comando `pdfsum extract-abstracts`: recupera resúmenes ya presentes en los
   PDFs, sin generar un resumen nuevo del artículo. Revisión extractiva con el
   backend/modelo configurado y validación contra la transcripción; rechaza

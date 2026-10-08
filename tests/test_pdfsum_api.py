@@ -324,6 +324,8 @@ class TestPDFSumAPI(unittest.TestCase):
                 expected = snapshots[command]
                 if command != "transcribe":
                     expected = json.loads(expected)
+                if command == "extract-abstracts":
+                    expected["abstracts"] = expected.pop("ai_extracted_abstract")
                 self.assertEqual(response.json()["result"], expected)
                 self.assertEqual(list(self.root.iterdir()), [other])
                 self.assertEqual(sentinel.read_text(), "conservar")
@@ -562,7 +564,9 @@ class TestPDFSumAPI(unittest.TestCase):
                 FakeSummarizer(),
                 command="extract-abstracts",
             )
-            snapshots.append(json.loads(ws.abstract_path(pdf.stem).read_text()))
+            artifact = json.loads(ws.abstract_path(pdf.stem).read_text())
+            artifact["abstracts"] = artifact.pop("ai_extracted_abstract")
+            snapshots.append(artifact)
             return result
 
         self.processor.side_effect = process
@@ -632,7 +636,14 @@ class TestPipelineReuse(unittest.TestCase):
                         self.assertEqual(transcribe.call_args.kwargs, {})
                     if command == "run":
                         self.assertEqual(
-                            set(run.call_args.kwargs), {"long_strategy", "format_error"}
+                            set(run.call_args.kwargs),
+                            {
+                                "long_strategy",
+                                "format_error",
+                                "abstract_llm",
+                                "abstract_refine_context_chars",
+                                "max_chars",
+                            },
                         )
 
     def test_optional_fastapi_dependency(self):
@@ -673,8 +684,11 @@ class TestPipelineReuse(unittest.TestCase):
                     FakeSummarizer(),
                     command="extract-abstracts",
                 )
-            self.assertEqual(result, json.loads(ws.abstract_path(pdf.stem).read_text()))
+            artifact = json.loads(ws.abstract_path(pdf.stem).read_text())
+            artifact["abstracts"] = artifact.pop("ai_extracted_abstract")
+            self.assertEqual(result, artifact)
             self.assertNotIn("secreto", "".join(captured.output))
+            self.assertNotIn("secreto", ws.report_path.read_text())
             self.assertNotIn(
                 "secreto", (ws.report_path.parent / "events.jsonl").read_text()
             )
@@ -688,7 +702,7 @@ class TestPipelineReuse(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as td,
             patch.object(cli, "_build_transcriber"),
-            patch.object(cli, "_build_summarizer") as llm,
+            patch("pdfsum.adapters.summarizer_factory.build_reviewer") as llm,
             patch(
                 "pdfsum.adapters.pdfsum_api.process_pdf", return_value="Texto"
             ) as process,
@@ -717,7 +731,7 @@ class TestPipelineReuse(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as td,
             patch.object(cli, "_build_transcriber") as transcriber,
-            patch.object(cli, "_build_summarizer") as llm,
+            patch("pdfsum.adapters.summarizer_factory.build_reviewer") as llm,
             patch("pdfsum.adapters.pdfsum_api.process_pdf", return_value={}) as process,
             patch("uvicorn.run") as serve,
         ):
@@ -765,7 +779,110 @@ class TestPipelineReuse(unittest.TestCase):
                     },
                 )
             self.assertEqual(response.status_code, 200)
-            transcriber.assert_called_once_with(False, "spa", vlm_model="vision")
-            llm.assert_called_once_with(False, "ollama", "modelo")
+            transcriber.assert_called_once_with(
+                False, "spa", vlm_model="vision", ocr_workers=None, vlm_workers=None
+            )
+            llm.assert_called_once_with("ollama", "modelo")
             self.assertEqual(process.call_args.kwargs["backend"], "ollama")
             self.assertFalse(serve.call_args.kwargs["access_log"])
+
+
+class TestUpdatedPipeline(unittest.TestCase):
+    def test_run_prioriza_extraccion_y_genera_solo_si_falta(self):
+        body = "Este estudio describe los resultados de una intervención comunitaria y evalúa sus beneficios para la salud pública."
+        for text, source in [("RESUMEN\n" + body, "extracted"), (body, "generated")]:
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as td:
+                pdf = Path(td) / "input" / "documento.pdf"
+                pdf.parent.mkdir()
+                pdf.write_bytes(b"%PDF-1.4\n%%EOF")
+                ws = Workspace(td)
+                generator = Mock()
+                generator.generate_abstract.return_value = body
+                reviewer = Mock()
+                reviewer.complete_json.side_effect = RuntimeError("token=secreto")
+                with self.assertLogs(
+                    "pdfsum.adapters.pdf_batch", level="WARNING"
+                ) as logs:
+                    result = pdfsum_api.process_pdf(
+                        pdf,
+                        ws,
+                        FakeTranscriber(text),
+                        reviewer,
+                        command="run",
+                        generator=generator,
+                    )
+                self.assertEqual(result["meta"]["abstract_source"], source)
+                self.assertEqual(
+                    generator.generate_abstract.call_count, int(source == "generated")
+                )
+                self.assertEqual(
+                    result, json.loads(ws.summary_path(pdf.stem).read_text())
+                )
+                self.assertNotIn("secreto", json.dumps(result) + "".join(logs.output))
+                for path in ws.root.rglob("*.json*"):
+                    self.assertNotIn("secreto", path.read_text())
+
+    @unittest.skipIf(TestClient is None, "Instala el extra opcional pdfsum[service]")
+    def test_modelos_separados_y_limites_por_solicitud(self):
+        with (
+            tempfile.TemporaryDirectory() as td,
+            patch.object(cli, "_build_transcriber") as transcriber,
+            patch("pdfsum.adapters.summarizer_factory.build_reviewer") as reviewer,
+            patch("pdfsum.adapters.summarizer_factory.LazyGenerator") as generator,
+            patch("pdfsum.adapters.pdfsum_api.process_pdf", return_value={}) as process,
+            patch("pdfsum.adapters.pdf_download.PDFDownloader.download"),
+            patch("uvicorn.run") as serve,
+        ):
+            args = cli.build_parser().parse_args(
+                [
+                    "processing-api",
+                    "--workspace",
+                    td,
+                    "--backend",
+                    "ollama",
+                    "--abstract-model",
+                    "qwen2.5:7b",
+                    "--summary-model",
+                    "qwen3:8b",
+                    "--vlm-model",
+                    "qwen3-vl:8b-instruct",
+                    "--ocr-workers",
+                    "4",
+                    "--vlm-workers",
+                    "2",
+                    "--max-chars",
+                    "12345",
+                ]
+            )
+            self.assertEqual(args.func(args), 0)
+            for command in ("extract-abstracts", "transcribe", "run"):
+                reviewer.reset_mock()
+                generator.reset_mock()
+                response = TestClient(serve.call_args.args[0]).post(
+                    "/api/pdfsum",
+                    json={
+                        "id": 1,
+                        "command": command,
+                        "url": "https://example.org/a.pdf",
+                    },
+                )
+                self.assertEqual(response.status_code, 200)
+                transcriber.assert_called_with(
+                    False,
+                    args.lang,
+                    vlm_model="qwen3-vl:8b-instruct",
+                    ocr_workers=4,
+                    vlm_workers=2,
+                )
+                if command == "transcribe":
+                    reviewer.assert_not_called()
+                else:
+                    reviewer.assert_called_once_with("ollama", "qwen2.5:7b")
+                if command == "run":
+                    generator.assert_called_once_with("ollama", "qwen3:8b")
+                    self.assertIs(
+                        process.call_args.kwargs["generator"], generator.return_value
+                    )
+                else:
+                    generator.assert_not_called()
+                self.assertEqual(process.call_args.kwargs["max_chars"], 12345)
