@@ -9,9 +9,17 @@ services:
       PDFSUM_SERVER_URL: ${PDFSUM_SERVER_URL}
       PDFSUM_INPUT_MODE: ${PDFSUM_INPUT_MODE:-url}
       PDFSUM_INPUT_FOLDER: ${PDFSUM_INPUT_FOLDER:-}
+      PDFSUM_SOURCE_DATABASE: ${PDFSUM_SOURCE_DATABASE:-FIs_02_converted}
+      PDFSUM_SOURCE_COLLECTION: ${PDFSUM_SOURCE_COLLECTION:-mis}
+      PDFSUM_JOBS_DATABASE: ${PDFSUM_JOBS_DATABASE:-Enrichment_IA}
+      PDFSUM_JOBS_COLLECTION: ${PDFSUM_JOBS_COLLECTION:-document_extraction_jobs}
+      PDFSUM_RESULTS_DATABASE: ${PDFSUM_RESULTS_DATABASE:-Enrichment_IA}
+      PDFSUM_RESULTS_COLLECTION: ${PDFSUM_RESULTS_COLLECTION:-document_abstracts}
+      PDFSUM_RESULT_ID_PREFIX: ${PDFSUM_RESULT_ID_PREFIX:-}
+      PDFSUM_RESULT_FORMAT: ${PDFSUM_RESULT_FORMAT:-bireme}
     command:
       - --command
-      - extract-abstracts
+      - run
       - --ids-file
       - /config/ids.txt
     volumes:

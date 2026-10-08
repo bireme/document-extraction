@@ -6,6 +6,6 @@ COPY worker_requirements.txt .
 
 RUN pip install --no-cache-dir -r worker_requirements.txt
 
-COPY pdfsum_worker.py .
+COPY pdfsum_worker.py result_mapper.py result_publication.py ./
 
 ENTRYPOINT ["python", "/app/pdfsum_worker.py"]

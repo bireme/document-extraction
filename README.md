@@ -360,7 +360,7 @@ El valor puede modificarse con:
 
 Si una ejecución se interrumpe mientras un job está en estado `processing`, el worker puede recuperarlo posteriormente.
 
-Por defecto, un job se considera abandonado después de 60 minutos.
+Por defecto, un job se considera abandonado tras 60 minutos sin renovar su reserva. Los jobs históricos sin reserva usan la fecha de inicio.
 
 Este valor puede modificarse con:
 
@@ -475,3 +475,143 @@ docker compose run --rm pdfsum-worker
 ```
 
 Para procesar un nuevo lote, actualice `ids.txt` y ejecute nuevamente el mismo comando.
+
+## Persistencia original y publicación BIREME
+
+El comando `run` guarda dos representaciones independientes:
+
+```text
+origen (solo lectura) → POST /api/pdfsum → jobs.result (original)
+                                             │
+                                             ▼
+                                      result_mapper.py
+                                             │
+                                             ▼
+                                 resultados BIREME (publicación)
+```
+
+`jobs.result` conserva íntegro el valor `result` del sobre HTTP, incluidos sus campos adicionales. El mapper no lo modifica. La publicación no depende del pipeline ni importa módulos de la API.
+
+### Bases y colecciones independientes
+
+| Variable | Valor de `.env.example` | Función |
+| --- | --- | --- |
+| `PDFSUM_SOURCE_DATABASE` | `FIs_02_converted` | Base de origen |
+| `PDFSUM_SOURCE_COLLECTION` | `mis` | Colección consultada, sin escrituras |
+| `PDFSUM_JOBS_DATABASE` | `Enrichment_IA` | Base de jobs y originales |
+| `PDFSUM_JOBS_COLLECTION` | `document_extraction_jobs` | Identidad única `id + command` |
+| `PDFSUM_RESULTS_DATABASE` | `Enrichment_IA` | Base de publicación |
+| `PDFSUM_RESULTS_COLLECTION` | `document_abstracts` | Índice único sobre `id` |
+| `PDFSUM_RESULT_ID_PREFIX` | `mis-` | Prefijo de publicación; nunca altera consultas ni jobs |
+| `PDFSUM_RESULT_FORMAT` | `bireme` | Único formato admitido actualmente |
+
+Todas se transmiten al contenedor y tienen opciones CLI equivalentes: por ejemplo, `--jobs-database` y `--result-id-prefix`. La CLI específica prevalece sobre su variable de entorno. `PDFSUM_MONGODB_URI` sigue disponible exclusivamente en el entorno, sin opción CLI. No guardar `.env` ni credenciales en Git.
+
+Compatibilidad: sin configuración nueva, origen y jobs permanecen en `FIs_02_converted`; `--database` continúa siendo la alternativa para ambos, subordinada a las opciones específicas de cada base. Los resultados usan por defecto `Enrichment_IA.document_abstracts`. El prefijo predeterminado sin configuración es vacío; `.env.example` define explícitamente `mis-`. Copiar el nuevo ejemplo cambia la base de jobs a `Enrichment_IA`: para recuperar jobs históricos configure su base anterior. El worker no migra ni copia jobs automáticamente. Antes de procesar un lote, compruebe que apunta a la colección operacional existente para evitar repetir procesamiento remoto.
+
+Se rechaza cualquier configuración que haga coincidir origen, jobs y publicación. Los índices únicos se verifican al iniciar; si ya hay duplicados, el inicio falla sin borrar documentos. Use un espacio de IDs/prefijos propio de cada origen y una colección de jobs por origen: la identidad operacional continúa siendo solamente `id + command`.
+
+### Ejemplos de documentos
+
+Original operacional, con campos adicionales de fechas, intentos y reserva omitidos:
+
+```json
+{
+  "id": 75798,
+  "command": "run",
+  "status": "completed",
+  "result": {
+    "contract_version": "2.0",
+    "idioma_principal": "pt",
+    "ai_extracted_abstract": [
+      {"lang": "pt", "header": "RESUMO", "text": "Resumo completo.", "keywords": ""}
+    ],
+    "ai_generated_abstract": null
+  },
+  "publication": {
+    "status": "published",
+    "attempts": 1
+  }
+}
+```
+
+Publicación correspondiente, con `meta.source_version` y `meta.revision` omitidos en este ejemplo:
+
+```json
+{
+  "id": "mis-75798",
+  "ab_extracted_ia_pt": "Resumo completo.",
+  "meta": {
+    "source_id": 75798,
+    "source_collection": "mis",
+    "source_command": "run",
+    "contract_version": "2.0",
+    "mapping_version": "1.0"
+  }
+}
+```
+
+Los resúmenes generados se publican en `ab_created_ia_<idioma>`; los extraídos en `ab_extracted_ia_<idioma>`. Los campos están en la raíz y conservan el texto completo, incluidos espacios y saltos de línea. Se omiten valores ausentes, nulos o compuestos exclusivamente por espacios. Un resultado sin resúmenes publica solamente `id` y `meta`, eliminando resúmenes anteriores mediante sustitución completa.
+
+El mapper requiere `contract_version = "2.0"`. Normaliza mayúsculas y espacios del código de idioma; admite `pt`, `es`, `en`, `fr`, `de`, `it` y sus equivalencias `por`, `spa`, `eng`, `fra`/`fre`, `deu`/`ger`, `ita`. Un idioma ausente o fuera de esta lista en un resumen no vacío impide publicar: no se inventa un idioma ni se descarta el texto silenciosamente. La lista explícita evita construir nombres de campos MongoDB a partir de datos arbitrarios.
+
+Para un resumen generado se usa `idioma_principal`. Este campo **no verifica el idioma real del texto generado por el modelo**. El worker no realiza detección de idioma.
+
+Varios resúmenes extraídos que normalicen al mismo idioma producen un error explícito de publicación, incluso si los textos coinciden. El original queda conservado. La función del mapper admite una política `duplicate_policy`, actualmente solo `error`, como punto de extensión; no hay concatenación ni selección automática.
+
+`extract-abstracts` conserva el contrato actual con resúmenes en `result.abstracts`, pero su publicación está desactivada. `transcribe` también conserva su original y nunca convierte transcripciones en resúmenes. Solo `run` escribe en la colección de publicación, evitando colisiones entre comandos del mismo ID.
+
+### Estados y recuperación de publicación
+
+`status=completed` significa que el procesamiento remoto y el guardado original terminaron. Para considerar entregado un `run`, compruebe además `publication.status`:
+
+| Estado | Significado |
+| --- | --- |
+| `pending` | Original guardado; publicación pendiente |
+| `publishing` | Intento reservado durante un máximo de cinco minutos |
+| `published` | Documento publicado y confirmado |
+| `failed` | Falló la transformación o escritura; original disponible |
+| `superseded` | Ya existe una versión más reciente; no se sobrescribe |
+| `disabled` | Publicación no aplicable al comando |
+
+El guardado del original y de `publication.pending` es una sola actualización del job. Las escrituras de jobs y publicación usan confirmación `majority`; no se requieren transacciones ni replica set para coordinar ambas colecciones. No hay atomicidad entre colecciones: la recuperación es explícita e idempotente.
+
+Los metadatos de publicación guardan destino, prefijo y origen, fecha de versión del procesamiento y revisión estable. Los reintentos requieren la misma configuración persistida, evitando redirigir silenciosamente un resultado. La versión se compara al sustituir el documento y el índice único protege carreras entre escritores. Una colisión entre revisiones distintas con la misma fecha se registra como fallo; nunca se sobrescribe arbitrariamente. Los relojes de los workers deben estar sincronizados. No elimine manualmente la versión de documentos publicados.
+
+Una caída después de guardar el original se recupera sin OCR ni Ollama. Una caída después de publicar pero antes de confirmar el job repite la misma sustitución. Un claim de publicación abandonado se recupera al vencer su reserva; uno vigente no se roba. Los reintentos de publicación tienen su contador separado y no consumen `--max-attempts`. Cada ejecución intenta una vez cada publicación seleccionada, sin bucles de reintento ilimitados.
+
+Repita el lote original para recuperar sus publicaciones, o recupere todas las pendientes/fallidas y los originales históricos `run` sin estado de publicación:
+
+```bash
+docker compose run --rm pdfsum-worker --retry-publications
+```
+
+Este modo no consulta el origen ni abre sesión HTTP, no requiere `PDFSUM_SERVER_URL` y no acepta selección de IDs. Usa el destino configurado; si cambió la configuración respecto al job, restáurela antes de reintentar. Los errores de datos requieren corregir su causa explícitamente; repetir el comando no descarta duplicados ni inventa idiomas. Los originales históricos sin `publication` adoptan la configuración vigente en su primer intento. Deben conservar `started_at` o `finished_at`; si faltan ambas fechas, la publicación falla explícitamente porque no puede ordenarse frente a versiones existentes.
+
+La salida del lote distingue `publication_failed`, `publication_pending` y `publication_publishing` de `completed`. Un lote con entregas pendientes o fallidas devuelve código 1; un fallo de configuración o infraestructura devuelve 2.
+
+Los jobs remotos renuevan su reserva cada 30 segundos como máximo durante la llamada HTTP. Solo se recuperan reservas vencidas, manteniendo compatibilidad con jobs antiguos que solo tienen `started_at`. Un token impide que un proceso que perdió su reserva guarde resultados. Una pérdida prolongada de conectividad o una caída después de obtener respuesta remota y antes de persistirla aún puede requerir repetir el procesamiento: la API síncrona no ofrece aquí una garantía de ejecución exactamente una vez.
+
+Se comprueba el tamaño BSON antes de guardar, dejando 64 KiB de margen sobre el límite de 16 MiB. Un original que exceda ese límite se registra como fallo de persistencia; no se trunca ni se publica una copia parcial. No se implementa GridFS. Los errores de publicación no registran URLs ni documentos completos.
+
+### Ejecución y verificación
+
+```bash
+cp .env.example .env
+# Configure el entorno y prepare ids.txt antes de ejecutar.
+docker compose build
+docker compose run --rm pdfsum-worker --command run --ids-file /config/ids.txt
+docker compose run --rm pdfsum-worker --retry-publications
+```
+
+Compose mantiene `extract-abstracts` como comando predeterminado por compatibilidad; para generar publicaciones use explícitamente `--command run`. La imagen incorpora `result_mapper.py` y `result_publication.py`. No se modifica ningún Compose del servidor de procesamiento.
+
+Pruebas locales (MongoDB y HTTP simulados, sin acceso a producción):
+
+```bash
+python -m venv .venv
+.venv/bin/python -m pip install -r worker_test_requirements.txt
+.venv/bin/python -m pytest tests/worker -q
+.venv/bin/python -m ruff check pdfsum_worker.py result_mapper.py result_publication.py tests/worker
+.venv/bin/python -m compileall -q pdfsum_worker.py result_mapper.py result_publication.py
+```

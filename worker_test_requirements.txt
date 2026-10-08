@@ -1,0 +1,4 @@
+-r worker_requirements.txt
+pytest>=8,<10
+mongomock>=4.3,<5
+ruff>=0.11,<1
